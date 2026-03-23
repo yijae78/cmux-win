@@ -1,0 +1,9 @@
+appId: com.cmux-win.app
+productName: cmux-win
+win:
+  target: nsis
+  sign: false
+publish:
+  provider: github
+  owner: manaflow-ai
+  repo: cmux-win

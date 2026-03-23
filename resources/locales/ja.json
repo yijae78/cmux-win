@@ -1,0 +1,64 @@
+{
+  "sidebar": {
+    "workspaces": "ワークスペース",
+    "newWorkspace": "新規ワークスペース",
+    "closeWorkspace": "ワークスペースを閉じる",
+    "renameWorkspace": "ワークスペース名の変更",
+    "addAgent": "エージェント追加",
+    "workspaceNamePrompt": "ワークスペース名:"
+  },
+  "panel": {
+    "terminal": "ターミナル",
+    "browser": "ブラウザ",
+    "markdown": "マークダウン",
+    "splitRight": "右に分割",
+    "splitDown": "下に分割",
+    "closePanel": "パネルを閉じる",
+    "toggleZoom": "ズーム切替"
+  },
+  "settings": {
+    "title": "設定",
+    "appearance": "外観",
+    "terminal": "ターミナル",
+    "browser": "ブラウザ",
+    "agents": "エージェント",
+    "shortcuts": "ショートカット",
+    "updates": "アップデート",
+    "accessibility": "アクセシビリティ",
+    "theme": "テーマ",
+    "language": "言語",
+    "defaultShell": "デフォルトシェル",
+    "fontSize": "フォントサイズ",
+    "fontFamily": "フォント",
+    "searchEngine": "検索エンジン",
+    "claudeHooks": "Claudeフック",
+    "autoCheck": "自動チェック",
+    "channel": "チャンネル",
+    "screenReader": "スクリーンリーダーモード",
+    "reducedMotion": "モーション軽減",
+    "shortcutsComingSoon": "ショートカットのカスタマイズは近日公開予定です。"
+  },
+  "commandPalette": {
+    "placeholder": "コマンドを入力..."
+  },
+  "notifications": {
+    "claudeFinished": "Claude完了",
+    "claudeNeedsInput": "Claude入力待ち",
+    "pageCrashed": "このページがクラッシュしました。",
+    "retry": "再試行"
+  },
+  "status": {
+    "running": "実行中",
+    "idle": "待機",
+    "needsInput": "入力待ち",
+    "loading": "読み込み中...",
+    "noWorkspace": "ワークスペースが選択されていません"
+  },
+  "common": {
+    "close": "閉じる",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "ok": "OK",
+    "find": "検索"
+  }
+}

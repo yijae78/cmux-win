@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cmux-win UI Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=SF+Pro+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   cmux-win UI Prototype — faithful to cmux macOS design
+   ============================================================ */
+
+:root {
+  /* cmux accent */
+  --accent: #0091FF;
+  --accent-dim: rgba(0, 145, 255, 0.2);
+  --accent-hover: #007ae6;
+
+  /* backgrounds */
+  --bg-titlebar: #2b2b2b;
+  --bg-sidebar: #1e1e1e;
+  --bg-sidebar-hover: #2a2d2e;
+  --bg-sidebar-selected: #37373d;
+  --bg-content: #272822;
+  --bg-panel: #272822;
+  --bg-tabbar: #252526;
+  --bg-input: #3c3c3c;
+  --bg-divider: #1a1a1a;
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* foregrounds */
+  --fg-primary: #fdfff1;
+  --fg-secondary: #c0c1b5;
+  --fg-muted: #8d8e82;
+  --fg-dim: #57584f;
+  --fg-sidebar: #cccccc;
+  --fg-sidebar-active: #ffffff;
+
+  /* borders */
+  --border: #3c3c3c;
+  --border-focus: #0091FF;
+
+  /* status */
+  --status-running: #4C8DFF;
+  --status-idle: #8E8E93;
+  --status-input: #FF9F0A;
+  --status-error: #FF453A;
+  --status-success: #30D158;
+
+  /* workspace colors (cmux palette) */
+  --ws-red: #C0392B;
+  --ws-blue: #1565C0;
+  --ws-green: #196F3D;
+  --ws-purple: #6A1B9A;
+  --ws-teal: #006B6B;
+  --ws-orange: #A04000;
+
+  /* sizing */
+  --sidebar-width: 200px;
+  --titlebar-height: 38px;
+  --tabbar-height: 28px;
+  --divider-width: 1px;
+  --notification-dot: 8px;
+
+  /* fonts */
+  --font-ui: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+
+  /* transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-content);
+  color: var(--fg-primary);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   Title Bar (Windows custom)
+   ============================================================ */
+
+.titlebar {
+  height: var(--titlebar-height);
+  background: var(--bg-titlebar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  -webkit-app-region: drag;
+  user-select: none;
+  border-bottom: 1px solid #222;
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titlebar-icon {
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.titlebar-title {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--fg-secondary);
+  letter-spacing: -0.2px;
+}
+
+.titlebar-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 46px;
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.titlebar-btn:hover { background: rgba(255,255,255,0.08); }
+.titlebar-btn.close:hover { background: #e81123; color: #fff; }
+
+/* ============================================================
+   Main Layout
+   ============================================================ */
+
+.app-layout {
+  display: flex;
+  height: calc(100vh - var(--titlebar-height));
+}
+
+/* ============================================================
+   Sidebar
+   ============================================================ */
+
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 12px 14px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.sidebar-header-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 16px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-header-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--fg-sidebar);
+}
+
+/* Workspace List */
+
+.workspace-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.workspace-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 14px;
+  cursor: pointer;
+  position: relative;
+  transition: background var(--transition-fast);
+  gap: 8px;
+}
+
+.workspace-item:hover {
+  background: var(--bg-sidebar-hover);
+}
+
+.workspace-item.active {
+  background: var(--accent);
+}
+
+.workspace-item.active .workspace-name,
+.workspace-item.active .workspace-agent-badge,
+.workspace-item.active .workspace-meta {
+  color: var(--fg-sidebar-active);
+}
+
+.workspace-color-bar {
+  width: 3px;
+  height: 24px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.workspace-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.workspace-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--fg-sidebar);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--fg-muted);
+}
+
+.workspace-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+  color: var(--status-running);
+  font-weight: 500;
+}
+
+.workspace-agent-badge.idle { color: var(--status-idle); }
+.workspace-agent-badge.needs-input { color: var(--status-input); }
+
+.workspace-notification-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 8px;
+  line-height: 14px;
+}
+
+/* Sidebar Footer */
+
+.sidebar-footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-add-agent {
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  color: var(--fg-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-add-agent:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ============================================================
+   Content Area
+   ============================================================ */
+
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ============================================================
+   Panel Tab Bar
+   ============================================================ */
+
+.panel-tabbar {
+  height: var(--tabbar-height);
+  background: var(--bg-tabbar);
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  font-size: var(--font-size-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.panel-tab:hover {
+  color: var(--fg-secondary);
+  background: rgba(255,255,255,0.04);
+}
+
+.panel-tab.active {
+  color: var(--fg-primary);
+  background: var(--bg-panel);
+}
+
+.panel-tab-icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.panel-tab-close {
+  opacity: 0;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  transition: opacity var(--transition-fast);
+}
+
+.panel-tab:hover .panel-tab-close { opacity: 0.5; }
+.panel-tab-close:hover { opacity: 1 !important; background: rgba(255,255,255,0.1); }
+
+.panel-tab-add {
+  padding: 0 10px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  color: var(--fg-dim);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.panel-tab-add:hover { color: var(--fg-secondary); }
+
+/* ============================================================
+   Split Panels
+   ============================================================ */
+
+.split-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.split-container.vertical {
+  flex-direction: column;
+}
+
+.panel {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel.focused {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.panel-divider {
+  flex-shrink: 0;
+  background: var(--bg-divider);
+  transition: background var(--transition-fast);
+}
+
+.split-container:not(.vertical) > .panel-divider {
+  width: var(--divider-width);
+  cursor: col-resize;
+}
+
+.split-container.vertical > .panel-divider {
+  height: var(--divider-width);
+  cursor: row-resize;
+}
+
+.panel-divider:hover {
+  background: var(--accent);
+}
+
+/* ============================================================
+   Terminal
+   ============================================================ */
+
+.terminal-surface {
+  flex: 1;
+  background: var(--bg-panel);
+  padding: 4px 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-primary);
+  overflow: hidden;
+}
+
+.terminal-line {
+  white-space: pre;
+}
+
+.term-prompt {
+  color: #a6e22e;
+}
+
+.term-path {
+  color: #66d9ef;
+}
+
+.term-cmd {
+  color: var(--fg-primary);
+}
+
+.term-output {
+  color: var(--fg-secondary);
+}
+
+.term-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  background: var(--fg-secondary);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.term-agent-status {
+  color: var(--status-running);
+  font-weight: 500;
+}
+
+.term-error { color: #f92672; }
+.term-string { color: #e6db74; }
+.term-keyword { color: #66d9ef; }
+.term-comment { color: #75715e; }
+.term-number { color: #ae81ff; }
+
+/* ============================================================
+   Browser Panel
+   ============================================================ */
+
+.browser-navbar {
+  height: 34px;
+  background: var(--bg-tabbar);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.browser-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  font-size: 14px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.browser-nav-btn:hover { background: rgba(255,255,255,0.08); color: var(--fg-secondary); }
+.browser-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+.browser-urlbar {
+  flex: 1;
+  height: 24px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: var(--font-size-sm);
+  color: var(--fg-secondary);
+  font-family: var(--font-ui);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.browser-urlbar:focus {
+  border-color: var(--accent);
+  color: var(--fg-primary);
+}
+
+.browser-content {
+  flex: 1;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.browser-page-mock {
+  text-align: center;
+  color: #333;
+  font-family: var(--font-ui);
+}
+
+.browser-page-mock h1 {
+  font-size: 24px;
+  font-weight: 300;
+  color: #444;
+  margin-bottom: 12px;
+}
+
+.browser-page-mock .search-box {
+  width: 400px;
+  height: 40px;
+  border: 1px solid #ddd;
+  border-radius: 24px;
+  padding: 0 16px;
+  font-size: 14px;
+  outline: none;
+}
+
+/* ============================================================
+   Command Palette
+   ============================================================ */
+
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  justify-content: center;
+  padding-top: 18vh;
+  z-index: 1000;
+  animation: fadeIn 100ms ease;
+}
+
+.command-palette {
+  width: 520px;
+  max-height: 380px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+  animation: slideDown 120ms ease;
+}
+
+.command-palette-input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: var(--font-size-lg);
+  background: #1a1a1a;
+  color: var(--fg-primary);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  font-family: var(--font-ui);
+}
+
+.command-palette-input::placeholder {
+  color: var(--fg-dim);
+}
+
+.command-list {
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.command-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 16px;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  color: var(--fg-sidebar);
+  transition: background var(--transition-fast);
+}
+
+.command-item:hover,
+.command-item.selected {
+  background: var(--bg-sidebar-selected);
+  color: var(--fg-sidebar-active);
+}
+
+.command-item-shortcut {
+  font-size: var(--font-size-xs);
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  background: rgba(255,255,255,0.06);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* ============================================================
+   Status Bar
+   ============================================================ */
+
+.statusbar {
+  height: 24px;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: var(--font-size-xs);
+  color: #fff;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.statusbar-left,
+.statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.statusbar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.9;
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+</style>
+</head>
+<body>
+
+<!-- Title Bar -->
+<div class="titlebar">
+  <div class="titlebar-left">
+    <div class="titlebar-icon">C</div>
+    <span class="titlebar-title">cmux-win</span>
+  </div>
+  <div class="titlebar-controls">
+    <button class="titlebar-btn">&#x2014;</button>
+    <button class="titlebar-btn">&#x25A1;</button>
+    <button class="titlebar-btn close">&#x2715;</button>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="app-layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-header-label">Workspaces</span>
+      <button class="sidebar-header-btn" title="New Workspace">+</button>
+    </div>
+
+    <div class="workspace-list">
+      <!-- Active workspace -->
+      <div class="workspace-item active">
+        <div class="workspace-color-bar" style="background: var(--ws-blue)"></div>
+        <div class="workspace-content">
+          <div class="workspace-name">cmux-win</div>
+          <div class="workspace-meta">
+            <span class="workspace-agent-badge">&#9889; Running</span>
+            <span style="color: var(--fg-dim)">claude</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Other workspaces -->
+      <div class="workspace-item">
+        <div class="workspace-color-bar" style="background: var(--ws-green)"></div>
+        <div class="workspace-content">
+          <div class="workspace-name">api-server</div>
+          <div class="workspace-meta">
+            <span class="workspace-agent-badge idle">&#9208; Idle</span>
+            <span style="color: var(--fg-dim)">codex</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="workspace-item">
+        <div class="workspace-color-bar" style="background: var(--ws-purple)"></div>
+        <div class="workspace-content">
+          <div class="workspace-name">frontend</div>
+          <div class="workspace-meta">
+            <span class="workspace-agent-badge needs-input">&#128276; Input</span>
+          </div>
+        </div>
+        <span class="workspace-notification-badge">2</span>
+      </div>
+
+      <div class="workspace-item">
+        <div class="workspace-color-bar" style="background: var(--ws-teal)"></div>
+        <div class="workspace-content">
+          <div class="workspace-name">SSH: prod-server</div>
+        </div>
+      </div>
+
+      <div class="workspace-item">
+        <div class="workspace-color-bar" style="background: var(--ws-orange)"></div>
+        <div class="workspace-content">
+          <div class="workspace-name">docs</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="sidebar-add-agent">+ Add Agent</button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content-area">
+
+    <!-- Split: Terminal (left 60%) + Browser (right 40%) -->
+    <div class="split-container" style="flex: 1;">
+
+      <!-- Left Panel: Terminal with tabs -->
+      <div class="panel focused" style="flex: 6;">
+        <div class="panel-tabbar">
+          <div class="panel-tab active">
+            <span class="panel-tab-icon">&#9618;</span>
+            <span>Terminal</span>
+            <span class="panel-tab-close">&#x2715;</span>
+          </div>
+          <div class="panel-tab">
+            <span class="panel-tab-icon">&#9618;</span>
+            <span>claude agent</span>
+            <span class="panel-tab-close">&#x2715;</span>
+          </div>
+          <div class="panel-tab-add">+</div>
+        </div>
+        <div class="terminal-surface">
+          <div class="terminal-line"><span class="term-prompt">yijae@DESKTOP</span> <span class="term-path">~/cmux-win</span> <span class="term-cmd">git log --oneline -5</span></div>
+          <div class="terminal-line"><span class="term-output">bcd97a5 feat: apply i18n t() to all UI strings</span></div>
+          <div class="terminal-line"><span class="term-output">4c18435 fix: theme live switching</span></div>
+          <div class="terminal-line"><span class="term-output">c19311a feat: standalone mode</span></div>
+          <div class="terminal-line"><span class="term-output">7ee7493 feat: auto-update</span></div>
+          <div class="terminal-line"><span class="term-output">449de4a fix: tray icon fallback</span></div>
+          <div class="terminal-line"></div>
+          <div class="terminal-line"><span class="term-prompt">yijae@DESKTOP</span> <span class="term-path">~/cmux-win</span> <span class="term-cmd">npx vitest run</span></div>
+          <div class="terminal-line"></div>
+          <div class="terminal-line"><span class="term-output"> Test Files  </span><span style="color: #30D158; font-weight: 600;">41 passed</span><span class="term-output">  (41)</span></div>
+          <div class="terminal-line"><span class="term-output">      Tests  </span><span style="color: #30D158; font-weight: 600;">347 passed</span><span class="term-output">  (347)</span></div>
+          <div class="terminal-line"><span class="term-output">   Duration  4.88s</span></div>
+          <div class="terminal-line"></div>
+          <div class="terminal-line"><span class="term-prompt">yijae@DESKTOP</span> <span class="term-path">~/cmux-win</span> <span class="term-cursor"></span></div>
+        </div>
+      </div>
+
+      <div class="panel-divider"></div>
+
+      <!-- Right Panel: Vertical split (Browser top + Terminal bottom) -->
+      <div class="panel" style="flex: 4;">
+        <div class="split-container vertical" style="height: 100%;">
+
+          <!-- Top: Browser -->
+          <div class="panel" style="flex: 6;">
+            <div class="browser-navbar">
+              <button class="browser-nav-btn" disabled>&larr;</button>
+              <button class="browser-nav-btn" disabled>&rarr;</button>
+              <button class="browser-nav-btn">&#x21BB;</button>
+              <input class="browser-urlbar" value="https://github.com/yijae78/cmux-win" readonly>
+              <button class="browser-nav-btn">&#9776;</button>
+            </div>
+            <div class="browser-content">
+              <div class="browser-page-mock">
+                <h1>yijae78/cmux-win</h1>
+                <p style="color: #666; font-size: 14px;">AI Agent Orchestration Terminal for Windows</p>
+                <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: center;">
+                  <span style="background: #30D158; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 12px;">347 tests passing</span>
+                  <span style="background: #0091FF; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 12px;">60 commits</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-divider"></div>
+
+          <!-- Bottom: Agent terminal -->
+          <div class="panel" style="flex: 4;">
+            <div class="terminal-surface" style="font-size: 12px;">
+              <div class="terminal-line"><span class="term-agent-status">&#9889; Claude Code is running...</span></div>
+              <div class="terminal-line"></div>
+              <div class="terminal-line"><span class="term-comment">// Implementing browser automation IPC bridge</span></div>
+              <div class="terminal-line"><span class="term-keyword">import</span> { <span class="term-cmd">BrowserWindow</span> } <span class="term-keyword">from</span> <span class="term-string">'electron'</span>;</div>
+              <div class="terminal-line"><span class="term-keyword">import</span> { <span class="term-cmd">IPC_CHANNELS</span> } <span class="term-keyword">from</span> <span class="term-string">'../shared/ipc-channels'</span>;</div>
+              <div class="terminal-line"></div>
+              <div class="terminal-line"><span class="term-keyword">async function</span> <span class="term-cmd">executeOnWebview</span>(</div>
+              <div class="terminal-line">  surfaceId: <span class="term-keyword">string</span>,</div>
+              <div class="terminal-line">  code: <span class="term-keyword">string</span>,</div>
+              <div class="terminal-line">): <span class="term-keyword">Promise</span>&lt;<span class="term-keyword">unknown</span>&gt; {</div>
+              <div class="terminal-line">  <span class="term-keyword">const</span> requestId = crypto.<span class="term-cmd">randomUUID</span>();</div>
+              <div class="terminal-line">  <span class="term-comment">// broadcast to all windows...</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="statusbar-item">&#9889; 1 agent running</span>
+        <span class="statusbar-item">main &#x2022; 60 commits</span>
+      </div>
+      <div class="statusbar-right">
+        <span class="statusbar-item">PowerShell</span>
+        <span class="statusbar-item">TCP :19840</span>
+        <span class="statusbar-item">UTF-8</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Command Palette (toggle with Ctrl+Shift+P) -->
+<div class="command-palette-overlay" id="palette" style="display: none;">
+  <div class="command-palette">
+    <input class="command-palette-input" placeholder="> Type a command..." autofocus>
+    <div class="command-list">
+      <div class="command-item selected">
+        <span>Split Right</span>
+        <span class="command-item-shortcut">Ctrl+D</span>
+      </div>
+      <div class="command-item">
+        <span>Split Down</span>
+        <span class="command-item-shortcut">Ctrl+Shift+D</span>
+      </div>
+      <div class="command-item">
+        <span>New Workspace</span>
+        <span class="command-item-shortcut">Ctrl+N</span>
+      </div>
+      <div class="command-item">
+        <span>Close Workspace</span>
+        <span class="command-item-shortcut">Ctrl+Shift+W</span>
+      </div>
+      <div class="command-item">
+        <span>Toggle Sidebar</span>
+        <span class="command-item-shortcut">Ctrl+B</span>
+      </div>
+      <div class="command-item">
+        <span>Open Settings</span>
+        <span class="command-item-shortcut">Ctrl+,</span>
+      </div>
+      <div class="command-item">
+        <span>Add Claude Agent</span>
+      </div>
+      <div class="command-item">
+        <span>Toggle Zoom</span>
+        <span class="command-item-shortcut">Ctrl+Shift+Enter</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Toggle command palette with Ctrl+Shift+P
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+    e.preventDefault();
+    const palette = document.getElementById('palette');
+    palette.style.display = palette.style.display === 'none' ? 'flex' : 'none';
+    if (palette.style.display === 'flex') {
+      palette.querySelector('input').focus();
+    }
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('palette').style.display = 'none';
+  }
+});
+
+// Close palette on overlay click
+document.getElementById('palette').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    e.currentTarget.style.display = 'none';
+  }
+});
+
+// Keyboard navigation in command list
+const commandItems = document.querySelectorAll('.command-item');
+let selectedIdx = 0;
+document.querySelector('.command-palette-input').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    commandItems[selectedIdx].classList.remove('selected');
+    selectedIdx = Math.min(selectedIdx + 1, commandItems.length - 1);
+    commandItems[selectedIdx].classList.add('selected');
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    commandItems[selectedIdx].classList.remove('selected');
+    selectedIdx = Math.max(selectedIdx - 1, 0);
+    commandItems[selectedIdx].classList.add('selected');
+  }
+});
+</script>
+
+</body>
+</html>

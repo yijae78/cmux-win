@@ -1,0 +1,64 @@
+{
+  "sidebar": {
+    "workspaces": "Workspaces",
+    "newWorkspace": "New Workspace",
+    "closeWorkspace": "Close Workspace",
+    "renameWorkspace": "Rename Workspace",
+    "addAgent": "Add Agent",
+    "workspaceNamePrompt": "Workspace name:"
+  },
+  "panel": {
+    "terminal": "Terminal",
+    "browser": "Browser",
+    "markdown": "Markdown",
+    "splitRight": "Split Right",
+    "splitDown": "Split Down",
+    "closePanel": "Close Panel",
+    "toggleZoom": "Toggle Zoom"
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "terminal": "Terminal",
+    "browser": "Browser",
+    "agents": "Agents",
+    "shortcuts": "Shortcuts",
+    "updates": "Updates",
+    "accessibility": "Accessibility",
+    "theme": "Theme",
+    "language": "Language",
+    "defaultShell": "Default Shell",
+    "fontSize": "Font Size",
+    "fontFamily": "Font Family",
+    "searchEngine": "Search Engine",
+    "claudeHooks": "Claude Hooks",
+    "autoCheck": "Auto Check",
+    "channel": "Channel",
+    "screenReader": "Screen Reader Mode",
+    "reducedMotion": "Reduced Motion",
+    "shortcutsComingSoon": "Shortcut customization coming soon."
+  },
+  "commandPalette": {
+    "placeholder": "Type a command..."
+  },
+  "notifications": {
+    "claudeFinished": "Claude finished",
+    "claudeNeedsInput": "Claude needs input",
+    "pageCrashed": "This page has crashed.",
+    "retry": "Retry"
+  },
+  "status": {
+    "running": "Running",
+    "idle": "Idle",
+    "needsInput": "Needs input",
+    "loading": "Loading...",
+    "noWorkspace": "No workspace selected"
+  },
+  "common": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "save": "Save",
+    "ok": "OK",
+    "find": "Find"
+  }
+}

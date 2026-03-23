@@ -1,0 +1,64 @@
+{
+  "sidebar": {
+    "workspaces": "워크스페이스",
+    "newWorkspace": "새 워크스페이스",
+    "closeWorkspace": "워크스페이스 닫기",
+    "renameWorkspace": "워크스페이스 이름 변경",
+    "addAgent": "에이전트 추가",
+    "workspaceNamePrompt": "워크스페이스 이름:"
+  },
+  "panel": {
+    "terminal": "터미널",
+    "browser": "브라우저",
+    "markdown": "마크다운",
+    "splitRight": "오른쪽 분할",
+    "splitDown": "아래 분할",
+    "closePanel": "패널 닫기",
+    "toggleZoom": "확대/축소 전환"
+  },
+  "settings": {
+    "title": "설정",
+    "appearance": "외형",
+    "terminal": "터미널",
+    "browser": "브라우저",
+    "agents": "에이전트",
+    "shortcuts": "단축키",
+    "updates": "업데이트",
+    "accessibility": "접근성",
+    "theme": "테마",
+    "language": "언어",
+    "defaultShell": "기본 셸",
+    "fontSize": "글꼴 크기",
+    "fontFamily": "글꼴",
+    "searchEngine": "검색 엔진",
+    "claudeHooks": "Claude 훅",
+    "autoCheck": "자동 확인",
+    "channel": "채널",
+    "screenReader": "스크린 리더 모드",
+    "reducedMotion": "모션 감소",
+    "shortcutsComingSoon": "단축키 커스터마이징이 곧 제공될 예정입니다."
+  },
+  "commandPalette": {
+    "placeholder": "명령어 입력..."
+  },
+  "notifications": {
+    "claudeFinished": "Claude 완료",
+    "claudeNeedsInput": "Claude 입력 필요",
+    "pageCrashed": "이 페이지가 충돌했습니다.",
+    "retry": "재시도"
+  },
+  "status": {
+    "running": "실행 중",
+    "idle": "대기",
+    "needsInput": "입력 필요",
+    "loading": "로딩 중...",
+    "noWorkspace": "선택된 워크스페이스가 없습니다"
+  },
+  "common": {
+    "close": "닫기",
+    "cancel": "취소",
+    "save": "저장",
+    "ok": "확인",
+    "find": "찾기"
+  }
+}
