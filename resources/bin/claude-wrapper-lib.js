@@ -54,36 +54,24 @@ function shouldBypass(args) {
  * OneDrive 한글 경로의 Unicode NFC/NFD 불일치를 완전히 회피.
  */
 function findRealClaude(myDir, execSyncFn) {
-  const candidates = [];
-
-  // 1. where claude (PATH 검색)
-  try {
-    const result = execSyncFn('where claude 2>nul', { encoding: 'utf8' })
-      .trim().split(/\r?\n/);
-    candidates.push(...result.map(s => s.trim()).filter(Boolean));
-  } catch { /* where failed */ }
-
-  // 2. 직접 경로 탐색 (where 실패 또는 PATH 미등록 대비)
+  // Direct path search ONLY — 'where' command breaks Korean paths (CP949 vs UTF-8)
   const homedir = os.homedir();
   const appData = process.env.APPDATA || path.join(homedir, 'AppData', 'Roaming');
   const localAppData = process.env.LOCALAPPDATA || path.join(homedir, 'AppData', 'Local');
 
-  const directPaths = [
+  const candidates = [
     path.join(homedir, '.local', 'bin', 'claude.exe'),
     path.join(appData, 'npm', 'claude.cmd'),
     path.join(homedir, 'scoop', 'shims', 'claude.cmd'),
     path.join(localAppData, 'Programs', 'claude', 'claude.exe'),
+    path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'Anthropic.Claude', 'claude.exe'),
   ];
-  for (const p of directPaths) {
-    if (fs.existsSync(p) && !candidates.includes(p)) candidates.push(p);
-  }
 
-  // 3. 자기 자신 제외 — claude-wrapper.js 마커 파일로 래퍼 디렉토리 식별
   for (const p of candidates) {
-    if (!p) continue;
+    if (!fs.existsSync(p)) continue;
+    // Skip our own wrapper directory
     const dir = path.dirname(p);
-    const wrapperMarker = path.join(dir, 'claude-wrapper.js');
-    if (fs.existsSync(wrapperMarker)) continue; // 래퍼 디렉토리 → 건너뜀
+    if (fs.existsSync(path.join(dir, 'claude-wrapper.js'))) continue;
     return p;
   }
   return null;

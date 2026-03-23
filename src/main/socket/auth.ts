@@ -83,7 +83,10 @@ export class SocketAuth {
     }
     try {
       const parsed = JSON.parse(firstMessage || '') as Record<string, unknown>;
-      if (parsed.token === this.token) {
+      // Token can be at top level {"token":"xxx"} or in params {"params":{"token":"xxx"}}
+      const params = parsed.params as Record<string, unknown> | undefined;
+      const extractedToken = parsed.token ?? params?.token;
+      if (extractedToken === this.token) {
         this.authenticatedSockets.add(socketId);
         return { allowed: true };
       }

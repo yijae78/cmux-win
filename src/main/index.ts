@@ -18,6 +18,18 @@
  * BUG-12: SideEffectsMiddleware with callback that calls store.emit('side-effect', effect).
  */
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
+
+// Catch uncaught exceptions from node-pty ConPTY (AttachConsole failed, etc.)
+// to prevent the entire app from crashing when a terminal is closed.
+process.on('uncaughtException', (err) => {
+  if (err.message?.includes('AttachConsole')) {
+    console.warn('[cmux-win] ConPTY AttachConsole error (ignored):', err.message);
+    return; // swallow — not fatal
+  }
+  console.error('[cmux-win] Uncaught exception:', err);
+  // Re-throw non-ConPTY errors so they still crash as expected
+  throw err;
+});
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -341,6 +353,10 @@ app.whenReady().then(async () => {
     process.env.CMUX_SOCKET_PORT = String(actualPort);
     process.env.CMUX_BIN_DIR = path.join(__dirname, '../../resources/bin');
     console.warn(`[cmux-win] Socket API listening on port ${actualPort}`);
+
+    // Write token to file so external tools (CLI, debug) can authenticate
+    const tokenPath = path.join(app.getPath('userData'), 'socket-token');
+    fs.writeFileSync(tokenPath, `${process.env.CMUX_SOCKET_TOKEN}\n${actualPort}`);
   } catch (err) {
     console.error('[cmux-win] Failed to start socket server:', err);
   }

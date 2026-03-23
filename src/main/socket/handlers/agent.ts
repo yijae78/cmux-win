@@ -6,6 +6,10 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     const p = params as { agentType: string; workspaceId: string; task?: string };
     if (!p?.agentType) throw new Error('agentType is required');
     if (!p?.workspaceId) throw new Error('workspaceId is required');
+
+    // Snapshot panel count before spawn to identify newly created panel
+    const panelsBefore = store.getState().panels.length;
+
     const result = store.dispatch({
       type: 'agent.spawn',
       payload: {
@@ -15,7 +19,16 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
       },
     });
     if (!result.ok) throw new Error(result.error ?? 'Failed to spawn agent');
-    return { ok: true };
+
+    // GAP-3: return the new panel's paneIndex and surfaceId
+    const newPanels = store.getState().panels.slice(panelsBefore);
+    const newPanel = newPanels[0];
+    return {
+      ok: true,
+      paneIndex: newPanel?.paneIndex,
+      panelId: newPanel?.id,
+      surfaceId: newPanel?.activeSurfaceId,
+    };
   });
 
   router.register('agent.session_start', (params) => {

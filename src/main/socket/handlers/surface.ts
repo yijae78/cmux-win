@@ -1,6 +1,13 @@
 import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
 
+// BUG-D: strip ANSI/CSI escape sequences from raw PTY output for clean text
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
+function stripAnsiEscapes(s: string): string {
+  return s.replace(ANSI_RE, '');
+}
+
 export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateStore): void {
   router.register('surface.list', () => {
     return { surfaces: store.getState().surfaces };
@@ -62,14 +69,22 @@ export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateSt
   });
 
   // R6: surface.read — read scrollback content (used by tmux capture-pane)
+  // BUG-D fix: prefer live PTY buffer (real-time) over scrollbackStore (30s stale).
   router.register('surface.read', (params) => {
     const p = params as { surfaceId: string; lines?: number };
     if (!p?.surfaceId) throw new Error('surfaceId is required');
-    // Read from scrollbackStore if available (populated by scrollback persistence)
-    const scrollbackStore = (globalThis as Record<string, unknown>).__cmuxScrollbackStore as
-      | Map<string, string>
-      | undefined;
-    const content = scrollbackStore?.get(p.surfaceId) ?? '';
+
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+    const scrollbackStore = g.__cmuxScrollbackStore as Map<string, string> | undefined;
+
+    // Live buffer has real-time raw PTY output; scrollbackStore is renderer-processed
+    // (clean text, no ANSI escapes). Prefer live buffer for freshness.
+    const liveRaw = liveBuffers?.get(p.surfaceId);
+    const content = liveRaw
+      ? stripAnsiEscapes(liveRaw)
+      : (scrollbackStore?.get(p.surfaceId) ?? '');
+
     if (p.lines && p.lines > 0) {
       const allLines = content.split('\n');
       return { content: allLines.slice(-p.lines).join('\n') };

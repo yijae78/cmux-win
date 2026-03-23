@@ -24,15 +24,18 @@ export async function rpcCall(method: string, params?: unknown, addr?: string): 
     let buffer = '';
     client.on('data', (chunk) => {
       buffer += chunk.toString();
-      if (buffer.includes('\n')) {
-        client.end();
+      // Wait for the RPC response (id=1), not the auth ack (id=0)
+      const lines = buffer.split('\n').filter(Boolean);
+      for (const line of lines) {
         try {
-          const response = JSON.parse(buffer.trim());
-          if (response.error) reject(new Error(`[${response.error.code}] ${response.error.message}`));
-          else resolve(response.result);
-        } catch (e) {
-          reject(e);
-        }
+          const parsed = JSON.parse(line);
+          if (parsed.id === 1) {
+            client.end();
+            if (parsed.error) reject(new Error(`[${parsed.error.code}] ${parsed.error.message}`));
+            else resolve(parsed.result);
+            return;
+          }
+        } catch { /* partial line, wait for more data */ }
       }
     });
     client.on('error', (err) => reject(new Error(`Socket connection failed: ${err.message}`)));

@@ -208,7 +208,13 @@ export class PtyBridge {
     if (!instance) {
       return; // Already gone — idempotent
     }
-    instance.pty.kill();
+    try {
+      instance.pty.kill();
+    } catch (err) {
+      // node-pty ConPTY can throw "AttachConsole failed" on Windows when
+      // the console process has already exited. Safe to ignore.
+      console.warn(`[PtyBridge] kill(${id}) error (ignored):`, (err as Error).message);
+    }
     this.instances.delete(id);
   }
 

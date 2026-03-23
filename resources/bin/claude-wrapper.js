@@ -66,8 +66,26 @@ function passthrough() {
   // 9. 실행 — inject TMUX vars HERE (not in PTY env, to avoid interfering with normal shell)
   const socketPort = process.env.CMUX_SOCKET_PORT || '19840';
   const paneIndex = process.env.CMUX_PANE_INDEX || '0';
+
+  // FIX-1: Remove directories containing a real tmux.exe from PATH so Claude Code
+  // finds our tmux.cmd shim (in CMUX_BIN_DIR) instead of a real tmux binary.
+  // On Windows, .exe always wins over .cmd regardless of PATH order.
+  const fs = require('fs');
+  let fixedPath = (process.env.PATH || '').split(';').filter(dir => {
+    if (!dir) return true;
+    try {
+      const candidate = path.join(dir, 'tmux.exe');
+      // Keep the dir UNLESS it has tmux.exe AND is NOT our bin dir
+      if (fs.existsSync(candidate) && !fs.existsSync(path.join(dir, 'tmux-shim.js'))) {
+        return false; // remove this dir from PATH for Claude's subprocess
+      }
+    } catch { /* ignore */ }
+    return true;
+  }).join(';');
+
   const env = {
     ...process.env,
+    PATH: fixedPath,
     CMUX_CLAUDE_PID: String(process.pid),
     TMUX: `cmux-win://127.0.0.1:${socketPort},${process.pid},0`,
     TMUX_PANE: `%${paneIndex}`,

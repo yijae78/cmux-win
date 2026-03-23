@@ -27,6 +27,9 @@ export function registerPanelHandlers(router: JsonRpcRouter, store: AppStateStor
     const p = params as { panelId: string; direction: string; newPanelType?: string };
     if (!p?.panelId) throw new Error('panelId is required');
     if (!p?.direction) throw new Error('direction is required');
+
+    const panelsBefore = store.getState().panels.length;
+
     const result = store.dispatch({
       type: 'panel.split',
       payload: {
@@ -36,7 +39,16 @@ export function registerPanelHandlers(router: JsonRpcRouter, store: AppStateStor
       },
     });
     if (!result.ok) throw new Error(result.error ?? 'Failed to split panel');
-    return { ok: true };
+
+    // GAP-3: return new panel info so split-window can report the pane_id
+    const newPanels = store.getState().panels.slice(panelsBefore);
+    const newPanel = newPanels[0];
+    return {
+      ok: true,
+      paneIndex: newPanel?.paneIndex,
+      panelId: newPanel?.id,
+      surfaceId: newPanel?.activeSurfaceId,
+    };
   });
 
   router.register('panel.resize', (params) => {

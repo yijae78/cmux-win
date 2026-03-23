@@ -92,36 +92,57 @@ describe('claude-wrapper-lib', () => {
   });
 
   describe('findRealClaude', () => {
-    it('skips entries in own directory', () => {
-      const execSync = vi.fn().mockReturnValue('C:\\app\\bin\\claude.exe\nC:\\other\\claude.exe\n');
-      const result = findRealClaude('C:\\app\\bin', execSync);
-      expect(result).toBe('C:\\other\\claude.exe');
-    });
+    // R5: findRealClaude now uses direct fs.existsSync probing (no `where`).
+    // It skips directories containing 'claude-wrapper.js' (marker for cmux wrapper).
+    // execSyncFn parameter is kept for signature compat but unused.
+    const execSync = vi.fn(); // unused but required by signature
 
-    it('returns first entry from different directory', () => {
-      const execSync = vi.fn().mockReturnValue('C:\\dir1\\claude.exe\nC:\\dir2\\claude.exe\n');
-      const result = findRealClaude('C:\\mydir', execSync);
-      expect(result).toBe('C:\\dir1\\claude.exe');
-    });
-
-    it('returns null when where fails', () => {
-      const execSync = vi.fn().mockImplementation(() => {
-        throw new Error('not found');
+    it('returns first existing candidate that is not our wrapper', () => {
+      const existsSyncOrig = vi.spyOn(require('fs'), 'existsSync');
+      // Simulate: npm global claude.cmd exists, no marker file
+      existsSyncOrig.mockImplementation((p: string) => {
+        const norm = p.replace(/\\/g, '/');
+        if (norm.includes('npm/claude.cmd')) return true;
+        if (norm.includes('npm/claude-wrapper.js')) return false;
+        return false;
       });
       const result = findRealClaude('C:\\mydir', execSync);
-      expect(result).toBeNull();
+      expect(result).toMatch(/npm.*claude\.cmd$/);
+      existsSyncOrig.mockRestore();
     });
 
-    it('returns null when all entries are in own directory', () => {
-      const execSync = vi.fn().mockReturnValue('C:\\mydir\\claude.exe\n');
+    it('skips candidates in wrapper directory (has claude-wrapper.js)', () => {
+      const existsSyncOrig = vi.spyOn(require('fs'), 'existsSync');
+      existsSyncOrig.mockImplementation((p: string) => {
+        const norm = p.replace(/\\/g, '/');
+        // First candidate exists but is our wrapper
+        if (norm.includes('.local/bin/claude.exe')) return true;
+        if (norm.includes('.local/bin/claude-wrapper.js')) return true;
+        // Second candidate exists and is NOT our wrapper
+        if (norm.includes('npm/claude.cmd')) return true;
+        if (norm.includes('npm/claude-wrapper.js')) return false;
+        return false;
+      });
       const result = findRealClaude('C:\\mydir', execSync);
-      expect(result).toBeNull();
+      expect(result).toMatch(/npm.*claude\.cmd$/);
+      existsSyncOrig.mockRestore();
     });
 
-    it('skips empty lines', () => {
-      const execSync = vi.fn().mockReturnValue('\n\nC:\\other\\claude.exe\n');
+    it('returns null when no candidates exist', () => {
+      const existsSyncOrig = vi.spyOn(require('fs'), 'existsSync');
+      existsSyncOrig.mockReturnValue(false);
       const result = findRealClaude('C:\\mydir', execSync);
-      expect(result).toBe('C:\\other\\claude.exe');
+      expect(result).toBeNull();
+      existsSyncOrig.mockRestore();
+    });
+
+    it('returns null when all candidates are our wrapper', () => {
+      const existsSyncOrig = vi.spyOn(require('fs'), 'existsSync');
+      // All candidates exist but all have the marker file
+      existsSyncOrig.mockReturnValue(true);
+      const result = findRealClaude('C:\\mydir', execSync);
+      expect(result).toBeNull();
+      existsSyncOrig.mockRestore();
     });
   });
 });

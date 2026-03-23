@@ -10,6 +10,22 @@ export function buildPtyEnv(
   if (binDir) {
     const sep = process.platform === 'win32' ? ';' : ':';
     env.PATH = binDir + sep + (env.PATH || '');
+
+    // On Windows, .EXE always beats .CMD in PATH resolution regardless of order.
+    // Override PATHEXT so .CMD is checked before .EXE, ensuring our tmux.cmd
+    // shim is found instead of a real tmux.exe that may exist in the user's PATH.
+    if (process.platform === 'win32') {
+      const pathext = env.PATHEXT || '.COM;.EXE;.BAT;.CMD';
+      // Move .CMD before .EXE
+      const parts = pathext.split(';').filter(Boolean);
+      const cmdIdx = parts.findIndex(p => p.toUpperCase() === '.CMD');
+      const exeIdx = parts.findIndex(p => p.toUpperCase() === '.EXE');
+      if (cmdIdx > exeIdx && exeIdx >= 0) {
+        parts.splice(cmdIdx, 1);
+        parts.splice(exeIdx, 0, '.CMD');
+      }
+      env.PATHEXT = parts.join(';');
+    }
   }
 
   // R1: Agent Teams env vars — set CMUX-specific vars here.
@@ -22,6 +38,12 @@ export function buildPtyEnv(
   // TMUX_PANE index for this surface (used by claude-wrapper to set TMUX_PANE)
   const paneIndex = parseInt(surfaceId.replace(/[^0-9a-f]/gi, '').slice(-4) || '0', 16) % 1000;
   env.CMUX_PANE_INDEX = `${paneIndex}`;
+
+  // BUG-C fix: explicitly propagate socket auth token so child processes
+  // can authenticate to the socket server even if process.env is filtered.
+  if (baseEnv.CMUX_SOCKET_TOKEN) {
+    env.CMUX_SOCKET_TOKEN = baseEnv.CMUX_SOCKET_TOKEN;
+  }
 
   return env;
 }

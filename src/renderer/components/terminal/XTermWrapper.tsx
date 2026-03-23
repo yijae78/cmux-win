@@ -146,8 +146,9 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       // WebGL not available — fall back to canvas renderer (default)
     }
 
-    // Fit to container
+    // Fit to container and auto-focus
     fitAddon.fit();
+    terminal.focus();
 
     // Spawn PTY via preload bridge
     let disposed = false;
@@ -370,28 +371,49 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
   // -----------------------------------------------------------------------
   // R4: Separate effect for pendingCommand — react to surface.update_meta
-  // Wait for PTY to be ready (ptyIdRef) before writing
+  // Wait for PTY to be ready (ptyIdRef) before writing.
+  // BUG-A fix: cleanup all timers on unmount / re-run.
+  // BUG-B fix: adaptive delay based on shell type.
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (!pendingCommand || !terminalRef.current) return;
 
-    // PTY might not be ready yet — wait and retry
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const schedule = (fn: () => void, ms: number) => {
+      const id = setTimeout(() => { if (!cancelled) fn(); }, ms);
+      timers.push(id);
+    };
+
+    // Adaptive shell init delay: PowerShell is slow (~2-3s), others are fast
+    const isPowerShell = shell
+      ? /powershell|pwsh/i.test(shell)
+      : true; // default to conservative if unknown
+    const shellInitDelay = isPowerShell ? 1500 : 500;
+
+    let attempts = 0;
+    const maxAttempts = 30; // 300ms × 30 = 9s max wait for PTY
     const tryWrite = () => {
+      if (cancelled) return;
       if (ptyIdRef.current) {
-        window.ptyBridge?.write(surfaceId, pendingCommand);
-      } else {
-        // Retry after 500ms — PTY spawn is async
-        setTimeout(tryWrite, 500);
+        schedule(() => {
+          window.ptyBridge?.write(surfaceId, pendingCommand);
+          void dispatchRef.current?.({
+            type: 'surface.update_meta',
+            payload: { surfaceId, pendingCommand: null },
+          });
+        }, shellInitDelay);
+      } else if (++attempts < maxAttempts) {
+        schedule(tryWrite, 300);
       }
     };
     tryWrite();
 
-    // Consume: clear pendingCommand so it doesn't re-execute
-    void dispatchRef.current?.({
-      type: 'surface.update_meta',
-      payload: { surfaceId, pendingCommand: null },
-    });
-  }, [pendingCommand, surfaceId]);
+    return () => {
+      cancelled = true;
+      for (const id of timers) clearTimeout(id);
+    };
+  }, [pendingCommand, surfaceId, shell]);
 
   // -----------------------------------------------------------------------
   // BUG-13: Separate effect for font / style changes — update + refit
@@ -423,6 +445,8 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       role="application"
       aria-label="Terminal"
       style={{ width: '100%', height: '100%', overflow: 'hidden', background: '#272822' }}
+      onClick={() => terminalRef.current?.focus()}
+      onFocus={() => terminalRef.current?.focus()}
     />
   );
 };

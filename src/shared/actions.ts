@@ -188,6 +188,15 @@ export const WorkspaceReorderAction = z.object({
   }),
 });
 
+// ===== Workspace Set Layout =====
+export const WorkspaceSetLayoutAction = z.object({
+  type: z.literal('workspace.set_layout'),
+  payload: z.object({
+    workspaceId: z.string(),
+    panelLayout: z.any(),
+  }),
+});
+
 // ===== Focus =====
 export const FocusUpdateAction = z.object({
   type: z.literal('focus.update'),
@@ -218,6 +227,7 @@ export const ActionSchema = z.discriminatedUnion('type', [
   WorkspaceSelectAction,
   WorkspaceRenameAction,
   WorkspaceReorderAction,
+  WorkspaceSetLayoutAction,
   PanelSplitAction,
   PanelCloseAction,
   PanelFocusAction,

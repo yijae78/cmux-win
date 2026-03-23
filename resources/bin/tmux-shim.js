@@ -5,9 +5,11 @@ const net = require('net');
 const path = require('path');
 
 // Key conversion for send-keys
+// FIX: Enter must be \r (carriage return), NOT \n (line feed).
+// \n causes PowerShell to enter >> multiline mode instead of executing.
 function convertTmuxKeys(keyArgs) {
   return keyArgs.map(arg => {
-    if (arg === 'Enter') return '\n';
+    if (arg === 'Enter') return '\r';
     if (arg === 'Space') return ' ';
     if (arg === 'Tab') return '\t';
     if (arg === 'Escape') return '\x1b';
@@ -50,6 +52,18 @@ if (require.main === module) {
     return null;
   }
 
+  // GAP-4: resolve %N pane reference to panel object using stable paneIndex
+  async function resolvePane(paneRef) {
+    const result = await rpcCall('panel.list', {});
+    const panels = result?.panels || (Array.isArray(result) ? result : []);
+    if (paneRef.startsWith('%')) {
+      const idx = parseInt(paneRef.slice(1));
+      return panels.find(p => p.paneIndex === idx) || null;
+    }
+    // Direct panel ID
+    return panels.find(p => p.id === paneRef) || null;
+  }
+
   // Simple RPC call (copied pattern from cmux-win CLI socket-client)
   function rpcCall(method, params) {
     return new Promise((resolve, reject) => {
@@ -64,6 +78,7 @@ if (require.main === module) {
       }) + '\n';
 
       let data = '';
+      let resolved = false;
       socket.connect(port, '127.0.0.1', () => {
         // R2: send auth handshake before request
         if (token) {
@@ -71,16 +86,28 @@ if (require.main === module) {
         }
         socket.write(request);
       });
-      socket.on('data', (chunk) => { data += chunk.toString(); });
-      socket.on('end', () => {
-        try {
-          const parsed = JSON.parse(data.trim());
-          if (parsed.error) reject(new Error(parsed.error.message));
-          else resolve(parsed.result);
-        } catch (e) { reject(e); }
+      socket.on('data', (chunk) => {
+        data += chunk.toString();
+        if (resolved) return;
+        // Parse as soon as we get the RPC response (id=1), don't wait for 'end'
+        for (const line of data.split('\n')) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.id === 1) {
+              resolved = true;
+              socket.destroy();
+              if (parsed.error) { reject(new Error(parsed.error.message)); return; }
+              resolve(parsed.result);
+              return;
+            }
+          } catch { /* partial line */ }
+        }
       });
-      socket.on('error', (err) => reject(err));
-      socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')); });
+      socket.on('end', () => {
+        if (!resolved) resolve(null);
+      });
+      socket.on('error', (err) => { if (!resolved) reject(err); });
+      socket.on('timeout', () => { socket.destroy(); if (!resolved) reject(new Error('timeout')); });
     });
   }
 
@@ -107,14 +134,43 @@ if (require.main === module) {
             process.exit(1);
           }
           // surface → panel 매핑은 surface.list로 조회
-          const surfaces = await rpcCall('surface.list', {});
-          const surface = Array.isArray(surfaces) ? surfaces.find(s => s.id === surfaceId) : null;
+          const surfResult = await rpcCall('surface.list', {});
+          const surfList = surfResult?.surfaces || (Array.isArray(surfResult) ? surfResult : []);
+          const surface = surfList.find(s => s.id === surfaceId);
           const panelId = surface?.panelId;
           if (!panelId) {
             process.stderr.write('Could not determine active panel\n');
             process.exit(1);
           }
-          await rpcCall('panel.split', { panelId, direction, newPanelType: 'terminal' });
+          const splitResult = await rpcCall('panel.split', { panelId, direction, newPanelType: 'terminal' });
+
+          // Extract shell command from remaining args (after flags like -h, -v, -t, -P, -F)
+          // Real tmux: `tmux split-window -h "gemini --flag"` → last non-flag arg is command
+          const swFlags = new Set(['-h', '-v', '-d', '-P', '-b', '-f', '-l']);
+          const swFlagsWithValue = new Set(['-t', '-F', '-e', '-c', '-l']);
+          let shellCmd = null;
+          for (let i = 1; i < args.length; i++) {
+            if (swFlags.has(args[i])) continue;
+            if (swFlagsWithValue.has(args[i])) { i++; continue; } // skip flag + value
+            shellCmd = args[i]; // first non-flag arg = shell command
+          }
+
+          // GAP-3: output pane_id so Claude Code knows where the new pane is
+          const newPaneId = splitResult?.paneIndex !== undefined ? `%${splitResult.paneIndex}` : null;
+          if (newPaneId) console.log(newPaneId);
+
+          // If a shell command was provided, send it to the new pane after a brief delay
+          if (shellCmd && splitResult?.surfaceId) {
+            setTimeout(async () => {
+              try {
+                await rpcCall('surface.send_text', {
+                  surfaceId: splitResult.surfaceId,
+                  text: shellCmd + '\r',
+                });
+              } catch { /* best effort */ }
+            }, 1000);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
           break;
         }
 
@@ -136,15 +192,9 @@ if (require.main === module) {
         case 'select-pane': {
           const target = getTarget();
           if (!target) { process.stderr.write('Usage: tmux select-pane -t <id>\n'); process.exit(1); }
-          if (target.startsWith('%')) {
-            const index = parseInt(target.slice(1));
-            const panels = await rpcCall('panel.list', {});
-            const panel = Array.isArray(panels) ? panels[index] : null;
-            if (panel) await rpcCall('panel.focus', { panelId: panel.id });
-            else { process.stderr.write(`Pane ${target} not found\n`); process.exit(1); }
-          } else {
-            await rpcCall('panel.focus', { panelId: target });
-          }
+          const spPanel = await resolvePane(target);
+          if (spPanel) await rpcCall('panel.focus', { panelId: spPanel.id });
+          else { process.stderr.write(`Pane ${target} not found\n`); process.exit(1); }
           break;
         }
 
@@ -159,14 +209,8 @@ if (require.main === module) {
           const text = convertTmuxKeys(keyArgs);
           let surfaceId = process.env.CMUX_SURFACE_ID;
           if (target) {
-            // target을 surface로 해석
-            if (target.startsWith('%')) {
-              const panels = await rpcCall('panel.list', {});
-              const panel = Array.isArray(panels) ? panels[parseInt(target.slice(1))] : null;
-              if (panel) surfaceId = panel.activeSurfaceId;
-            } else {
-              surfaceId = target;
-            }
+            const skPanel = await resolvePane(target);
+            if (skPanel) surfaceId = skPanel.activeSurfaceId;
           }
           if (surfaceId) {
             await rpcCall('surface.send_text', { surfaceId, text });
@@ -185,11 +229,11 @@ if (require.main === module) {
         }
 
         case 'list-panes': {
-          const panels = await rpcCall('panel.list', {});
-          if (Array.isArray(panels)) {
-            panels.forEach((p, i) => {
-              console.log(`%${i}: ${p.panelType} (${p.id})`);
-            });
+          const lpResult = await rpcCall('panel.list', {});
+          const lpPanels = lpResult?.panels || (Array.isArray(lpResult) ? lpResult : []);
+          for (const p of lpPanels) {
+            const idx = p.paneIndex ?? '?';
+            console.log(`%${idx}: ${p.panelType} (${p.id}) [surface: ${p.activeSurfaceId}]`);
           }
           break;
         }
@@ -210,13 +254,9 @@ if (require.main === module) {
         case 'kill-pane': {
           const target = getTarget();
           if (!target) { process.stderr.write('Usage: tmux kill-pane -t <id>\n'); process.exit(1); }
-          if (target.startsWith('%')) {
-            const panels = await rpcCall('panel.list', {});
-            const panel = Array.isArray(panels) ? panels[parseInt(target.slice(1))] : null;
-            if (panel) await rpcCall('panel.close', { panelId: panel.id });
-          } else {
-            await rpcCall('panel.close', { panelId: target });
-          }
+          const kpPanel = await resolvePane(target);
+          if (kpPanel) await rpcCall('panel.close', { panelId: kpPanel.id });
+          else { process.stderr.write(`Pane ${target} not found\n`); process.exit(1); }
           break;
         }
 
@@ -242,13 +282,8 @@ if (require.main === module) {
           const capTarget = getTarget();
           let capSurfaceId = process.env.CMUX_SURFACE_ID;
           if (capTarget) {
-            if (capTarget.startsWith('%')) {
-              const panels = await rpcCall('panel.list', {});
-              const panel = Array.isArray(panels) ? panels[parseInt(capTarget.slice(1))] : null;
-              if (panel) capSurfaceId = panel.activeSurfaceId;
-            } else {
-              capSurfaceId = capTarget;
-            }
+            const cpPanel = await resolvePane(capTarget);
+            if (cpPanel) capSurfaceId = cpPanel.activeSurfaceId;
           }
           try {
             const result = await rpcCall('surface.read', { surfaceId: capSurfaceId });
@@ -261,13 +296,47 @@ if (require.main === module) {
 
         case 'display-message': {
           // -p 플래그로 변수 출력
-          const pIdx = args.indexOf('-p');
-          if (pIdx !== -1 && args[pIdx + 1]) {
-            let fmt = args[pIdx + 1];
-            fmt = fmt.replace('#{session_id}', process.env.CMUX_WORKSPACE_ID || '');
-            fmt = fmt.replace('#{window_id}', process.env.CMUX_WORKSPACE_ID || '');
-            fmt = fmt.replace('#{pane_id}', process.env.CMUX_SURFACE_ID || '');
+          const dmPrintIdx = args.indexOf('-p');
+          if (dmPrintIdx !== -1 && args[dmPrintIdx + 1]) {
+            let fmt = args[dmPrintIdx + 1];
+            const dmTarget = getTarget();
+
+            // GAP-5: -t 타겟 지원 — 다른 패널의 정보 조회
+            let dmPaneId = process.env.CMUX_SURFACE_ID || '';
+            let dmPaneIndex = process.env.CMUX_PANE_INDEX || '0';
+            let dmWorkspaceId = process.env.CMUX_WORKSPACE_ID || '';
+
+            if (dmTarget) {
+              const dmPanel = await resolvePane(dmTarget);
+              if (dmPanel) {
+                dmPaneId = dmPanel.activeSurfaceId || dmPanel.id;
+                dmPaneIndex = String(dmPanel.paneIndex ?? 0);
+                dmWorkspaceId = dmPanel.workspaceId || dmWorkspaceId;
+              }
+            }
+
+            fmt = fmt.replace('#{session_id}', dmWorkspaceId);
+            fmt = fmt.replace('#{session_name}', dmWorkspaceId);
+            fmt = fmt.replace('#{window_id}', dmWorkspaceId);
+            fmt = fmt.replace('#{pane_id}', `%${dmPaneIndex}`);
+            fmt = fmt.replace('#{pane_index}', dmPaneIndex);
+            fmt = fmt.replace('#{pane_pid}', String(process.pid));
             console.log(fmt);
+          }
+          break;
+        }
+
+        case 'has-session': {
+          // GAP-1: check if a workspace/session exists — exit 0 = yes, exit 1 = no
+          const hsTarget = getTarget() || getName();
+          const workspaces = await rpcCall('workspace.list', {});
+          const wsList = workspaces?.workspaces || (Array.isArray(workspaces) ? workspaces : []);
+          if (hsTarget) {
+            const found = wsList.some(ws => ws.id === hsTarget || ws.name === hsTarget);
+            process.exit(found ? 0 : 1);
+          } else {
+            // No target specified — just check any session exists
+            process.exit(wsList.length > 0 ? 0 : 1);
           }
           break;
         }

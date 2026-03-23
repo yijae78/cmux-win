@@ -154,6 +154,15 @@ export class AppStateStore extends EventEmitter {
     }
   }
 
+  // GAP-4: monotonically increasing pane index — survives panel close/reorder
+  private nextPaneIndex(draft: AppState): number {
+    let max = -1;
+    for (const p of draft.panels) {
+      if (p.paneIndex !== undefined && p.paneIndex > max) max = p.paneIndex;
+    }
+    return max + 1;
+  }
+
   private applyAction(draft: AppState, action: Action): void {
     switch (action.type) {
       // BUG-2: window.create / window.close
@@ -202,6 +211,7 @@ export class AppStateStore extends EventEmitter {
           surfaceIds: [surfaceId],
           activeSurfaceId: surfaceId,
           isZoomed: false,
+          paneIndex: this.nextPaneIndex(draft),
         });
         draft.surfaces.push({
           id: surfaceId,
@@ -276,6 +286,7 @@ export class AppStateStore extends EventEmitter {
           surfaceIds: [newSurfaceId],
           activeSurfaceId: newSurfaceId,
           isZoomed: false,
+          paneIndex: this.nextPaneIndex(draft),
         });
         draft.surfaces.push({
           id: newSurfaceId,
@@ -382,6 +393,11 @@ export class AppStateStore extends EventEmitter {
           }
         }
         draft.surfaces.splice(si, 1);
+
+        // Clean up orphan agents whose surface no longer exists
+        draft.agents = draft.agents.filter(
+          (a) => draft.surfaces.some((sf) => sf.id === a.surfaceId),
+        );
         break;
       }
       case 'surface.focus': {
@@ -412,6 +428,13 @@ export class AppStateStore extends EventEmitter {
         win.workspaceIds.splice(action.payload.newIndex, 0, action.payload.workspaceId);
         break;
       }
+      case 'workspace.set_layout': {
+        const ws = draft.workspaces.find((w) => w.id === action.payload.workspaceId);
+        if (ws && action.payload.panelLayout) {
+          ws.panelLayout = action.payload.panelLayout;
+        }
+        break;
+      }
       case 'surface.send_text':
         break; // side-effect only, handled above dispatch
       case 'agent.spawn': {
@@ -421,6 +444,7 @@ export class AppStateStore extends EventEmitter {
 
         const newPanelId = crypto.randomUUID();
         const newSurfaceId = crypto.randomUUID();
+        const spawnedPaneIndex = this.nextPaneIndex(draft);
 
         draft.panels.push({
           id: newPanelId,
@@ -429,13 +453,23 @@ export class AppStateStore extends EventEmitter {
           surfaceIds: [newSurfaceId],
           activeSurfaceId: newSurfaceId,
           isZoomed: false,
+          paneIndex: spawnedPaneIndex,
         });
+
+        // GAP-2: include --team-name/--agent-name so Claude enters team mode
+        const teamName = workspaceId;
+        const agentName = `${agentType}-${spawnedPaneIndex}`;
+        const teamArgs = `--team-name "${teamName}" --agent-name "${agentName}"`;
+        const cmd = task
+          ? `${agentType} ${teamArgs} "${task}"\n`
+          : `${agentType} ${teamArgs}\n`;
+
         draft.surfaces.push({
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: 'terminal',
           title: `${agentType} agent`,
-          pendingCommand: task ? `${agentType} "${task}"\n` : `${agentType}\n`,
+          pendingCommand: cmd,
         });
 
         // panelLayout에 split 추가

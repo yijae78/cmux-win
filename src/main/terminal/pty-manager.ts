@@ -20,6 +20,53 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
 const bridge = new PtyBridge();
 const surfacePtyMap = new Map<string, string>();
 
+// BUG-D fix: live PTY output buffer per surface for fresh capture-pane reads.
+const MAX_LIVE_BUFFER = 100_000;
+const liveBuffers = new Map<string, string>();
+(globalThis as Record<string, unknown>).__cmuxLiveBuffers = liveBuffers;
+
+// ---------------------------------------------------------------------------
+// Source/citation filter — strip Claude-style source references from output
+// Detects patterns like "[1] http://..." or "Sources:" blocks and removes them.
+// Similar to how Cursor hides citation metadata from the display.
+// ---------------------------------------------------------------------------
+const sourceLineBuffer = new Map<string, string>(); // partial line accumulator
+
+function filterSources(surfaceId: string, data: string): string {
+  // Accumulate partial lines
+  let pending = (sourceLineBuffer.get(surfaceId) ?? '') + data;
+
+  // Only filter if there's at least one complete line
+  if (!pending.includes('\n') && !pending.includes('\r')) {
+    sourceLineBuffer.set(surfaceId, pending);
+    // If buffer is large, flush it (probably not a source line)
+    if (pending.length > 500) {
+      sourceLineBuffer.delete(surfaceId);
+      return pending;
+    }
+    return '';
+  }
+
+  sourceLineBuffer.delete(surfaceId);
+
+  // Split into lines, filter, rejoin
+  const lines = pending.split(/(\r?\n|\r)/);
+  const filtered: string[] = [];
+  for (const line of lines) {
+    const stripped = line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
+    // Skip source/citation lines:
+    // - "[1] https://..." or "[2] http://..."
+    // - "Sources:" or "출처:" headers
+    // - "Source: https://..."
+    if (/^\[\d+\]\s*https?:\/\//.test(stripped)) continue;
+    if (/^Sources?\s*:?\s*$/i.test(stripped)) continue;
+    if (/^출처\s*:?\s*$/.test(stripped)) continue;
+    if (/^Source:\s*https?:\/\//.test(stripped)) continue;
+    filtered.push(line);
+  }
+  return filtered.join('');
+}
+
 /**
  * Register all PTY-related IPC handlers.
  * Call this once in app.whenReady (or before).
@@ -59,9 +106,20 @@ export function registerPtyHandlers(): void {
       const ptyId = result.id;
 
       bridge.onData(ptyId, (data) => {
+        // BUG-D fix: append to live buffer (raw, unfiltered) for surface.read
+        let buf = (liveBuffers.get(surfaceId) ?? '') + data;
+        if (buf.length > MAX_LIVE_BUFFER) {
+          buf = buf.slice(buf.length - MAX_LIVE_BUFFER);
+        }
+        liveBuffers.set(surfaceId, buf);
+
+        // Filter source/citation lines from display (Cursor-style)
+        const filtered = filterSources(surfaceId, data);
+        if (filtered.length === 0) return; // all lines were sources, skip
+
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed()) {
-            win.webContents.send(IPC_CHANNELS.PTY_DATA, surfaceId, data);
+            win.webContents.send(IPC_CHANNELS.PTY_DATA, surfaceId, filtered);
           }
         }
       });
@@ -74,6 +132,7 @@ export function registerPtyHandlers(): void {
         }
         // Cleanup mapping on exit
         surfacePtyMap.delete(surfaceId);
+        liveBuffers.delete(surfaceId);
       });
 
       return { id: result.id, pid: result.pid };
@@ -98,6 +157,7 @@ export function registerPtyHandlers(): void {
     if (ptyId) {
       bridge.kill(ptyId);
       surfacePtyMap.delete(surfaceId);
+      liveBuffers.delete(surfaceId);
     }
   });
 

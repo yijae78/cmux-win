@@ -55,6 +55,18 @@ export function registerWorkspaceHandlers(router: JsonRpcRouter, store: AppState
     return { ok: true };
   });
 
+  router.register('workspace.set_layout', (params) => {
+    const p = params as { workspaceId: string; panelLayout: unknown };
+    if (!p?.workspaceId) throw new Error('workspaceId is required');
+    if (!p?.panelLayout) throw new Error('panelLayout is required');
+    const result = store.dispatch({
+      type: 'workspace.set_layout',
+      payload: { workspaceId: p.workspaceId, panelLayout: p.panelLayout },
+    });
+    if (!result.ok) throw new Error(result.error ?? 'Failed to set layout');
+    return { ok: true };
+  });
+
   router.register('workspace.rename', (params) => {
     const p = params as { workspaceId: string; name: string };
     if (!p?.workspaceId) throw new Error('workspaceId is required');

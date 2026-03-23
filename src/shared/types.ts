@@ -51,6 +51,7 @@ export interface PanelState {
   surfaceIds: string[];
   activeSurfaceId: string;
   isZoomed: boolean;
+  paneIndex?: number; // GAP-4: stable tmux pane index (survives panel close/reorder)
 }
 
 export interface SurfaceState {
