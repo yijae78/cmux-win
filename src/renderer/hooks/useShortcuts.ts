@@ -16,6 +16,7 @@ export function useShortcuts(
   callbacks: {
     toggleSidebar: () => void;
     toggleExplorer?: () => void;
+    togglePanels?: () => void;
     toggleCommandPalette?: () => void;
     toggleSettings?: () => void;
     equalizeHorizontal?: () => void;
@@ -85,6 +86,9 @@ export function useShortcuts(
           break;
         case 'toggleExplorer':
           callbacks.toggleExplorer?.();
+          break;
+        case 'togglePanels':
+          callbacks.togglePanels?.();
           break;
         case 'commandPalette':
           callbacks.toggleCommandPalette?.();

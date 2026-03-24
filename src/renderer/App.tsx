@@ -116,6 +116,7 @@ export default function App() {
   const [explorerRootPath, setExplorerRootPath] = useState<string | undefined>(undefined);
   const [openedProjects, setOpenedProjects] = useState<string[]>([]);
   const [firstFolderOpened, setFirstFolderOpened] = useState(false);
+  const [panelsCollapsed, setPanelsCollapsed] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
 
@@ -133,6 +134,7 @@ export default function App() {
   // Keyboard shortcuts
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
   const toggleExplorer = useCallback(() => setExplorerVisible((v) => !v), []);
+  const togglePanels = useCallback(() => setPanelsCollapsed((v) => !v), []);
   const toggleCommandPalette = useCallback(() => setCommandPaletteVisible((v) => !v), []);
   const toggleSettings = useCallback(() => setSettingsVisible((v) => !v), []);
   const equalizeLayout = useCallback(
@@ -153,6 +155,7 @@ export default function App() {
   useShortcuts(appState, dispatch, windowId, {
     toggleSidebar,
     toggleExplorer,
+    togglePanels,
     toggleCommandPalette,
     toggleSettings,
     equalizeHorizontal: () => equalizeLayout('horizontal'),
@@ -203,10 +206,10 @@ export default function App() {
 
   // Sync explorer root with active terminal CWD (auto-switch on focus change)
   useEffect(() => {
-    if (activeCwd && explorerVisible) {
+    if (activeCwd) {
       setExplorerRootPath(activeCwd);
     }
-  }, [activeCwd, explorerVisible]);
+  }, [activeCwd]);
 
   // -------------------------------------------------------------------------
   // Loading state
@@ -276,6 +279,17 @@ export default function App() {
                 });
               }
             }}
+            onFileOpen={(filePath) => {
+              if (filePath.endsWith('.md')) {
+                const activePanelId = appState?.focus.activePanelId;
+                if (activePanelId) {
+                  void dispatch({
+                    type: 'panel.split',
+                    payload: { panelId: activePanelId, direction: 'horizontal', newPanelType: 'markdown', filePath },
+                  });
+                }
+              }
+            }}
             onExplorerOpenFolder={async () => {
               if (!window.cmuxFile?.openFolderDialog) return;
               const result = await window.cmuxFile.openFolderDialog();
@@ -315,6 +329,8 @@ export default function App() {
             }}
             onEqualizeH={() => equalizeLayout('horizontal')}
             onEqualizeV={() => equalizeLayout('vertical')}
+            onTogglePanels={togglePanels}
+            panelsCollapsed={panelsCollapsed}
           />
         </div>
 
@@ -353,6 +369,24 @@ export default function App() {
               }}
             >
               {'\u2302'}
+            </button>
+
+            {/* Toggle panels (collapse/expand terminals) */}
+            <button
+              onClick={() => setPanelsCollapsed((v) => !v)}
+              title={panelsCollapsed ? 'Show Terminals' : 'Hide Terminals'}
+              style={{
+                background: panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'none',
+                border: 'none',
+                color: panelsCollapsed ? '#0091FF' : '#999',
+                cursor: 'pointer',
+                fontSize: '13px',
+                padding: '0 4px',
+                lineHeight: 1,
+                WebkitAppRegion: 'no-drag' as unknown as string,
+              }}
+            >
+              {panelsCollapsed ? '\u25B6' : '\u25C0'}
             </button>
 
             {/* Workspace name */}
@@ -475,8 +509,8 @@ export default function App() {
             )}
           </div>
 
-          {/* Panel content */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+          {/* Panel content — collapsible with Ctrl+` */}
+          <div style={{ flex: panelsCollapsed ? 0 : 1, overflow: 'hidden', display: panelsCollapsed ? 'none' : undefined }}>
             {activeWs && wsPanels.length === 0 ? (
               /* Workspace exists but all panels closed — show new terminal button */
               <div
@@ -542,7 +576,7 @@ export default function App() {
                       payload: { panelId: id, surfaceType: 'terminal' },
                     })
                   }
-                  onOpenFolder={async () => {
+                  onOpenFolder={async (targetSurfaceId: string) => {
                     if (!window.cmuxFile?.openFolderDialog) return;
                     const result = await window.cmuxFile.openFolderDialog();
                     if ('path' in result) {
@@ -552,21 +586,18 @@ export default function App() {
                       setOpenedProjects((prev) =>
                         prev.includes(folderPath) ? prev : [...prev, folderPath],
                       );
-                      const sid = appState?.focus.activeSurfaceId;
-                      if (sid) {
-                        void dispatch({
-                          type: 'surface.send_text',
-                          payload: { surfaceId: sid, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
-                        });
-                        if (!firstFolderOpened) {
-                          setFirstFolderOpened(true);
-                          setTimeout(() => {
-                            void dispatch({
-                              type: 'surface.send_text',
-                              payload: { surfaceId: sid, text: 'claude\r' },
-                            });
-                          }, 500);
-                        }
+                      void dispatch({
+                        type: 'surface.send_text',
+                        payload: { surfaceId: targetSurfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                      });
+                      if (!firstFolderOpened) {
+                        setFirstFolderOpened(true);
+                        setTimeout(() => {
+                          void dispatch({
+                            type: 'surface.send_text',
+                            payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
+                          });
+                        }, 500);
                       }
                     }
                   }}
@@ -612,7 +643,7 @@ export default function App() {
                       payload: { panelId: id, surfaceType: 'terminal' },
                     })
                   }
-                  onOpenFolder={async () => {
+                  onOpenFolder={async (targetSurfaceId: string) => {
                     if (!window.cmuxFile?.openFolderDialog) return;
                     const result = await window.cmuxFile.openFolderDialog();
                     if ('path' in result) {
@@ -622,21 +653,18 @@ export default function App() {
                       setOpenedProjects((prev) =>
                         prev.includes(folderPath) ? prev : [...prev, folderPath],
                       );
-                      const sid = appState?.focus.activeSurfaceId;
-                      if (sid) {
-                        void dispatch({
-                          type: 'surface.send_text',
-                          payload: { surfaceId: sid, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
-                        });
-                        if (!firstFolderOpened) {
-                          setFirstFolderOpened(true);
-                          setTimeout(() => {
-                            void dispatch({
-                              type: 'surface.send_text',
-                              payload: { surfaceId: sid, text: 'claude\r' },
-                            });
-                          }, 500);
-                        }
+                      void dispatch({
+                        type: 'surface.send_text',
+                        payload: { surfaceId: targetSurfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                      });
+                      if (!firstFolderOpened) {
+                        setFirstFolderOpened(true);
+                        setTimeout(() => {
+                          void dispatch({
+                            type: 'surface.send_text',
+                            payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
+                          });
+                        }, 500);
                       }
                     }
                   }}

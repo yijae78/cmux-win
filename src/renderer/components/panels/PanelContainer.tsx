@@ -126,7 +126,7 @@ export interface PanelContainerProps {
   onSurfaceFocus: (surfaceId: string) => void;
   onSurfaceClose: (surfaceId: string) => void;
   onNewSurface: (panelId: string) => void;
-  onOpenFolder?: () => void;
+  onOpenFolder?: (surfaceId: string) => void;
   onEqualizeH?: () => void;
   onEqualizeV?: () => void;
   onBrowserUrlChange?: (surfaceId: string, url: string) => void;
@@ -235,7 +235,7 @@ const PanelContainer: FC<PanelContainerProps> = ({
         onSurfaceFocus={onSurfaceFocus}
         onSurfaceClose={onSurfaceClose}
         onNewSurface={() => onNewSurface(panel.id)}
-        onOpenFolder={onOpenFolder}
+        onOpenFolder={onOpenFolder ? () => onOpenFolder(panel.activeSurfaceId) : undefined}
         onEqualizeH={onEqualizeH}
         onEqualizeV={onEqualizeV}
         onSplitRight={

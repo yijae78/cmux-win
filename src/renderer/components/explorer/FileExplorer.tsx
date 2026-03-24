@@ -23,17 +23,19 @@ interface FileExplorerProps {
   openedProjects?: string[];
   onProjectSelect?: (path: string) => void;
   onNavigate: (dirPath: string) => void;
+  onFileOpen?: (filePath: string) => void;
   onOpenFolder?: () => void;
 }
 
 const HIDDEN_NAMES = new Set(['.git', 'node_modules', '.next', '__pycache__', '.venv', '.DS_Store', 'Thumbs.db']);
 const DEBOUNCE_MS = 300;
 
-const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProjectSelect, onNavigate, onOpenFolder }) => {
+const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProjectSelect, onNavigate, onFileOpen, onOpenFolder }) => {
   const [entries, setEntries] = useState<Map<string, DirEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRootRef = useRef<string | undefined>(undefined);
@@ -170,7 +172,14 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
             return (
               <button
                 key={proj}
-                onClick={() => onProjectSelect?.(proj)}
+                onClick={() => {
+                  if (isActive) {
+                    setTreeCollapsed((v) => !v);
+                  } else {
+                    onProjectSelect?.(proj);
+                    setTreeCollapsed(false);
+                  }
+                }}
                 title={proj}
                 style={{
                   background: isActive ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.04)',
@@ -186,7 +195,7 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
                   whiteSpace: 'nowrap',
                 }}
               >
-                {label}
+                {isActive ? (treeCollapsed ? '\u25B6 ' : '\u25BC ') : ''}{label}
               </button>
             );
           })}
@@ -195,7 +204,7 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
 
       {/* Tree view */}
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
-        {!rootPath ? (
+        {treeCollapsed ? null : !rootPath ? (
           <div style={{ color: '#666', padding: '16px', textAlign: 'center' }}>
             {onOpenFolder ? (
               <button
@@ -228,6 +237,7 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
             showHidden={showHidden}
             onToggle={toggleExpand}
             onDoubleClick={handleDoubleClick}
+            onFileOpen={onFileOpen}
           />
         )}
       </div>
@@ -246,6 +256,7 @@ interface TreeNodeProps {
   showHidden: boolean;
   onToggle: (dirPath: string) => void;
   onDoubleClick: (dirPath: string) => void;
+  onFileOpen?: (filePath: string) => void;
 }
 
 const TreeNode: FC<TreeNodeProps> = ({
@@ -257,6 +268,7 @@ const TreeNode: FC<TreeNodeProps> = ({
   showHidden,
   onToggle,
   onDoubleClick,
+  onFileOpen,
 }) => {
   const items = entries.get(dirPath);
   if (!items && loading.has(dirPath)) {
@@ -281,6 +293,7 @@ const TreeNode: FC<TreeNodeProps> = ({
           isLoading={loading.has(entry.path)}
           onToggle={onToggle}
           onDoubleClick={onDoubleClick}
+          onFileOpen={onFileOpen}
           entries={entries}
           expanded={expanded}
           loading={loading}
@@ -300,6 +313,7 @@ interface FileRowProps {
   isLoading: boolean;
   onToggle: (dirPath: string) => void;
   onDoubleClick: (dirPath: string) => void;
+  onFileOpen?: (filePath: string) => void;
   entries: Map<string, DirEntry[]>;
   expanded: Set<string>;
   loading: Set<string>;
@@ -313,6 +327,7 @@ const FileRow: FC<FileRowProps> = ({
   isLoading,
   onToggle,
   onDoubleClick,
+  onFileOpen,
   entries,
   expanded,
   loading,
@@ -327,6 +342,7 @@ const FileRow: FC<FileRowProps> = ({
         onMouseLeave={() => setHovered(false)}
         onClick={() => {
           if (entry.isDirectory) onToggle(entry.path);
+          else if (onFileOpen) onFileOpen(entry.path);
         }}
         onDoubleClick={() => {
           if (entry.isDirectory) onDoubleClick(entry.path);
@@ -383,6 +399,7 @@ const FileRow: FC<FileRowProps> = ({
           showHidden={showHidden}
           onToggle={onToggle}
           onDoubleClick={onDoubleClick}
+          onFileOpen={onFileOpen}
         />
       )}
     </>

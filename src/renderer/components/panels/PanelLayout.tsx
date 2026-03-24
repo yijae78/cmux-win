@@ -115,7 +115,7 @@ export interface PanelLayoutProps {
   onSurfaceFocus: (surfaceId: string) => void;
   onSurfaceClose: (surfaceId: string) => void;
   onNewSurface: (panelId: string) => void;
-  onOpenFolder?: () => void;
+  onOpenFolder?: (surfaceId: string) => void;
   onEqualizeH?: () => void;
   onEqualizeV?: () => void;
   onBrowserUrlChange?: (surfaceId: string, url: string) => void;

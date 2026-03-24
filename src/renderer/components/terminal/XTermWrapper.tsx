@@ -124,8 +124,34 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       theme: resolvedTheme as Record<string, string> | undefined,
       allowProposedApi: true,
       screenReaderMode,
+      rightClickSelectsWord: true,
     });
     terminalRef.current = terminal;
+
+    // Copy/Paste: Ctrl+Shift+C/V and right-click copy
+    terminal.attachCustomKeyEventHandler((e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        const sel = terminal.getSelection();
+        if (sel) navigator.clipboard.writeText(sel);
+        return false;
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'V') {
+        navigator.clipboard.readText().then((text) => {
+          if (text) window.ptyBridge?.write(surfaceId, text);
+        });
+        return false;
+      }
+      return true;
+    });
+
+    // Right-click → copy selection to clipboard
+    containerRef.current?.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const sel = terminal.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel);
+      }
+    });
 
     // Load FitAddon
     const fitAddon = new FitAddon();

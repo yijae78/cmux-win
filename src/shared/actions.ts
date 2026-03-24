@@ -41,6 +41,7 @@ export const PanelSplitAction = z.object({
     direction: z.enum(['horizontal', 'vertical']),
     newPanelType: PanelTypeEnum,
     url: z.string().optional(),
+    filePath: z.string().optional(),
   }),
 });
 export const PanelCloseAction = z.object({

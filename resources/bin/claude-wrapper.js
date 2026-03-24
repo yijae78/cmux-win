@@ -87,7 +87,8 @@ function passthrough() {
     ...process.env,
     PATH: fixedPath,
     CMUX_CLAUDE_PID: String(process.pid),
-    TMUX: `cmux-win://127.0.0.1:${socketPort},${process.pid},0`,
+    // TMUX env var removed — Claude Code tries to connect to it as a Unix socket
+    // which doesn't exist on Windows. teammateMode:'tmux' in --settings is sufficient.
     TMUX_PANE: `%${paneIndex}`,
   };
   delete env.CLAUDECODE;

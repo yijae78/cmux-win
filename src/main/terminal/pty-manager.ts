@@ -32,32 +32,17 @@ const liveBuffers = new Map<string, string>();
 // ---------------------------------------------------------------------------
 const sourceLineBuffer = new Map<string, string>(); // partial line accumulator
 
-function filterSources(surfaceId: string, data: string): string {
-  // Accumulate partial lines
-  let pending = (sourceLineBuffer.get(surfaceId) ?? '') + data;
-
-  // Only filter if there's at least one complete line
-  if (!pending.includes('\n') && !pending.includes('\r')) {
-    sourceLineBuffer.set(surfaceId, pending);
-    // If buffer is large, flush it (probably not a source line)
-    if (pending.length > 500) {
-      sourceLineBuffer.delete(surfaceId);
-      return pending;
-    }
-    return '';
+function filterSources(_surfaceId: string, data: string): string {
+  // Pass through all data immediately — no buffering.
+  // Only filter complete source/citation lines if present.
+  if (!data.includes('\n') && !data.includes('\r')) {
+    return data; // No newline = user typing echo, pass through immediately
   }
 
-  sourceLineBuffer.delete(surfaceId);
-
-  // Split into lines, filter, rejoin
-  const lines = pending.split(/(\r?\n|\r)/);
+  const lines = data.split(/(\r?\n|\r)/);
   const filtered: string[] = [];
   for (const line of lines) {
     const stripped = line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
-    // Skip source/citation lines:
-    // - "[1] https://..." or "[2] http://..."
-    // - "Sources:" or "출처:" headers
-    // - "Source: https://..."
     if (/^\[\d+\]\s*https?:\/\//.test(stripped)) continue;
     if (/^Sources?\s*:?\s*$/i.test(stripped)) continue;
     if (/^출처\s*:?\s*$/.test(stripped)) continue;
@@ -116,27 +101,24 @@ export function registerPtyHandlers(): void {
         }
         liveBuffers.set(surfaceId, buf);
 
-        // Real-time auto-approve: check last ~2000 chars for approval patterns
-        const tail = buf.slice(-2000);
-        const stripped = tail.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+        // Real-time auto-approve: only check NEW incoming data (not full buffer)
+        // This prevents re-triggering on stale patterns in the buffer.
+        const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
         const now = Date.now();
         const lastApproval = autoApproveCooldowns.get(surfaceId) ?? 0;
-        if (now - lastApproval > 1500) { // 1.5s cooldown between approvals
+        if (now - lastApproval > 3000) { // 3s cooldown between approvals
           const needsApproval =
-            // Claude patterns
-            stripped.includes('Do you want to create') ||
-            stripped.includes('Do you want to') ||
-            (stripped.includes('1. Yes') && stripped.includes('Esc to cancel')) ||
-            // Gemini patterns
-            stripped.includes('Allow once') ||
+            // Claude: "Do you want to create X?" with "1. Yes"
+            (stripped.includes('Do you want to') && stripped.includes('Yes')) ||
+            (stripped.includes('Esc to cancel') && stripped.includes('1. Yes')) ||
+            // Gemini: "Apply this change?" with "Allow once"
             stripped.includes('Apply this change') ||
-            stripped.includes('Allow for this session') ||
-            // Codex patterns
-            stripped.includes('Press enter to confirm') ||
-            stripped.includes('Yes, proceed');
+            // Codex: "Press enter to confirm"
+            stripped.includes('Press enter to confirm');
           if (needsApproval) {
             autoApproveCooldowns.set(surfaceId, now);
-            bridge.write(ptyId, '\r');
+            // Delay slightly to let the full prompt render
+            setTimeout(() => bridge.write(ptyId, '\r'), 500);
           }
         }
 

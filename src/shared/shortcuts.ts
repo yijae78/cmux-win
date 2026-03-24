@@ -55,6 +55,7 @@ export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
   { id: 'closeWindow', label: 'Close Window', defaultKey: 'Ctrl+Alt+W', category: 'view' },
   { id: 'commandPalette', label: 'Command Palette', defaultKey: 'Ctrl+Shift+P', category: 'view' },
   { id: 'openSettings', label: 'Open Settings', defaultKey: 'Ctrl+,', category: 'view' },
+  { id: 'togglePanels', label: 'Toggle Panels (Collapse/Expand)', defaultKey: 'Ctrl+`', category: 'view' },
   { id: 'equalizeHorizontal', label: 'Equal Width (Horizontal)', defaultKey: 'Ctrl+Shift+=', category: 'view' },
   { id: 'equalizeVertical', label: 'Equal Height (Vertical)', defaultKey: 'Ctrl+Alt+=', category: 'view' },
 ];

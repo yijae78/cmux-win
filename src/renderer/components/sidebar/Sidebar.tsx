@@ -72,10 +72,13 @@ export interface SidebarProps {
   openedProjects?: string[];
   onProjectSelect?: (path: string) => void;
   onExplorerNavigate?: (dirPath: string) => void;
+  onFileOpen?: (filePath: string) => void;
   onExplorerOpenFolder?: () => void;
   onOpenClaudeWeb?: (url: string) => void;
   onEqualizeH?: () => void;
   onEqualizeV?: () => void;
+  onTogglePanels?: () => void;
+  panelsCollapsed?: boolean;
 }
 
 const Sidebar: FC<SidebarProps> = ({
@@ -92,10 +95,13 @@ const Sidebar: FC<SidebarProps> = ({
   openedProjects,
   onProjectSelect,
   onExplorerNavigate,
+  onFileOpen,
   onExplorerOpenFolder,
   onOpenClaudeWeb,
   onEqualizeH,
   onEqualizeV,
+  onTogglePanels,
+  panelsCollapsed,
 }) => {
   const { t } = useTranslation();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -216,9 +222,9 @@ const Sidebar: FC<SidebarProps> = ({
           <button
             onClick={onEqualizeH}
             title="Equal Width (Ctrl+Shift+=)"
-            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '0 3px', lineHeight: 1 }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
           >
             ⊞
           </button>
@@ -227,11 +233,22 @@ const Sidebar: FC<SidebarProps> = ({
           <button
             onClick={onEqualizeV}
             title="Equal Height (Ctrl+Alt+=)"
-            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '0 3px', lineHeight: 1 }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
           >
             ⊟
+          </button>
+        )}
+        {onTogglePanels && (
+          <button
+            onClick={onTogglePanels}
+            title={panelsCollapsed ? 'Show Panels' : 'Hide Panels'}
+            style={{ background: panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)', border: 'none', color: panelsCollapsed ? '#0091FF' : '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = panelsCollapsed ? '#0091FF' : '#ddd'; e.currentTarget.style.background = panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)'; }}
+          >
+            {panelsCollapsed ? '▶' : '◀'}
           </button>
         )}
       </div>
@@ -294,6 +311,7 @@ const Sidebar: FC<SidebarProps> = ({
             openedProjects={openedProjects}
             onProjectSelect={onProjectSelect}
             onNavigate={onExplorerNavigate ?? (() => {})}
+            onFileOpen={onFileOpen}
             onOpenFolder={onExplorerOpenFolder}
           />
         </div>

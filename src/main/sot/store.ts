@@ -298,6 +298,10 @@ export class AppStateStore extends EventEmitter {
           surface.browser = { url, profileId: 'default', isLoading: false };
           surface.title = new URL(url).hostname;
         }
+        if (newPanelType === 'markdown' && action.payload.filePath) {
+          surface.markdown = { filePath: action.payload.filePath };
+          surface.title = action.payload.filePath.split(/[\\/]/).pop() || 'Markdown';
+        }
         draft.surfaces.push(surface as any);
         ws.panelLayout = replaceLeaf(ws.panelLayout, panelId, {
           type: 'split',
