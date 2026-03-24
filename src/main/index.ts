@@ -426,8 +426,45 @@ app.whenReady().then(async () => {
   try {
     const actualPort = await socketServer.start(DEFAULT_SOCKET_PORT);
     process.env.CMUX_SOCKET_PORT = String(actualPort);
-    process.env.CMUX_BIN_DIR = path.join(__dirname, '../../resources/bin');
+    // Copy shim files to ASCII-safe path (Korean OneDrive paths break Windows PATH resolution)
+    const srcBinDir = path.join(__dirname, '../../resources/bin');
+    const safeBinDir = path.join(os.homedir(), '.cmux-win', 'bin');
+    try {
+      if (!fs.existsSync(safeBinDir)) fs.mkdirSync(safeBinDir, { recursive: true });
+      for (const f of ['tmux.cmd', 'tmux-shim.js', 'claude.cmd', 'claude-wrapper.js', 'claude-wrapper-lib.js']) {
+        const src = path.join(srcBinDir, f);
+        const dst = path.join(safeBinDir, f);
+        if (fs.existsSync(src)) fs.copyFileSync(src, dst);
+      }
+      // Create bash-compatible tmux shim (Claude Code uses bash, not cmd)
+      const bashShimContent = '#!/usr/bin/env node\nconst path = require("path");\nrequire(path.join(__dirname, "tmux-shim.js"));\n';
+      const bashShim = path.join(safeBinDir, 'tmux');
+      fs.writeFileSync(bashShim, bashShimContent);
+      try { fs.chmodSync(bashShim, 0o755); } catch {}
+
+      // Also install shim to ~/bin/ (Claude Code's Bash tool looks here first)
+      const userBinDir = path.join(os.homedir(), 'bin');
+      try {
+        if (!fs.existsSync(userBinDir)) fs.mkdirSync(userBinDir, { recursive: true });
+        fs.writeFileSync(path.join(userBinDir, 'tmux'), bashShimContent);
+        fs.copyFileSync(path.join(safeBinDir, 'tmux-shim.js'), path.join(userBinDir, 'tmux-shim.js'));
+        try { fs.chmodSync(path.join(userBinDir, 'tmux'), 0o755); } catch {}
+      } catch {}
+    } catch (err) {
+      console.error('[cmux-win] Failed to copy shim files:', err);
+    }
+    process.env.CMUX_BIN_DIR = safeBinDir;
+    // Also copy CLI script to safe path and set CMUX_CLI_PATH
+    const srcCliPath = path.join(__dirname, '../cli/cmux-win.js');
+    const safeCliPath = path.join(os.homedir(), '.cmux-win', 'cli', 'cmux-win.js');
+    try {
+      const cliDir = path.dirname(safeCliPath);
+      if (!fs.existsSync(cliDir)) fs.mkdirSync(cliDir, { recursive: true });
+      if (fs.existsSync(srcCliPath)) fs.copyFileSync(srcCliPath, safeCliPath);
+    } catch {}
+    process.env.CMUX_CLI_PATH = fs.existsSync(safeCliPath) ? safeCliPath : srcCliPath;
     console.warn(`[cmux-win] Socket API listening on port ${actualPort}`);
+    console.warn(`[cmux-win] Bin dir: ${safeBinDir}`);
 
     // Write token to file so external tools (CLI, debug) can authenticate
     const tokenPath = path.join(app.getPath('userData'), 'socket-token');

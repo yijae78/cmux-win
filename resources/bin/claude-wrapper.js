@@ -83,12 +83,12 @@ function passthrough() {
     return true;
   }).join(';');
 
+  // No TMUX env var — Claude Code connects to it as Unix socket which fails on Windows.
+  // teammateMode:'tmux' in --settings + tmux.cmd shim in PATH is sufficient.
   const env = {
     ...process.env,
     PATH: fixedPath,
     CMUX_CLAUDE_PID: String(process.pid),
-    // TMUX env var removed — Claude Code tries to connect to it as a Unix socket
-    // which doesn't exist on Windows. teammateMode:'tmux' in --settings is sufficient.
     TMUX_PANE: `%${paneIndex}`,
   };
   delete env.CLAUDECODE;

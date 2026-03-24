@@ -14,8 +14,8 @@ const BYPASS_SUBCOMMANDS = ['mcp', 'config', 'api-key', 'rc', 'remote-control'];
 function buildHookJson(cliPath) {
   const makeCmd = (sub) => `node "${cliPath}" claude-hook ${sub}`;
   return {
-    // R3: force tmux teammate mode — bypass Windows isTTY blocker (#26244)
-    teammateMode: 'tmux',
+    // teammateMode removed — it forces Claude Code to connect to tmux socket
+    // which doesn't exist on Windows. Bash tool + tmux shim handles everything.
     hooks: {
       SessionStart: [{ matcher: '', hooks: [
         { type: 'command', command: makeCmd('session-start'), timeout: 10 }] }],
