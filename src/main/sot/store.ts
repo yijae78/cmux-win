@@ -274,7 +274,7 @@ export class AppStateStore extends EventEmitter {
         break;
       }
       case 'panel.split': {
-        const { panelId, direction, newPanelType } = action.payload;
+        const { panelId, direction, newPanelType, url } = action.payload;
         const ws = draft.workspaces.find((w) => findLeaf(w.panelLayout, panelId) !== null);
         if (!ws) break;
         const newPanelId = crypto.randomUUID();
@@ -288,12 +288,17 @@ export class AppStateStore extends EventEmitter {
           isZoomed: false,
           paneIndex: this.nextPaneIndex(draft),
         });
-        draft.surfaces.push({
+        const surface: Record<string, unknown> = {
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: newPanelType,
           title: newPanelType === 'terminal' ? 'Terminal' : 'New Tab',
-        });
+        };
+        if (newPanelType === 'browser' && url) {
+          surface.browser = { url, profileId: 'default', isLoading: false };
+          surface.title = new URL(url).hostname;
+        }
+        draft.surfaces.push(surface as any);
         ws.panelLayout = replaceLeaf(ws.panelLayout, panelId, {
           type: 'split',
           direction,
@@ -438,7 +443,7 @@ export class AppStateStore extends EventEmitter {
       case 'surface.send_text':
         break; // side-effect only, handled above dispatch
       case 'agent.spawn': {
-        const { agentType, workspaceId, task } = action.payload;
+        const { agentType, workspaceId, task, cwd } = action.payload;
         const ws = draft.workspaces.find((w) => w.id === workspaceId);
         if (!ws) break;
 
@@ -460,15 +465,20 @@ export class AppStateStore extends EventEmitter {
         const teamName = workspaceId;
         const agentName = `${agentType}-${spawnedPaneIndex}`;
         const teamArgs = `--team-name "${teamName}" --agent-name "${agentName}"`;
-        const cmd = task
-          ? `${agentType} ${teamArgs} "${task}"\n`
-          : `${agentType} ${teamArgs}\n`;
+        const agentCmd = task
+          ? `${agentType} ${teamArgs} "${task}"\r`
+          : `${agentType} ${teamArgs}\r`;
+        // Prepend cd if cwd is specified (folder selection before agent spawn)
+        // Use __DELAY__ marker so XTermWrapper can split and delay between commands
+        const cmd = cwd
+          ? `cd "${cwd.replace(/\\/g, '/')}"\r__DELAY__${agentCmd}`
+          : agentCmd;
 
         draft.surfaces.push({
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: 'terminal',
-          title: `${agentType} agent`,
+          title: cwd ? `${agentType} · ${cwd.split(/[\\/]/).pop()}` : `${agentType} agent`,
           pendingCommand: cmd,
         });
 

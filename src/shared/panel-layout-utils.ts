@@ -63,6 +63,58 @@ export function updateRatioForPanel(
   };
 }
 
+/** Equalize all split ratios to 0.5 (recursive) */
+export function equalizeLayout(tree: PanelLayoutTree): PanelLayoutTree {
+  if (tree.type === 'leaf') return tree;
+  return {
+    ...tree,
+    ratio: 0.5,
+    children: [equalizeLayout(tree.children[0]), equalizeLayout(tree.children[1])],
+  };
+}
+
+/** Collect all leaf panel IDs */
+export function collectLeafIds(tree: PanelLayoutTree): string[] {
+  if (tree.type === 'leaf') return [tree.panelId];
+  return [...collectLeafIds(tree.children[0]), ...collectLeafIds(tree.children[1])];
+}
+
+/**
+ * Rebuild layout as a flat chain of splits in one direction.
+ * All panels get equal space.
+ */
+export function rebuildEqualLayout(
+  panelIds: string[],
+  direction: 'horizontal' | 'vertical',
+): PanelLayoutTree {
+  if (panelIds.length === 0) return { type: 'leaf', panelId: '' };
+  if (panelIds.length === 1) return { type: 'leaf', panelId: panelIds[0] };
+  if (panelIds.length === 2) {
+    return {
+      type: 'split',
+      direction,
+      ratio: 0.5,
+      children: [
+        { type: 'leaf', panelId: panelIds[0] },
+        { type: 'leaf', panelId: panelIds[1] },
+      ],
+    };
+  }
+  // N panels: split at midpoint for balanced tree
+  const mid = Math.ceil(panelIds.length / 2);
+  const left = panelIds.slice(0, mid);
+  const right = panelIds.slice(mid);
+  return {
+    type: 'split',
+    direction,
+    ratio: left.length / panelIds.length,
+    children: [
+      rebuildEqualLayout(left, direction),
+      rebuildEqualLayout(right, direction),
+    ],
+  };
+}
+
 /** Remove a leaf and promote its sibling */
 export function removeLeaf(tree: PanelLayoutTree, panelId: string): PanelLayoutTree | null {
   if (tree.type === 'leaf') {

@@ -391,18 +391,32 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       : true; // default to conservative if unknown
     const shellInitDelay = isPowerShell ? 1500 : 500;
 
+    // Split on __DELAY__ marker for sequential command execution (e.g., cd + claude)
+    const commandParts = pendingCommand.split('__DELAY__');
+
     let attempts = 0;
     const maxAttempts = 30; // 300ms × 30 = 9s max wait for PTY
     const tryWrite = () => {
       if (cancelled) return;
       if (ptyIdRef.current) {
+        // Write first part after shell init delay
         schedule(() => {
-          window.ptyBridge?.write(surfaceId, pendingCommand);
+          window.ptyBridge?.write(surfaceId, commandParts[0]);
+        }, shellInitDelay);
+        // Write subsequent parts with additional delays (1s each)
+        for (let i = 1; i < commandParts.length; i++) {
+          const part = commandParts[i];
+          schedule(() => {
+            window.ptyBridge?.write(surfaceId, part);
+          }, shellInitDelay + i * 1500);
+        }
+        // Clear pendingCommand after all parts are sent
+        schedule(() => {
           void dispatchRef.current?.({
             type: 'surface.update_meta',
             payload: { surfaceId, pendingCommand: null },
           });
-        }, shellInitDelay);
+        }, shellInitDelay + commandParts.length * 1500);
       } else if (++attempts < maxAttempts) {
         schedule(tryWrite, 300);
       }

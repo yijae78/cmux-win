@@ -40,6 +40,7 @@ export const PanelSplitAction = z.object({
     panelId: z.string(),
     direction: z.enum(['horizontal', 'vertical']),
     newPanelType: PanelTypeEnum,
+    url: z.string().optional(),
   }),
 });
 export const PanelCloseAction = z.object({
@@ -104,6 +105,7 @@ export const AgentSpawnAction = z.object({
     agentType: z.enum(['claude', 'codex', 'gemini', 'opencode']),
     workspaceId: z.string(),
     task: z.string().optional(),
+    cwd: z.string().optional(),
   }),
 });
 export const AgentSessionStartAction = z.object({

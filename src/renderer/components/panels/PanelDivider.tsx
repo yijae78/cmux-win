@@ -12,6 +12,8 @@ const PanelDivider: FC<PanelDividerProps> = ({ direction, onDrag }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(false);
   const isH = direction === 'horizontal';
+  const onDragRef = useRef(onDrag);
+  onDragRef.current = onDrag;
 
   return (
     <div
@@ -29,6 +31,8 @@ const PanelDivider: FC<PanelDividerProps> = ({ direction, onDrag }) => {
       onMouseDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();
+        e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
 
         const grid = ref.current?.parentElement;
         if (!grid) return;
@@ -40,13 +44,22 @@ const PanelDivider: FC<PanelDividerProps> = ({ direction, onDrag }) => {
           `position:fixed;inset:0;z-index:99999;cursor:${isH ? 'col-resize' : 'row-resize'}`;
         document.body.appendChild(overlay);
 
+        let lastRatio = 0.5;
+
         const move = (ev: MouseEvent) => {
           const r = grid.getBoundingClientRect();
           let ratio = isH
             ? (ev.clientX - r.left) / r.width
             : (ev.clientY - r.top) / r.height;
           ratio = Math.max(0.1, Math.min(0.9, ratio));
-          onDrag(ratio);
+          lastRatio = ratio;
+
+          // Immediate visual feedback via CSS grid update (no dispatch round-trip)
+          if (isH) {
+            grid.style.gridTemplateColumns = `${ratio}fr ${DIVIDER_SIZE}px ${1 - ratio}fr`;
+          } else {
+            grid.style.gridTemplateRows = `${ratio}fr ${DIVIDER_SIZE}px ${1 - ratio}fr`;
+          }
         };
 
         const up = () => {
@@ -54,6 +67,8 @@ const PanelDivider: FC<PanelDividerProps> = ({ direction, onDrag }) => {
           overlay.remove();
           document.removeEventListener('mousemove', move);
           document.removeEventListener('mouseup', up);
+          // Commit final ratio to store (one dispatch, not per-frame)
+          onDragRef.current(lastRatio);
         };
 
         document.addEventListener('mousemove', move);

@@ -17,7 +17,7 @@
  * BUG-22: createWindow returns Promise, await it, adoptOrphanWorkspaces AFTER await.
  * BUG-12: SideEffectsMiddleware with callback that calls store.emit('side-effect', effect).
  */
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Tray, Menu, nativeImage } from 'electron';
 
 // Catch uncaught exceptions from node-pty ConPTY (AttachConsole failed, etc.)
 // to prevent the entire app from crashing when a terminal is closed.
@@ -30,11 +30,18 @@ process.on('uncaughtException', (err) => {
   // Re-throw non-ConPTY errors so they still crash as expected
   throw err;
 });
+// C2: Single-instance lock — prevent 409 Conflict on Telegram polling
+// and general race conditions with socket/PTY resources.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import type { AppState } from '../shared/types';
-import { DEFAULT_SOCKET_PORT, SESSION_SAVE_DEBOUNCE_MS } from '../shared/constants';
+import { DEFAULT_SOCKET_PORT, DEFAULT_SETTINGS, SESSION_SAVE_DEBOUNCE_MS } from '../shared/constants';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { AppStateStore } from './sot/store';
 import { loadPersistedState, migrateState } from './sot/migrations/index';
@@ -64,6 +71,8 @@ import { createUpdateConfig, initAutoUpdater } from './updates/update-manager';
 import { registerPtyHandlers, writeToPty, killAllPty } from './terminal/pty-manager';
 import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
+import { TelegramBotService } from './notifications/telegram-bot';
+import { loadBotToken } from './notifications/telegram-token-store';
 
 // ---------------------------------------------------------------------------
 // 1. Load persisted state (BUG-14: clear windows for fresh session)
@@ -78,10 +87,13 @@ if (persisted) {
   const migrated = migrateState(persisted, sessionFilePath);
   // BUG-14: Save last window geometry before clearing
   lastWindowGeometry = migrated.state.windows[0]?.geometry;
+  // T1: Backfill missing settings sections from DEFAULT_SETTINGS (e.g., telegram)
+  const mergedSettings = { ...DEFAULT_SETTINGS, ...migrated.state.settings };
   // BUG-14: Clear transient state — windows, agents, workspaces, panels, surfaces
   // Every app start begins fresh with one workspace created by App.tsx
   initialState = {
     ...migrated.state,
+    settings: mergedSettings,
     windows: [],
     agents: [],
     workspaces: [],
@@ -164,6 +176,9 @@ const windowManager = new WindowManager();
 // Module-level tray reference for side-effect handler (assigned in app.whenReady)
 let appTray: Tray | null = null;
 
+// Module-level Telegram bot service (initialized in app.whenReady)
+const telegramBot = new TelegramBotService(store);
+
 store.on('side-effect', (effect: { type: string; surfaceId?: string; text?: string; title?: string; body?: string; workspaceId?: string }) => {
   if (effect.type === 'pty-write' && effect.surfaceId && effect.text !== undefined) {
     writeToPty(effect.surfaceId, effect.text);
@@ -180,6 +195,14 @@ store.on('side-effect', (effect: { type: string; surfaceId?: string; text?: stri
       const unread = computeUnreadCount(store.getState().notifications);
       appTray.setToolTip(formatTrayTitle(unread));
     }
+
+    // H1: Forward to Telegram (fire-and-forget with .catch)
+    telegramBot
+      .sendNotification(title, body, {
+        workspaceId: effect.workspaceId as string | undefined,
+        surfaceId: effect.surfaceId as string | undefined,
+      })
+      .catch((err: Error) => console.warn('[telegram] send failed:', err.message));
   }
 });
 
@@ -193,7 +216,7 @@ registerWorkspaceHandlers(router, store);
 registerPanelHandlers(router, store);
 registerSurfaceHandlers(router, store);
 registerAgentHandlers(router, store);
-registerNotificationHandlers(router, store);
+registerNotificationHandlers(router, store, app.getPath('userData'));
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 
@@ -336,6 +359,58 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Directory listing IPC handler (for file explorer)
+  ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, async (_event, dirPath: string) => {
+    try {
+      if (!path.isAbsolute(dirPath)) {
+        return { error: 'Only absolute paths are allowed' };
+      }
+      const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      const entries = dirents.map((d) => ({
+        name: d.name,
+        isDirectory: d.isDirectory(),
+        path: path.join(dirPath, d.name),
+      }));
+      // Sort: directories first, then alphabetically
+      entries.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      return { entries };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Failed to list directory' };
+    }
+  });
+
+  // Open folder dialog IPC handler (for file explorer)
+  ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FOLDER, async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { cancelled: true };
+    }
+    return { path: result.filePaths[0] };
+  });
+
+  // Telegram bot initialization
+  const telegramAppDataDir = app.getPath('userData');
+  const telegramSettings = store.getState().settings.telegram;
+  const telegramToken = loadBotToken(telegramAppDataDir);
+  void telegramBot.configure(telegramSettings, telegramToken).catch((err: Error) => {
+    console.error('[telegram] Failed to start bot:', err.message);
+  });
+
+  // Re-configure Telegram bot when settings change
+  store.on('change', (action: { type?: string }) => {
+    if (action?.type === 'settings.update') {
+      const newSettings = store.getState().settings.telegram;
+      const token = loadBotToken(telegramAppDataDir);
+      void telegramBot.configure(newSettings, token).catch((err: Error) => {
+        console.error('[telegram] Failed to reconfigure bot:', err.message);
+      });
+    }
+  });
+
   // Telemetry (stub — actual SDKs initialized when API keys present)
   const telemetryConfig = createTelemetryConfig(store.getState().settings.telemetry.enabled);
   void telemetryConfig; // acknowledge
@@ -399,6 +474,15 @@ app.whenReady().then(async () => {
   // BUG-14: Adopt orphan workspaces AFTER window creation
   store.adoptOrphanWorkspaces(windowId);
 
+  // C2: Focus existing window when second instance is launched
+  app.on('second-instance', () => {
+    const wins = BrowserWindow.getAllWindows();
+    if (wins.length > 0) {
+      if (wins[0].isMinimized()) wins[0].restore();
+      wins[0].focus();
+    }
+  });
+
   // Handle macOS reactivation
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -422,6 +506,9 @@ store.on('change', (action: { type?: string; payload?: { surfaceId?: string } })
 // Scrollback sync save before quit
 // ---------------------------------------------------------------------------
 app.on('before-quit', () => {
+  // C3: Stop Telegram bot polling BEFORE quit to prevent process hang
+  telegramBot.stop();
+
   try {
     const dir = path.dirname(scrollbackPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

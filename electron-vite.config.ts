@@ -6,7 +6,7 @@ export default defineConfig({
     build: {
       outDir: 'dist/main',
       rollupOptions: {
-        external: ['electron', 'node-pty', 'better-sqlite3'],
+        external: ['electron', 'node-pty', 'better-sqlite3', 'grammy', '@grammyjs/auto-retry'],
       },
     },
   },

@@ -15,8 +15,11 @@ export function useShortcuts(
   windowId: string | null,
   callbacks: {
     toggleSidebar: () => void;
+    toggleExplorer?: () => void;
     toggleCommandPalette?: () => void;
     toggleSettings?: () => void;
+    equalizeHorizontal?: () => void;
+    equalizeVertical?: () => void;
   },
 ): void {
   useEffect(() => {
@@ -80,11 +83,20 @@ export function useShortcuts(
         case 'toggleSidebar':
           callbacks.toggleSidebar();
           break;
+        case 'toggleExplorer':
+          callbacks.toggleExplorer?.();
+          break;
         case 'commandPalette':
           callbacks.toggleCommandPalette?.();
           break;
         case 'openSettings':
           callbacks.toggleSettings?.();
+          break;
+        case 'equalizeHorizontal':
+          callbacks.equalizeHorizontal?.();
+          break;
+        case 'equalizeVertical':
+          callbacks.equalizeVertical?.();
           break;
         case 'newSurface':
           if (activePanelId)

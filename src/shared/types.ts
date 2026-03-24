@@ -145,6 +145,13 @@ export interface SettingsState {
     geminiHooksEnabled: boolean;
     orchestrationMode: 'auto' | 'claude-teams' | 'self-managed';
   };
+  telegram: {
+    enabled: boolean;
+    chatId: string;
+    forwardNotifications: boolean;
+    remoteControl: boolean;
+    // botToken is NOT stored here — encrypted via safeStorage in separate file
+  };
   telemetry: { enabled: boolean };
   updates: { autoCheck: boolean; channel: 'stable' | 'nightly' };
   accessibility: { screenReaderMode: boolean; reducedMotion: boolean };

@@ -81,14 +81,23 @@ function computeDropDirection(
   pointerY: number,
   rect: DOMRect,
 ): DropDirection {
-  const relX = (pointerX - rect.left) / rect.width;
-  const relY = (pointerY - rect.top) / rect.height;
+  // Pixel distance from each edge
+  const pxLeft = pointerX - rect.left;
+  const pxRight = rect.right - pointerX;
+  const pxTop = pointerY - rect.top;
+  const pxBottom = rect.bottom - pointerY;
 
-  if (relX < 0.33) return 'left';
-  if (relX > 0.67) return 'right';
-  if (relY < 0.33) return 'top';
-  if (relY > 0.67) return 'bottom';
-  return 'center';
+  // Use absolute pixel distance (not relative %)
+  // This way narrow-but-tall panels can still detect top/bottom
+  const edgeThreshold = 60; // pixels from edge to trigger directional drop
+  const minPx = Math.min(pxLeft, pxRight, pxTop, pxBottom);
+
+  if (minPx > edgeThreshold) return 'center';
+
+  if (minPx === pxTop) return 'top';
+  if (minPx === pxBottom) return 'bottom';
+  if (minPx === pxLeft) return 'left';
+  return 'right';
 }
 
 /* ------------------------------------------------------------------ */
@@ -106,6 +115,9 @@ export interface PanelLayoutProps {
   onSurfaceFocus: (surfaceId: string) => void;
   onSurfaceClose: (surfaceId: string) => void;
   onNewSurface: (panelId: string) => void;
+  onOpenFolder?: () => void;
+  onEqualizeH?: () => void;
+  onEqualizeV?: () => void;
   onBrowserUrlChange?: (surfaceId: string, url: string) => void;
   onBrowserTitleChange?: (surfaceId: string, title: string) => void;
   dispatch?: (action: Action) => Promise<{ ok: boolean }>;
@@ -126,6 +138,9 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
   onSurfaceFocus,
   onSurfaceClose,
   onNewSurface,
+  onOpenFolder,
+  onEqualizeH,
+  onEqualizeV,
   onBrowserUrlChange,
   onBrowserTitleChange,
   dispatch,
@@ -157,12 +172,28 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
         onSurfaceFocus={onSurfaceFocus}
         onSurfaceClose={onSurfaceClose}
         onNewSurface={onNewSurface}
+        onOpenFolder={onOpenFolder}
+        onEqualizeH={onEqualizeH}
+        onEqualizeV={onEqualizeV}
         onBrowserUrlChange={onBrowserUrlChange}
         onBrowserTitleChange={onBrowserTitleChange}
         dispatch={dispatch}
       />
     );
   }
+
+  /* ---- Split node: check if children have any live panels (recursive) ---- */
+  const hasLivePanels = (node: typeof layout): boolean => {
+    if (node.type === 'leaf') return panels.some((p) => p.id === node.panelId);
+    return hasLivePanels(node.children[0]) || hasLivePanels(node.children[1]);
+  };
+  const leftHasPanel = hasLivePanels(layout.children[0]);
+  const rightHasPanel = hasLivePanels(layout.children[1]);
+  // Collapse: render only the side that has panels
+  if (!leftHasPanel && !rightHasPanel) return null;
+  const innerProps = { panels, surfaces, activePanelId, settings, workspaceId, onPanelFocus, onResize, onSurfaceFocus, onSurfaceClose, onNewSurface, onOpenFolder, onEqualizeH, onEqualizeV, onBrowserUrlChange, onBrowserTitleChange, dispatch };
+  if (!leftHasPanel) return <PanelLayoutInner layout={layout.children[1]} {...innerProps} />;
+  if (!rightHasPanel) return <PanelLayoutInner layout={layout.children[0]} {...innerProps} />;
 
   /* ---- Split node: recursive CSS Grid with 6px divider ---- */
   const isHorizontal = layout.direction === 'horizontal';
@@ -194,6 +225,9 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
         onSurfaceFocus={onSurfaceFocus}
         onSurfaceClose={onSurfaceClose}
         onNewSurface={onNewSurface}
+        onOpenFolder={onOpenFolder}
+        onEqualizeH={onEqualizeH}
+        onEqualizeV={onEqualizeV}
         onBrowserUrlChange={onBrowserUrlChange}
         onBrowserTitleChange={onBrowserTitleChange}
         dispatch={dispatch}
@@ -211,6 +245,9 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
         onSurfaceFocus={onSurfaceFocus}
         onSurfaceClose={onSurfaceClose}
         onNewSurface={onNewSurface}
+        onOpenFolder={onOpenFolder}
+        onEqualizeH={onEqualizeH}
+        onEqualizeV={onEqualizeV}
         onBrowserUrlChange={onBrowserUrlChange}
         onBrowserTitleChange={onBrowserTitleChange}
         dispatch={dispatch}
@@ -245,11 +282,23 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
   // Track global pointer position during drag for directional detection
   const pointerPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Listen for pointermove on window during active drag
+  // Track pointer position + continuously update drop direction during drag
+  const lastOverIdRef = useRef<string | null>(null);
+  const lastOverRectRef = useRef<DOMRect | null>(null);
+
   useEffect(() => {
-    if (!activeDragPanelId) return;
+    if (!activeDragPanelId) {
+      lastOverIdRef.current = null;
+      lastOverRectRef.current = null;
+      return;
+    }
     const handler = (e: PointerEvent) => {
       pointerPos.current = { x: e.clientX, y: e.clientY };
+      // Continuously recompute drop direction while hovering over a droppable
+      if (lastOverIdRef.current && lastOverRectRef.current) {
+        const direction = computeDropDirection(e.clientX, e.clientY, lastOverRectRef.current);
+        setDropTarget({ panelId: lastOverIdRef.current, direction });
+      }
     };
     window.addEventListener('pointermove', handler);
     return () => window.removeEventListener('pointermove', handler);
@@ -273,17 +322,23 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
 
       if (!overPanelId || !fromPanelId || fromPanelId === overPanelId) {
         setDropTarget(null);
+        lastOverIdRef.current = null;
+        lastOverRectRef.current = null;
         return;
       }
 
-      // Find the droppable element's bounding rect
+      // Cache the droppable rect so pointermove can recompute direction in real-time
       const dropNode = event.over?.rect;
-      if (!dropNode) {
+      if (dropNode) {
+        lastOverRectRef.current = new DOMRect(dropNode.left, dropNode.top, dropNode.width, dropNode.height);
+      }
+      lastOverIdRef.current = overPanelId;
+
+      const rect = lastOverRectRef.current;
+      if (!rect) {
         setDropTarget({ panelId: overPanelId, direction: 'center' });
         return;
       }
-
-      const rect = new DOMRect(dropNode.left, dropNode.top, dropNode.width, dropNode.height);
       const direction = computeDropDirection(pointerPos.current.x, pointerPos.current.y, rect);
       setDropTarget({ panelId: overPanelId, direction });
     },
@@ -292,35 +347,45 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const currentDropTarget = dropTarget;
+      // Now clear state
       setActiveDragPanelId(null);
       setDropTarget(null);
+      lastOverIdRef.current = null;
+      lastOverRectRef.current = null;
 
       const fromPanelId = event.active.data.current?.panelId as string | undefined;
-      const toPanelId = event.over?.data.current?.panelId as string | undefined;
+      if (!fromPanelId || !dispatch) return;
 
-      if (!fromPanelId || !toPanelId || fromPanelId === toPanelId) return;
-      if (!dispatch) return;
-
-      const direction = currentDropTarget?.panelId === toPanelId
-        ? currentDropTarget.direction
-        : 'center';
-
-      if (direction === 'center') {
-        // Swap panels (existing behavior)
-        void dispatch({
-          type: 'panel.swap',
-          payload: { panelId1: fromPanelId, panelId2: toPanelId },
-        });
-      } else {
-        // Directional move
-        void dispatch({
-          type: 'panel.move',
-          payload: { sourcePanelId: fromPanelId, targetPanelId: toPanelId, direction },
-        });
+      // Check if dropped on an edge zone (EdgeDropZone provides direction directly)
+      const overData = event.over?.data.current as { panelId?: string; direction?: DropDirection; isEdgeDrop?: boolean } | undefined;
+      if (overData?.isEdgeDrop && overData.panelId && overData.direction) {
+        const toPanelId = overData.panelId;
+        const direction = overData.direction;
+        if (fromPanelId === toPanelId) {
+          // Self-drop: split this panel in the given direction
+          void dispatch({
+            type: 'panel.split',
+            payload: { panelId: fromPanelId, direction: direction === 'left' || direction === 'right' ? 'horizontal' : 'vertical', newPanelType: 'terminal' },
+          });
+        } else {
+          void dispatch({
+            type: 'panel.move',
+            payload: { sourcePanelId: fromPanelId, targetPanelId: toPanelId, direction },
+          });
+        }
+        return;
       }
+
+      // Fallback: dropped on panel body (center = swap)
+      const toPanelId = overData?.panelId;
+      if (!toPanelId || fromPanelId === toPanelId) return;
+
+      void dispatch({
+        type: 'panel.swap',
+        payload: { panelId1: fromPanelId, panelId2: toPanelId },
+      });
     },
-    [dispatch, dropTarget],
+    [dispatch],
   );
 
   const handleDragCancel = useCallback(() => {

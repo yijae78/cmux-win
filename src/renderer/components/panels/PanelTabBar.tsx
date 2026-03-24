@@ -23,6 +23,7 @@ export interface PanelTabBarProps {
   onSurfaceFocus: (surfaceId: string) => void;
   onSurfaceClose: (surfaceId: string) => void;
   onNewSurface: () => void;
+  onOpenFolder?: () => void;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
   onPanelClose?: () => void;
@@ -41,6 +42,7 @@ const PanelTabBar: FC<PanelTabBarProps> = ({
   onSurfaceFocus,
   onSurfaceClose,
   onNewSurface,
+  onOpenFolder,
   onSplitRight,
   onSplitDown,
   onPanelClose,
@@ -112,7 +114,17 @@ const PanelTabBar: FC<PanelTabBarProps> = ({
       {/* Spacer pushes split buttons to the right */}
       <div style={{ flex: 1 }} />
 
-      {/* Split buttons — Cursor-style icons with labels */}
+      {/* Open folder button */}
+      {onOpenFolder && (
+        <SplitButton
+          icon={<span style={{ fontSize: '12px' }}>{'\uD83D\uDCC2'}</span>}
+          label=""
+          tooltip="Open Folder"
+          onClick={onOpenFolder}
+        />
+      )}
+
+      {/* Split buttons */}
       {onSplitRight && (
         <SplitButton
           icon={<SplitRightIcon />}
@@ -274,8 +286,8 @@ const SplitButton: FC<SplitButtonProps> = ({ icon, label, tooltip, onClick }) =>
         height: '24px',
         display: 'flex',
         alignItems: 'center',
-        gap: '5px',
-        padding: '0 10px',
+        justifyContent: 'center',
+        padding: '0 6px',
         cursor: 'pointer',
         color: hovered ? '#fff' : '#bbb',
         background: hovered ? ACCENT : 'rgba(255,255,255,0.06)',
@@ -289,7 +301,6 @@ const SplitButton: FC<SplitButtonProps> = ({ icon, label, tooltip, onClick }) =>
       }}
     >
       {icon}
-      <span>{label}</span>
     </div>
   );
 };

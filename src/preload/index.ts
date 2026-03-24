@@ -163,6 +163,14 @@ contextBridge.exposeInMainWorld('cmuxFile', {
   readFile(filePath: string): Promise<{ content: string } | { error: string }> {
     return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath);
   },
+  listDirectory(
+    dirPath: string,
+  ): Promise<{ entries: Array<{ name: string; isDirectory: boolean; path: string }> } | { error: string }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath);
+  },
+  openFolderDialog(): Promise<{ path: string } | { cancelled: true }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER);
+  },
 });
 
 // ---------------------------------------------------------------------------

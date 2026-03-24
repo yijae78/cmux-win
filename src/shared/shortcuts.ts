@@ -50,10 +50,13 @@ export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
 
   // View
   { id: 'toggleSidebar', label: 'Toggle Sidebar', defaultKey: 'Ctrl+B', category: 'view' },
+  { id: 'toggleExplorer', label: 'Toggle File Explorer', defaultKey: 'Ctrl+E', category: 'view' },
   { id: 'newWindow', label: 'New Window', defaultKey: 'Ctrl+Shift+N', category: 'view' },
   { id: 'closeWindow', label: 'Close Window', defaultKey: 'Ctrl+Alt+W', category: 'view' },
   { id: 'commandPalette', label: 'Command Palette', defaultKey: 'Ctrl+Shift+P', category: 'view' },
   { id: 'openSettings', label: 'Open Settings', defaultKey: 'Ctrl+,', category: 'view' },
+  { id: 'equalizeHorizontal', label: 'Equal Width (Horizontal)', defaultKey: 'Ctrl+Shift+=', category: 'view' },
+  { id: 'equalizeVertical', label: 'Equal Height (Vertical)', defaultKey: 'Ctrl+Alt+=', category: 'view' },
 ];
 
 export function parseKeyCombo(key: string): {

@@ -10,6 +10,39 @@ import type {
 } from '../../../shared/types';
 import WorkspaceItem from './WorkspaceItem';
 import SidebarFooter from './SidebarFooter';
+import FileExplorer from '../explorer/FileExplorer';
+
+/* ── SidebarWebLink ──────────────────────────────────────────────────── */
+const SidebarWebLink: FC<{ label: string; icon: string; onClick: () => void }> = ({ label, icon, onClick }) => (
+  <button
+    onClick={onClick}
+    title={label}
+    style={{
+      width: '100%',
+      padding: '4px 12px',
+      background: 'none',
+      border: 'none',
+      color: '#999',
+      cursor: 'pointer',
+      fontSize: '11px',
+      textAlign: 'left',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+      e.currentTarget.style.color = '#e0e0e0';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'none';
+      e.currentTarget.style.color = '#999';
+    }}
+  >
+    <span style={{ fontSize: '12px' }}>{icon}</span>
+    <span>{label}</span>
+  </button>
+);
 
 /* ── Color constants ─────────────────────────────────────────────────── */
 const SIDEBAR_BG = '#1a1a2e';
@@ -34,6 +67,15 @@ export interface SidebarProps {
   panels?: PanelState[];
   windowId: string;
   dispatch: (action: unknown) => Promise<{ ok: boolean }>;
+  explorerVisible?: boolean;
+  explorerRootPath?: string;
+  openedProjects?: string[];
+  onProjectSelect?: (path: string) => void;
+  onExplorerNavigate?: (dirPath: string) => void;
+  onExplorerOpenFolder?: () => void;
+  onOpenClaudeWeb?: (url: string) => void;
+  onEqualizeH?: () => void;
+  onEqualizeV?: () => void;
 }
 
 const Sidebar: FC<SidebarProps> = ({
@@ -45,6 +87,15 @@ const Sidebar: FC<SidebarProps> = ({
   panels,
   windowId,
   dispatch,
+  explorerVisible,
+  explorerRootPath,
+  openedProjects,
+  onProjectSelect,
+  onExplorerNavigate,
+  onExplorerOpenFolder,
+  onOpenClaudeWeb,
+  onEqualizeH,
+  onEqualizeV,
 }) => {
   const { t } = useTranslation();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -91,13 +142,31 @@ const Sidebar: FC<SidebarProps> = ({
     void dispatch({ type: 'workspace.create', payload: { windowId } });
   }, [dispatch, windowId]);
 
-  const handleSpawnAgent = useCallback((agentType: string) => {
+  const handleSpawnAgent = useCallback(async (agentType: string) => {
     if (!activeWorkspaceId) return;
+    // Ask for project folder first
+    let folderPath: string | undefined;
+    if (window.cmuxFile?.openFolderDialog) {
+      const result = await window.cmuxFile.openFolderDialog();
+      if ('path' in result) {
+        folderPath = result.path;
+      } else {
+        return; // cancelled — don't spawn
+      }
+    }
     void dispatch({
       type: 'agent.spawn',
-      payload: { agentType, workspaceId: activeWorkspaceId },
+      payload: {
+        agentType,
+        workspaceId: activeWorkspaceId,
+        cwd: folderPath,
+      },
     });
-  }, [dispatch, activeWorkspaceId]);
+    // Show explorer with the selected folder
+    if (folderPath && onExplorerOpenFolder) {
+      // Trigger explorer to show this folder — parent will handle state
+    }
+  }, [dispatch, activeWorkspaceId, onExplorerOpenFolder]);
 
   return (
     <div
@@ -121,11 +190,13 @@ const Sidebar: FC<SidebarProps> = ({
       {/* Top padding (traffic-light clearance zone) */}
       <div style={{ height: `${TOP_PADDING}px`, flexShrink: 0 }} />
 
-      {/* Header label */}
+      {/* Header label + equalize buttons */}
       <div
         style={{
-          padding: '0 12px 4px',
+          padding: '0 8px 4px 12px',
           flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
         }}
       >
         <span
@@ -136,16 +207,41 @@ const Sidebar: FC<SidebarProps> = ({
             textTransform: 'uppercase',
             letterSpacing: '0.8px',
             opacity: 0.5,
+            flex: 1,
           }}
         >
           {t('sidebar.workspaces')}
         </span>
+        {onEqualizeH && (
+          <button
+            onClick={onEqualizeH}
+            title="Equal Width (Ctrl+Shift+=)"
+            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '0 3px', lineHeight: 1 }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+          >
+            ⊞
+          </button>
+        )}
+        {onEqualizeV && (
+          <button
+            onClick={onEqualizeV}
+            title="Equal Height (Ctrl+Alt+=)"
+            style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '0 3px', lineHeight: 1 }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; }}
+          >
+            ⊟
+          </button>
+        )}
       </div>
 
-      {/* Scrollable tab list */}
+      {/* Workspace list — compact when explorer is visible */}
       <div
         style={{
-          flex: 1,
+          flexShrink: explorerVisible ? 1 : 0,
+          maxHeight: explorerVisible ? '30%' : undefined,
+          flex: explorerVisible ? undefined : 1,
           overflowY: 'auto',
           overflowX: 'hidden',
           paddingTop: `${LIST_PADDING_Y}px`,
@@ -183,12 +279,39 @@ const Sidebar: FC<SidebarProps> = ({
         ))}
       </div>
 
-      {/* Footer */}
-      <SidebarFooter
-        onNewWorkspace={handleCreateWorkspace}
-        onNewAgent={handleSpawnAgent}
-        hasActiveWorkspace={activeWorkspaceId !== null}
-      />
+      {/* File Explorer — shown below workspace list */}
+      {explorerVisible && (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            overflow: 'hidden',
+          }}
+        >
+          <FileExplorer
+            rootPath={explorerRootPath}
+            openedProjects={openedProjects}
+            onProjectSelect={onProjectSelect}
+            onNavigate={onExplorerNavigate ?? (() => {})}
+            onOpenFolder={onExplorerOpenFolder}
+          />
+        </div>
+      )}
+
+      {/* Quick actions bar — AI services + new workspace */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.08)', padding: '4px 0' }}>
+        {onOpenClaudeWeb && (
+          <>
+            <SidebarWebLink label="Claude.ai" icon={'\uD83E\uDDE0'} onClick={() => onOpenClaudeWeb('https://claude.ai')} />
+            <SidebarWebLink label="Gemini" icon={'\uD83D\uDC8E'} onClick={() => onOpenClaudeWeb('https://gemini.google.com')} />
+            <SidebarWebLink label="ChatGPT" icon={'\uD83E\uDD16'} onClick={() => onOpenClaudeWeb('https://chatgpt.com')} />
+          </>
+        )}
+        <SidebarFooter
+          onNewWorkspace={handleCreateWorkspace}
+        />
+      </div>
 
       {/* Resize handle (right edge) */}
       <div

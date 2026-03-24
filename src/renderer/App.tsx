@@ -20,8 +20,10 @@ import { useTranslation } from 'react-i18next';
 import { useAppState } from './hooks/useAppState';
 import { useDispatch } from './hooks/useDispatch';
 import { useShortcuts } from './hooks/useShortcuts';
+import FileExplorer from './components/explorer/FileExplorer';
 import type { AppState } from '../shared/types';
 import { DEFAULT_SETTINGS } from '../shared/constants';
+import { collectLeafIds, rebuildEqualLayout } from '../shared/panel-layout-utils';
 import Sidebar from './components/sidebar/Sidebar';
 import PanelLayout from './components/panels/PanelLayout';
 import PanelContainer from './components/panels/PanelContainer';
@@ -101,12 +103,7 @@ function createMockState(): AppState {
 // ---------------------------------------------------------------------------
 // Window control handler (safe in standalone mode)
 // ---------------------------------------------------------------------------
-function handleOpenCwd(cwd: string | undefined): void {
-  if (!cwd) return;
-  // Use Electron shell.openPath via the OS — we send a simple IPC
-  // For now, window.open is not suitable. We'll rely on the cmuxWin bridge.
-  // Fallback: no-op if cwd is unavailable.
-}
+// handleOpenCwd is now handled inline via openFolderDialog
 
 export default function App() {
   const { t } = useTranslation();
@@ -115,6 +112,10 @@ export default function App() {
   const [windowId, setWindowId] = useState<string | null>(isStandalone ? 'win-1' : null);
   const [initialized, setInitialized] = useState(isStandalone);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [explorerVisible, setExplorerVisible] = useState(false);
+  const [explorerRootPath, setExplorerRootPath] = useState<string | undefined>(undefined);
+  const [openedProjects, setOpenedProjects] = useState<string[]>([]);
+  const [firstFolderOpened, setFirstFolderOpened] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
 
@@ -131,12 +132,31 @@ export default function App() {
 
   // Keyboard shortcuts
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
+  const toggleExplorer = useCallback(() => setExplorerVisible((v) => !v), []);
   const toggleCommandPalette = useCallback(() => setCommandPaletteVisible((v) => !v), []);
   const toggleSettings = useCallback(() => setSettingsVisible((v) => !v), []);
+  const equalizeLayout = useCallback(
+    (direction: 'horizontal' | 'vertical') => {
+      if (!appState) return;
+      const activeWs = appState.workspaces.find((w) => w.id === appState.focus.activeWorkspaceId);
+      if (!activeWs?.panelLayout) return;
+      const panelIds = collectLeafIds(activeWs.panelLayout);
+      if (panelIds.length <= 1) return;
+      const newLayout = rebuildEqualLayout(panelIds, direction);
+      void dispatch({
+        type: 'workspace.set_layout',
+        payload: { workspaceId: activeWs.id, panelLayout: newLayout },
+      });
+    },
+    [appState, dispatch],
+  );
   useShortcuts(appState, dispatch, windowId, {
     toggleSidebar,
+    toggleExplorer,
     toggleCommandPalette,
     toggleSettings,
+    equalizeHorizontal: () => equalizeLayout('horizontal'),
+    equalizeVertical: () => equalizeLayout('vertical'),
   });
 
   // Auto-create initial workspace when state is ready and no workspaces exist
@@ -180,6 +200,13 @@ export default function App() {
       : null;
     return activeSurface?.terminal?.cwd;
   }, [appState]);
+
+  // Sync explorer root with active terminal CWD (auto-switch on focus change)
+  useEffect(() => {
+    if (activeCwd && explorerVisible) {
+      setExplorerRootPath(activeCwd);
+    }
+  }, [activeCwd, explorerVisible]);
 
   // -------------------------------------------------------------------------
   // Loading state
@@ -236,6 +263,58 @@ export default function App() {
             panels={appState.panels}
             windowId={windowId}
             dispatch={dispatch}
+            explorerVisible={explorerVisible}
+            explorerRootPath={explorerRootPath}
+            openedProjects={openedProjects}
+            onProjectSelect={(path) => setExplorerRootPath(path)}
+            onExplorerNavigate={(dirPath) => {
+              const surfaceId = appState?.focus.activeSurfaceId;
+              if (surfaceId) {
+                void dispatch({
+                  type: 'surface.send_text',
+                  payload: { surfaceId, text: `cd "${dirPath.replace(/\\/g, '/')}"\r` },
+                });
+              }
+            }}
+            onExplorerOpenFolder={async () => {
+              if (!window.cmuxFile?.openFolderDialog) return;
+              const result = await window.cmuxFile.openFolderDialog();
+              if ('path' in result) {
+                const folderPath = result.path;
+                setExplorerRootPath(folderPath);
+                setExplorerVisible(true);
+                setOpenedProjects((prev) =>
+                  prev.includes(folderPath) ? prev : [...prev, folderPath],
+                );
+                const surfaceId = appState?.focus.activeSurfaceId;
+                if (surfaceId) {
+                  void dispatch({
+                    type: 'surface.send_text',
+                    payload: { surfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                  });
+                  if (!firstFolderOpened) {
+                    setFirstFolderOpened(true);
+                    setTimeout(() => {
+                      void dispatch({
+                        type: 'surface.send_text',
+                        payload: { surfaceId, text: 'claude\r' },
+                      });
+                    }, 500);
+                  }
+                }
+              }
+            }}
+            onOpenClaudeWeb={(url: string) => {
+              const activePanelId = appState?.focus.activePanelId;
+              if (activePanelId) {
+                void dispatch({
+                  type: 'panel.split',
+                  payload: { panelId: activePanelId, direction: 'horizontal', newPanelType: 'browser', url },
+                });
+              }
+            }}
+            onEqualizeH={() => equalizeLayout('horizontal')}
+            onEqualizeV={() => equalizeLayout('vertical')}
           />
         </div>
 
@@ -258,14 +337,14 @@ export default function App() {
               userSelect: 'none',
             }}
           >
-            {/* Left: folder icon — clickable, opens CWD */}
+            {/* Left: folder icon — toggle file explorer */}
             <button
-              onClick={() => handleOpenCwd(activeCwd)}
-              title={activeCwd ?? 'Open folder'}
+              onClick={() => setExplorerVisible((v) => !v)}
+              title={explorerVisible ? 'Hide Explorer (Ctrl+E)' : 'Show Explorer (Ctrl+E)'}
               style={{
-                background: 'none',
+                background: explorerVisible ? 'rgba(0,145,255,0.15)' : 'none',
                 border: 'none',
-                color: '#999',
+                color: explorerVisible ? '#0091FF' : '#999',
                 cursor: 'pointer',
                 fontSize: '14px',
                 padding: '0 2px',
@@ -463,6 +542,36 @@ export default function App() {
                       payload: { panelId: id, surfaceType: 'terminal' },
                     })
                   }
+                  onOpenFolder={async () => {
+                    if (!window.cmuxFile?.openFolderDialog) return;
+                    const result = await window.cmuxFile.openFolderDialog();
+                    if ('path' in result) {
+                      const folderPath = result.path;
+                      setExplorerRootPath(folderPath);
+                      setExplorerVisible(true);
+                      setOpenedProjects((prev) =>
+                        prev.includes(folderPath) ? prev : [...prev, folderPath],
+                      );
+                      const sid = appState?.focus.activeSurfaceId;
+                      if (sid) {
+                        void dispatch({
+                          type: 'surface.send_text',
+                          payload: { surfaceId: sid, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                        });
+                        if (!firstFolderOpened) {
+                          setFirstFolderOpened(true);
+                          setTimeout(() => {
+                            void dispatch({
+                              type: 'surface.send_text',
+                              payload: { surfaceId: sid, text: 'claude\r' },
+                            });
+                          }, 500);
+                        }
+                      }
+                    }
+                  }}
+                  onEqualizeH={() => equalizeLayout('horizontal')}
+                  onEqualizeV={() => equalizeLayout('vertical')}
                   onBrowserUrlChange={(sid, u) =>
                     void dispatch({
                       type: 'surface.update_meta',
@@ -503,6 +612,36 @@ export default function App() {
                       payload: { panelId: id, surfaceType: 'terminal' },
                     })
                   }
+                  onOpenFolder={async () => {
+                    if (!window.cmuxFile?.openFolderDialog) return;
+                    const result = await window.cmuxFile.openFolderDialog();
+                    if ('path' in result) {
+                      const folderPath = result.path;
+                      setExplorerRootPath(folderPath);
+                      setExplorerVisible(true);
+                      setOpenedProjects((prev) =>
+                        prev.includes(folderPath) ? prev : [...prev, folderPath],
+                      );
+                      const sid = appState?.focus.activeSurfaceId;
+                      if (sid) {
+                        void dispatch({
+                          type: 'surface.send_text',
+                          payload: { surfaceId: sid, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                        });
+                        if (!firstFolderOpened) {
+                          setFirstFolderOpened(true);
+                          setTimeout(() => {
+                            void dispatch({
+                              type: 'surface.send_text',
+                              payload: { surfaceId: sid, text: 'claude\r' },
+                            });
+                          }, 500);
+                        }
+                      }
+                    }
+                  }}
+                  onEqualizeH={() => equalizeLayout('horizontal')}
+                  onEqualizeV={() => equalizeLayout('vertical')}
                   onBrowserUrlChange={(sid, u) =>
                     void dispatch({
                       type: 'surface.update_meta',

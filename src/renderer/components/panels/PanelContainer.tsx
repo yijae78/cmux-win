@@ -2,12 +2,13 @@ import React from 'react';
 import { type FC, useState, useEffect, useRef, useCallback, useContext } from 'react';
 import type { PanelState, SurfaceState, SettingsState } from '../../../shared/types';
 import type { Action } from '../../../shared/actions';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable, useDndContext } from '@dnd-kit/core';
 import XTermWrapper from '../terminal/XTermWrapper';
 import BrowserSurface from '../browser/BrowserSurface';
 import MarkdownViewer from '../markdown/MarkdownViewer';
 import PanelTabBar from './PanelTabBar';
 import { DropTargetContext, type DropDirection } from './PanelLayout';
+import EdgeDropZone from './EdgeDropZone';
 
 /* ------------------------------------------------------------------ */
 /*  Constants -- Bonsplit design                                        */
@@ -125,6 +126,9 @@ export interface PanelContainerProps {
   onSurfaceFocus: (surfaceId: string) => void;
   onSurfaceClose: (surfaceId: string) => void;
   onNewSurface: (panelId: string) => void;
+  onOpenFolder?: () => void;
+  onEqualizeH?: () => void;
+  onEqualizeV?: () => void;
   onBrowserUrlChange?: (surfaceId: string, url: string) => void;
   onBrowserTitleChange?: (surfaceId: string, title: string) => void;
   dispatch?: (action: Action) => Promise<{ ok: boolean }>;
@@ -143,6 +147,9 @@ const PanelContainer: FC<PanelContainerProps> = ({
   onSurfaceFocus,
   onSurfaceClose,
   onNewSurface,
+  onOpenFolder,
+  onEqualizeH,
+  onEqualizeV,
   onBrowserUrlChange,
   onBrowserTitleChange,
   dispatch,
@@ -197,6 +204,10 @@ const PanelContainer: FC<PanelContainerProps> = ({
   // Determine if we should show the directional drop indicator
   const showDropIndicator = isOver && !isDragging && isDropTarget && dropDirection !== null;
 
+  // Detect if any drag is active (for edge drop zones)
+  const { active: dndActive } = useDndContext();
+  const isDragActiveGlobal = dndActive !== null;
+
   return (
     <div
       ref={setDropRef}
@@ -224,6 +235,9 @@ const PanelContainer: FC<PanelContainerProps> = ({
         onSurfaceFocus={onSurfaceFocus}
         onSurfaceClose={onSurfaceClose}
         onNewSurface={() => onNewSurface(panel.id)}
+        onOpenFolder={onOpenFolder}
+        onEqualizeH={onEqualizeH}
+        onEqualizeV={onEqualizeV}
         onSplitRight={
           dispatch
             ? () =>
@@ -317,28 +331,11 @@ const PanelContainer: FC<PanelContainerProps> = ({
         </div>
       )}
 
-      {/* Fallback: uniform blue overlay when isOver but no directional context */}
-      {isOver && !isDragging && !showDropIndicator && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            border: `4px solid ${DROP_BORDER_COLOR}`,
-            background: DROP_HIGHLIGHT,
-            borderRadius: '8px',
-            pointerEvents: 'none',
-            zIndex: 10,
-            boxShadow: `inset 0 0 20px rgba(0, 145, 255, 0.15), 0 0 15px rgba(0, 145, 255, 0.3)`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <span style={{ color: '#0091FF', fontSize: '24px', fontWeight: 'bold', opacity: 0.7 }}>
-            {'\u2B07 Drop here'}
-          </span>
-        </div>
-      )}
+      {/* Edge drop zones — visible during any active drag */}
+      <EdgeDropZone panelId={panel.id} direction="top" isDragActive={isDragActiveGlobal} />
+      <EdgeDropZone panelId={panel.id} direction="bottom" isDragActive={isDragActiveGlobal} />
+      <EdgeDropZone panelId={panel.id} direction="left" isDragActive={isDragActiveGlobal} />
+      <EdgeDropZone panelId={panel.id} direction="right" isDragActive={isDragActiveGlobal} />
     </div>
   );
 };
