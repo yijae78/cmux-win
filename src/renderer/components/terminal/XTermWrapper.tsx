@@ -209,8 +209,29 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           ptyIdRef.current = surfaceId;
 
           // Wire data: PTY → terminal
+          // Track whether CLI name has been detected for tab title
+          let cliDetected = false;
           window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
+            // Auto-detect CLI name from PTY output (first match only)
+            if (!cliDetected && dispatchRef.current) {
+              const lower = data.toLowerCase();
+              let cliName = '';
+              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing'))) {
+                cliName = 'Claude';
+              } else if (lower.includes('gemini') || lower.includes('google ai')) {
+                cliName = 'Gemini';
+              } else if (lower.includes('codex') || lower.includes('openai')) {
+                cliName = 'Codex';
+              }
+              if (cliName) {
+                cliDetected = true;
+                void dispatchRef.current({
+                  type: 'surface.update_meta',
+                  payload: { surfaceId, title: cliName },
+                });
+              }
+            }
           });
 
           // Wire exit
@@ -257,6 +278,19 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           }
           return true;
         });
+
+        // OSC 0/2: Set terminal title (used by shells and CLI tools)
+        const handleTitleOsc = (data: string) => {
+          if (data && dispatchRef.current) {
+            void dispatchRef.current({
+              type: 'surface.update_meta',
+              payload: { surfaceId, title: data },
+            });
+          }
+          return true;
+        };
+        terminal.parser.registerOscHandler(0, handleTitleOsc);
+        terminal.parser.registerOscHandler(2, handleTitleOsc);
 
         // OSC 9: iTerm2 notification — data is the notification text
         terminal.parser.registerOscHandler(9, (data) => {

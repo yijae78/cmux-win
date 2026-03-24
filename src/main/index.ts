@@ -220,7 +220,7 @@ registerNotificationHandlers(router, store, app.getPath('userData'));
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 
-const socketServer = new SocketApiServer(router);
+const socketServer = new SocketApiServer(router, store.getState().settings.socket.mode as any);
 
 // Module-level so window-all-closed can access it
 let historyDb: HistoryDb | null = null;

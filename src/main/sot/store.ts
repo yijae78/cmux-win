@@ -465,9 +465,25 @@ export class AppStateStore extends EventEmitter {
         const teamName = workspaceId;
         const agentName = `${agentType}-${spawnedPaneIndex}`;
         const teamArgs = `--team-name "${teamName}" --agent-name "${agentName}"`;
-        const agentCmd = task
-          ? `${agentType} ${teamArgs} "${task}"\r`
-          : `${agentType} ${teamArgs}\r`;
+        // CLI-specific launch modes:
+        // - Claude: interactive + team args (send_text works)
+        // - Gemini: -p (headless) + -y (yolo auto-approve)
+        // - Codex: --full-auto (sandboxed auto-approve)
+        let agentCmd: string;
+        if (agentType === 'gemini') {
+          agentCmd = task
+            ? `gemini -p "${task}" -y\r`
+            : `gemini\r`;
+        } else if (agentType === 'codex') {
+          agentCmd = task
+            ? `codex --full-auto "${task}"\r`
+            : `codex\r`;
+        } else {
+          // claude, opencode: interactive
+          agentCmd = task
+            ? `${agentType} ${teamArgs} "${task}"\r`
+            : `${agentType} ${teamArgs}\r`;
+        }
         // Prepend cd if cwd is specified (folder selection before agent spawn)
         // Use __DELAY__ marker so XTermWrapper can split and delay between commands
         const cmd = cwd

@@ -105,6 +105,9 @@ export function registerPtyHandlers(): void {
       // Register data/exit listeners and forward to all renderer windows
       const ptyId = result.id;
 
+      // Auto-approve: track last approval time to prevent spam
+      const autoApproveCooldowns = new Map<string, number>();
+
       bridge.onData(ptyId, (data) => {
         // BUG-D fix: append to live buffer (raw, unfiltered) for surface.read
         let buf = (liveBuffers.get(surfaceId) ?? '') + data;
@@ -112,6 +115,30 @@ export function registerPtyHandlers(): void {
           buf = buf.slice(buf.length - MAX_LIVE_BUFFER);
         }
         liveBuffers.set(surfaceId, buf);
+
+        // Real-time auto-approve: check last ~2000 chars for approval patterns
+        const tail = buf.slice(-2000);
+        const stripped = tail.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+        const now = Date.now();
+        const lastApproval = autoApproveCooldowns.get(surfaceId) ?? 0;
+        if (now - lastApproval > 1500) { // 1.5s cooldown between approvals
+          const needsApproval =
+            // Claude patterns
+            stripped.includes('Do you want to create') ||
+            stripped.includes('Do you want to') ||
+            (stripped.includes('1. Yes') && stripped.includes('Esc to cancel')) ||
+            // Gemini patterns
+            stripped.includes('Allow once') ||
+            stripped.includes('Apply this change') ||
+            stripped.includes('Allow for this session') ||
+            // Codex patterns
+            stripped.includes('Press enter to confirm') ||
+            stripped.includes('Yes, proceed');
+          if (needsApproval) {
+            autoApproveCooldowns.set(surfaceId, now);
+            bridge.write(ptyId, '\r');
+          }
+        }
 
         // Filter source/citation lines from display (Cursor-style)
         const filtered = filterSources(surfaceId, data);

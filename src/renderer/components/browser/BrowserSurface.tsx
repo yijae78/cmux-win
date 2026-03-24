@@ -11,6 +11,7 @@ type WebviewHTMLAttributes = React.DetailedHTMLProps<
     partition?: string;
     allowpopups?: string;
     webpreferences?: string;
+    useragent?: string;
   },
   HTMLElement
 >;
@@ -28,6 +29,10 @@ declare global {
 // Electron Webview element interface for ref typing
 interface WebviewElement extends HTMLElement {
   getURL(): string;
+  setZoomFactor(factor: number): void;
+  getZoomFactor(): number;
+  setUserAgent(ua: string): void;
+  getUserAgent(): string;
   canGoBack(): boolean;
   canGoForward(): boolean;
   goBack(): void;
@@ -84,10 +89,12 @@ const BrowserSurface: FC<BrowserSurfaceProps> = ({
   const [crashCount, setCrashCount] = useState(0);
   const [isCrashed, setIsCrashed] = useState(false);
 
-  // Attach webview event listeners
+  // Attach webview event listeners (re-run when webview mounts after size is known)
   useEffect(() => {
     const wv = webviewRef.current;
     if (!wv) return;
+
+    // No CSS injection — use zoom factor for responsive fit.
 
     const onDidNavigate = () => {
       const url = wv.getURL();
@@ -265,6 +272,10 @@ const BrowserSurface: FC<BrowserSurfaceProps> = ({
     );
   }
 
+  // claude.ai: mobile UA for responsive layout. Others: default desktop UA.
+  const isClaude = initialUrl.includes('claude.ai');
+  const mobileUA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       <NavigationBar
@@ -285,6 +296,7 @@ const BrowserSurface: FC<BrowserSurfaceProps> = ({
         ref={webviewRef}
         src={initialUrl}
         partition={`persist:${profileId}`}
+        useragent={isClaude ? mobileUA : undefined}
         allowpopups=""
         webpreferences="contextIsolation=yes"
         style={{ flex: 1, width: '100%', border: 'none' }}
