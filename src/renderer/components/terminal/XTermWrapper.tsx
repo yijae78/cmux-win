@@ -448,21 +448,26 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       onTitleChange?.(title);
     });
 
-    // ResizeObserver for container size changes — debounced to prevent
-    // rapid cols/rows thrashing that causes text misalignment during resize
+    // ResizeObserver for container size changes — short debounce + delayed refit
+    // to prevent text misalignment when panels are resized
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeTimer2: ReturnType<typeof setTimeout> | null = null;
+    const doFit = () => {
+      if (!disposed && fitAddonRef.current && terminalRef.current) {
+        try {
+          fitAddonRef.current.fit();
+          const t = terminalRef.current;
+          window.ptyBridge?.resize(surfaceId, t.cols, t.rows);
+        } catch { /* terminal may be disposed */ }
+      }
+    };
     const resizeObserver = new ResizeObserver(() => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        if (!disposed && fitAddonRef.current && terminalRef.current) {
-          try {
-            fitAddonRef.current.fit();
-            // Also notify PTY of the new size
-            const t = terminalRef.current;
-            window.ptyBridge?.resize(surfaceId, t.cols, t.rows);
-          } catch { /* terminal may be disposed */ }
-        }
-      }, 150);
+      if (resizeTimer2) clearTimeout(resizeTimer2);
+      // Quick fit for immediate feedback
+      resizeTimer = setTimeout(doFit, 50);
+      // Delayed refit to catch final size after drag ends
+      resizeTimer2 = setTimeout(doFit, 300);
     });
     resizeObserver.observe(container);
 
@@ -472,6 +477,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       disposed = true;
       resizeObserver.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (resizeTimer2) clearTimeout(resizeTimer2);
       titleDisposable.dispose();
       clearTimeout(scrollbackTimer);
       if (scrollbackIntervalRef.current) clearInterval(scrollbackIntervalRef.current);

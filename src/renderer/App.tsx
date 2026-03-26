@@ -371,25 +371,7 @@ export default function App() {
               {'\u2302'}
             </button>
 
-            {/* Toggle panels (collapse/expand terminals) */}
-            <button
-              onClick={() => setPanelsCollapsed((v) => !v)}
-              title={panelsCollapsed ? 'Show Terminals' : 'Hide Terminals'}
-              style={{
-                background: panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'none',
-                border: 'none',
-                color: panelsCollapsed ? '#0091FF' : '#999',
-                cursor: 'pointer',
-                fontSize: '13px',
-                padding: '0 4px',
-                lineHeight: 1,
-                WebkitAppRegion: 'no-drag' as unknown as string,
-              }}
-            >
-              {panelsCollapsed ? '\u25B6' : '\u25C0'}
-            </button>
-
-            {/* Workspace name */}
+            {/* App title */}
             <span
               style={{
                 fontSize: '13px',
@@ -401,7 +383,7 @@ export default function App() {
                 minWidth: 0,
               }}
             >
-              {activeWs?.name ?? 'cmux-win'}
+              cmux-win
             </span>
 
             {/* Spacer */}

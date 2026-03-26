@@ -213,9 +213,9 @@ const TabItem: FC<TabItemProps> = ({ surface, isActive, onFocus, onClose }) => {
         position: 'relative',
       }}
     >
-      <span>{surface.title}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>{surface.title}</span>
 
-      {/* Close button (x) — visible on hover */}
+      {/* Close button (x) — always accessible, flexShrink 0 */}
       <span
         onClick={(e) => {
           e.stopPropagation();
@@ -230,6 +230,7 @@ const TabItem: FC<TabItemProps> = ({ surface, isActive, onFocus, onClose }) => {
           lineHeight: 1,
           transition: 'opacity 0.15s ease',
           color: closeHovered ? TEXT_SELECTED : TEXT_NORMAL,
+          flexShrink: 0,
         }}
       >
         {'\u00D7'}
