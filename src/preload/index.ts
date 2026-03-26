@@ -182,4 +182,7 @@ contextBridge.exposeInMainWorld('cmuxWin', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  // L5: Ctrl+Click link support
+  openExternal: (url: string) => ipcRenderer.invoke('cmux:open-external', url),
+  openPath: (filePath: string) => ipcRenderer.invoke('cmux:open-path', filePath),
 });

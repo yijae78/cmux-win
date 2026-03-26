@@ -85,8 +85,17 @@ describe('panel.split', () => {
       payload: { panelId: newPanelId, direction: 'vertical', newPanelType: 'terminal' },
     });
     const ws2 = store.getState().workspaces[0];
+    // F11: rebuildEqualLayout creates balanced tree — 3 panels in a
+    // split(split(leaf, leaf), leaf) structure with equal ratios
     if (ws2.panelLayout.type === 'split') {
-      expect(ws2.panelLayout.children[1].type).toBe('split');
+      // Verify all 3 panels are in the layout
+      const allLeafs: string[] = [];
+      function collect(n: typeof ws2.panelLayout) {
+        if (n.type === 'leaf') allLeafs.push(n.panelId);
+        else n.children.forEach(collect);
+      }
+      collect(ws2.panelLayout);
+      expect(allLeafs.length).toBe(3);
     }
   });
 

@@ -228,9 +228,9 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
             <span
               style={{
                 fontSize: '9px',
-                color: '#888',
-                border: '0.8px solid rgba(255,255,255,0.2)',
-                background: 'rgba(255,255,255,0.08)',
+                color: isActive ? 'rgba(255,255,255,0.85)' : '#888',
+                border: isActive ? '0.8px solid rgba(255,255,255,0.4)' : '0.8px solid rgba(255,255,255,0.2)',
+                background: isActive ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
                 borderRadius: '999px',
                 padding: '1px 5px',
                 whiteSpace: 'nowrap',
@@ -260,7 +260,7 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
               justifyContent: 'center',
               border: 'none',
               background: 'transparent',
-              color: '#888',
+              color: isActive ? 'rgba(255,255,255,0.85)' : '#888',
               fontSize: '12px',
               lineHeight: '16px',
               cursor: 'pointer',
@@ -274,7 +274,7 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
               (e.currentTarget as HTMLButtonElement).style.color = '#fff';
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = '#888';
+              (e.currentTarget as HTMLButtonElement).style.color = isActive ? 'rgba(255,255,255,0.85)' : '#888';
             }}
           >
             {'\u2715'}

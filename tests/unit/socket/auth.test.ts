@@ -306,9 +306,9 @@ describe('SocketAuth', () => {
         expect(auth.isMethodAllowed('browser.navigate')).toBe(false);
       });
 
-      it('blocks agent.* methods', () => {
-        expect(auth.isMethodAllowed('agent.run')).toBe(false);
-        expect(auth.isMethodAllowed('agent.stop')).toBe(false);
+      it('allows agent.* methods (L3: agent orchestration)', () => {
+        expect(auth.isMethodAllowed('agent.run')).toBe(true);
+        expect(auth.isMethodAllowed('agent.stop')).toBe(true);
       });
 
       it('blocks unknown namespace methods', () => {

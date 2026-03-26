@@ -98,4 +98,37 @@ export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateSt
     }
     return { content };
   });
+
+  // L3: surface.health — PTY status + agent info
+  router.register('surface.health', (params) => {
+    const p = params as { surfaceId: string };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+
+    const state = store.getState();
+    const surface = state.surfaces.find((s) => s.id === p.surfaceId);
+    if (!surface) throw new Error('Surface not found');
+
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+    const liveBuffer = liveBuffers?.get(p.surfaceId);
+
+    const agent = state.agents.find((a) => a.surfaceId === p.surfaceId);
+
+    return {
+      surfaceId: p.surfaceId,
+      surfaceType: surface.surfaceType,
+      title: surface.title,
+      hasPty: !!liveBuffer,
+      bufferSize: liveBuffer?.length ?? 0,
+      terminal: surface.terminal,
+      agent: agent
+        ? {
+            sessionId: agent.sessionId,
+            agentType: agent.agentType,
+            status: agent.status,
+            lastActivity: agent.lastActivity,
+          }
+        : null,
+    };
+  });
 }

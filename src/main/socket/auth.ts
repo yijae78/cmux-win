@@ -100,8 +100,8 @@ export class SocketAuth {
    * Check if a specific JSON-RPC method is allowed for the current auth mode.
    *
    * - off:       no methods allowed
-   * - cmux-only: system.*, workspace.*, surface.*, panel.*, window.*, notification.*
-   * - automation: all methods (including browser.*, agent.*)
+   * - cmux-only: system.*, workspace.*, surface.*, panel.*, window.*, notification.*, agent.*
+   * - automation: all methods (including browser.*)
    * - password:  all methods
    * - allow-all: all methods
    */
@@ -121,7 +121,8 @@ export class SocketAuth {
         method.startsWith('surface.') ||
         method.startsWith('panel.') ||
         method.startsWith('window.') ||
-        method.startsWith('notification.')
+        method.startsWith('notification.') ||
+        method.startsWith('agent.')
       );
     }
 

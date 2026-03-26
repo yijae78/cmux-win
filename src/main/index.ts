@@ -168,6 +168,17 @@ ipcMain.on('window:close', (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
 });
 
+// L5: Ctrl+Click link support — open URLs and file paths
+ipcMain.handle('cmux:open-external', async (_event, url: string) => {
+  const { shell } = await import('electron');
+  return shell.openExternal(url);
+});
+ipcMain.handle('cmux:open-path', async (_event, filePath: string) => {
+  const { shell } = await import('electron');
+  const cleanPath = filePath.replace(/:\d+$/, ''); // strip :lineNumber
+  return shell.openPath(cleanPath);
+});
+
 // ---------------------------------------------------------------------------
 // 5. Side-effect listener: write directly to PTY in main process
 // ---------------------------------------------------------------------------
@@ -453,7 +464,7 @@ app.whenReady().then(async () => {
     const safeBinDir = path.join(os.homedir(), '.cmux-win', 'bin');
     try {
       if (!fs.existsSync(safeBinDir)) fs.mkdirSync(safeBinDir, { recursive: true });
-      for (const f of ['tmux.cmd', 'tmux-shim.js', 'claude.cmd', 'claude-wrapper.js', 'claude-wrapper-lib.js']) {
+      for (const f of ['tmux.cmd', 'tmux-shim.js', 'claude.cmd', 'claude-wrapper.js', 'claude-wrapper-lib.js', 'cmux.cmd', 'cmux-cli.js']) {
         const src = path.join(srcBinDir, f);
         const dst = path.join(safeBinDir, f);
         if (fs.existsSync(src)) fs.copyFileSync(src, dst);

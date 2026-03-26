@@ -165,6 +165,42 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
     // Open terminal into DOM
     terminal.open(container);
 
+    // L5: Ctrl+Click link detection — open URLs and file paths
+    terminal.registerLinkProvider({
+      provideLinks(lineNumber: number, callback: (links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> | undefined) => void) {
+        const line = terminal.buffer.active.getLine(lineNumber - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString(true);
+        const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> = [];
+
+        // URL pattern
+        const urlRe = /https?:\/\/[^\s)\]>'"]+/g;
+        let m;
+        while ((m = urlRe.exec(text)) !== null) {
+          const sx = m.index;
+          links.push({
+            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+            text: m[0],
+            activate(_e, t) { window.cmuxWin?.openExternal?.(t); },
+          });
+        }
+
+        // File path pattern: C:\... or /... or ./...
+        const fileRe = /(?:[A-Z]:\\|\/|\.\/)[^\s:]+(?::\d+)?/gi;
+        while ((m = fileRe.exec(text)) !== null) {
+          if (text.slice(m.index).match(/^https?:\/\//)) continue; // skip URLs
+          const sx = m.index;
+          links.push({
+            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+            text: m[0],
+            activate(_e, t) { window.cmuxWin?.openPath?.(t); },
+          });
+        }
+
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
+
     // Try loading WebGL addon with contextLoss fallback
     try {
       const webglAddon = new WebglAddon();

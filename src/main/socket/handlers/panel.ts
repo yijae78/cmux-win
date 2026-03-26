@@ -24,7 +24,7 @@ export function registerPanelHandlers(router: JsonRpcRouter, store: AppStateStor
   });
 
   router.register('panel.split', (params) => {
-    const p = params as { panelId: string; direction: string; newPanelType?: string };
+    const p = params as { panelId: string; direction: string; newPanelType?: string; url?: string; filePath?: string };
     if (!p?.panelId) throw new Error('panelId is required');
     if (!p?.direction) throw new Error('direction is required');
 
@@ -36,6 +36,8 @@ export function registerPanelHandlers(router: JsonRpcRouter, store: AppStateStor
         panelId: p.panelId,
         direction: p.direction as 'horizontal' | 'vertical',
         newPanelType: (p.newPanelType as 'terminal' | 'browser' | 'markdown') ?? 'terminal',
+        url: p.url,           // L4: pass URL for browser panels (dashboard, etc.)
+        filePath: p.filePath, // L4: pass filePath for markdown panels
       },
     });
     if (!result.ok) throw new Error(result.error ?? 'Failed to split panel');

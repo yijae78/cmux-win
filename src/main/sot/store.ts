@@ -460,6 +460,14 @@ export class AppStateStore extends EventEmitter {
         const ws = draft.workspaces.find((w) => w.id === workspaceId);
         if (!ws) break;
 
+        // L2: Agent icon map for tab display
+        const agentIcons: Record<string, string> = {
+          claude: '\uD83E\uDDE0', gemini: '\uD83D\uDC8E',
+          codex: '\uD83E\uDD16', opencode: '\uD83D\uDD27',
+        };
+        const agentIcon = agentIcons[agentType] || '\u26A1';
+        const agentDisplayName = agentType.charAt(0).toUpperCase() + agentType.slice(1);
+
         const newPanelId = crypto.randomUUID();
         const newSurfaceId = crypto.randomUUID();
         const spawnedPaneIndex = this.nextPaneIndex(draft);
@@ -507,7 +515,7 @@ export class AppStateStore extends EventEmitter {
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: 'terminal',
-          title: cwd ? `${agentType} · ${cwd.split(/[\\/]/).pop()}` : `${agentType} agent`,
+          title: cwd ? `${agentIcon} ${agentDisplayName} · ${cwd.split(/[\\/]/).pop()}` : `${agentIcon} ${agentDisplayName}`,
           pendingCommand: cmd,
         });
 
