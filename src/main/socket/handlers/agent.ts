@@ -1,5 +1,6 @@
 import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
+import { ptyEvents } from '../../terminal/pty-manager';
 
 export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStore): void {
   router.register('agent.spawn', (params) => {
@@ -140,5 +141,56 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     }
 
     return { ok: true, surfaceId: p.surfaceId };
+  });
+
+  // L10: agent.wait — block until PTY exits or timeout
+  router.register('agent.wait', (params) => {
+    const p = params as { surfaceId: string; timeout?: number };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+    const timeoutMs = p.timeout ?? 300000; // 5 min default
+    const startTime = Date.now();
+
+    return new Promise((resolve) => {
+      const onExit = (sid: string, exitInfo: { exitCode: number }) => {
+        if (sid === p.surfaceId) {
+          clearTimeout(timer);
+          ptyEvents.removeListener('pty-exit', onExit);
+          resolve({ exitCode: exitInfo.exitCode, elapsed: Date.now() - startTime, timeout: false });
+        }
+      };
+      const timer = setTimeout(() => {
+        ptyEvents.removeListener('pty-exit', onExit);
+        resolve({ exitCode: null, elapsed: timeoutMs, timeout: true });
+      }, timeoutMs);
+      ptyEvents.on('pty-exit', onExit);
+
+      // Check if already exited (agent status is done/error)
+      const agent = store.getState().agents.find((a) => a.surfaceId === p.surfaceId);
+      if (agent && (agent.status === 'done' || agent.status === 'error')) {
+        clearTimeout(timer);
+        ptyEvents.removeListener('pty-exit', onExit);
+        resolve({ exitCode: agent.status === 'done' ? 0 : 1, elapsed: 0, timeout: false });
+      }
+    });
+  });
+
+  // L10: agent.output — read last N lines from agent's terminal
+  router.register('agent.output', (params) => {
+    const p = params as { surfaceId: string; lines?: number };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+    const lines = p.lines ?? 50;
+
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+    const scrollbackStore = g.__cmuxScrollbackStore as Map<string, string> | undefined;
+
+    const liveRaw = liveBuffers?.get(p.surfaceId);
+    // Strip ANSI escapes for clean text
+    const ansiRe = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
+    const oscRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+    const raw = liveRaw ?? scrollbackStore?.get(p.surfaceId) ?? '';
+    const clean = raw.replace(oscRe, '').replace(ansiRe, '');
+    const allLines = clean.split('\n');
+    return { content: allLines.slice(-lines).join('\n') };
   });
 }

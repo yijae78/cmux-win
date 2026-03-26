@@ -63,6 +63,7 @@ import { registerAgentHandlers } from './socket/handlers/agent';
 import { registerNotificationHandlers } from './socket/handlers/notification';
 import { registerSettingsHandlers } from './socket/handlers/settings';
 import { registerBrowserHandlers } from './socket/handlers/browser';
+import { registerWorkflowHandlers } from './socket/handlers/workflow';
 import { attachShortcutInterceptor } from './shortcuts/shortcut-interceptor';
 import { checkPidStatus } from '../shared/pid-utils';
 import { HistoryDb } from './browser/history-db';
@@ -252,6 +253,7 @@ registerAgentHandlers(router, store);
 registerNotificationHandlers(router, store, app.getPath('userData'));
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
+registerWorkflowHandlers(router, store);
 
 const socketServer = new SocketApiServer(router, store.getState().settings.socket.mode as any);
 

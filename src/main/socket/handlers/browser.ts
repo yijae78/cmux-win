@@ -209,4 +209,27 @@ export function registerBrowserHandlers(router: JsonRpcRouter, _store: AppStateS
     }
     return { ok: true };
   });
+
+  // L7: Convenience methods built on executeOnWebview
+  router.register('browser.navigate', async (params) => {
+    const p = params as { surfaceId?: string; url?: string };
+    if (!p?.surfaceId) throw new Error('surfaceId required');
+    if (!p?.url) throw new Error('url required');
+    await executeOnWebview(p.surfaceId, `window.location.href = ${JSON.stringify(p.url)}`);
+    return { ok: true };
+  });
+
+  router.register('browser.url.get', async (params) => {
+    const p = params as { surfaceId?: string };
+    if (!p?.surfaceId) throw new Error('surfaceId required');
+    const url = await executeOnWebview(p.surfaceId, 'window.location.href');
+    return { url };
+  });
+
+  router.register('browser.title.get', async (params) => {
+    const p = params as { surfaceId?: string };
+    if (!p?.surfaceId) throw new Error('surfaceId required');
+    const title = await executeOnWebview(p.surfaceId, 'document.title');
+    return { title };
+  });
 }

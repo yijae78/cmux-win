@@ -728,9 +728,25 @@ export default function App() {
       {commandPaletteVisible && (
         <CommandPalette
           onExecute={(id) => {
+            setCommandPaletteVisible(false);
             if (id === 'toggleSidebar') toggleSidebar();
-            else if (id === 'commandPalette') setCommandPaletteVisible(false);
             else if (id === 'openSettings') setSettingsVisible(true);
+            else if (id === 'toggleExplorer') toggleExplorer();
+            else if (id === 'togglePanels') togglePanels();
+            else if (id === 'equalizeHorizontal') equalizeLayout('horizontal');
+            else if (id === 'equalizeVertical') equalizeLayout('vertical');
+            else if (id === 'splitRight') {
+              const pid = appState?.focus.activePanelId;
+              if (pid) void dispatch({ type: 'panel.split', payload: { panelId: pid, direction: 'horizontal', newPanelType: 'terminal' } });
+            } else if (id === 'splitDown') {
+              const pid = appState?.focus.activePanelId;
+              if (pid) void dispatch({ type: 'panel.split', payload: { panelId: pid, direction: 'vertical', newPanelType: 'terminal' } });
+            } else if (id === 'closePanel') {
+              const pid = appState?.focus.activePanelId;
+              if (pid) void dispatch({ type: 'panel.close', payload: { panelId: pid } });
+            } else if (id === 'newWorkspace') {
+              if (windowId) void dispatch({ type: 'workspace.create', payload: { windowId } });
+            }
           }}
           onClose={() => setCommandPaletteVisible(false)}
         />

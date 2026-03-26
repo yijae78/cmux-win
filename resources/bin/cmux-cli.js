@@ -139,6 +139,31 @@ async function main() {
         console.log(JSON.stringify(r, null, 2));
         break;
       }
+      case 'run-workflow': {
+        if (!args[1]) { console.error('Usage: cmux run-workflow <file.json>'); process.exit(1); }
+        const fs = require('fs');
+        const wfContent = fs.readFileSync(args[1], 'utf8');
+        const workflow = JSON.parse(wfContent);
+        console.log(`Running workflow: ${workflow.name || 'unnamed'} (${workflow.steps?.length || 0} steps)`);
+        const r = await rpcCall('workflow.run', workflow);
+        console.log(JSON.stringify(r, null, 2));
+        break;
+      }
+      case 'wait': {
+        if (!args[1]) { console.error('Usage: cmux wait <surfaceId> [timeout_ms]'); process.exit(1); }
+        const timeout = args[2] ? parseInt(args[2]) : 300000;
+        console.log(`Waiting for surface ${args[1]} (timeout: ${timeout}ms)...`);
+        const r = await rpcCall('agent.wait', { surfaceId: args[1], timeout });
+        console.log(JSON.stringify(r, null, 2));
+        break;
+      }
+      case 'output': {
+        if (!args[1]) { console.error('Usage: cmux output <surfaceId> [lines]'); process.exit(1); }
+        const lines = args[2] ? parseInt(args[2]) : 50;
+        const r = await rpcCall('agent.output', { surfaceId: args[1], lines });
+        console.log(r?.content || '');
+        break;
+      }
       case 'rpc': {
         if (!args[1]) { console.error('Usage: cmux rpc <method> [json-params]'); process.exit(1); }
         const params = args[2] ? JSON.parse(args[2]) : {};
