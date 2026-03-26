@@ -10,6 +10,8 @@ import {
   replaceLeaf,
   updateRatioForPanel,
   removeLeaf,
+  collectLeafIds,
+  rebuildEqualLayout,
 } from '../../shared/panel-layout-utils';
 
 export interface DispatchResult {
@@ -313,15 +315,12 @@ export class AppStateStore extends EventEmitter {
           surface.title = action.payload.filePath.split(/[\\/]/).pop() || 'Markdown';
         }
         draft.surfaces.push(surface as any);
-        ws.panelLayout = replaceLeaf(ws.panelLayout, panelId, {
-          type: 'split',
-          direction,
-          ratio: 0.5,
-          children: [
-            { type: 'leaf', panelId },
-            { type: 'leaf', panelId: newPanelId },
-          ],
-        });
+        // F11: After adding the new panel, rebuild the entire workspace layout
+        // as a balanced equal-size tree. Without this, nested binary splits
+        // cause panels to shrink exponentially (50% → 25% → 12.5%...).
+        const allLeafIds = collectLeafIds(ws.panelLayout);
+        allLeafIds.push(newPanelId);
+        ws.panelLayout = rebuildEqualLayout(allLeafIds, direction);
         break;
       }
       case 'panel.resize': {

@@ -163,6 +163,34 @@ if (require.main === module) {
           }
           const splitResult = await rpcCall('panel.split', { panelId, direction, newPanelType: 'terminal' });
 
+          // F11: Auto-equalize layout after split — all panels get equal size.
+          // Without this, nested binary splits cause panels to shrink exponentially.
+          try {
+            const wsResult = await rpcCall('workspace.list', {});
+            const wsList = wsResult?.workspaces || (Array.isArray(wsResult) ? wsResult : []);
+            const ws = wsList.find(w => {
+              // Find workspace containing the panel we just split
+              const json = JSON.stringify(w.panelLayout || {});
+              return json.includes(panelId);
+            });
+            if (ws) {
+              const panelResult = await rpcCall('panel.list', {});
+              const allPanels = panelResult?.panels || [];
+              const wsPanels = allPanels.filter(p => p.workspaceId === ws.id);
+              if (wsPanels.length >= 2) {
+                const ids = wsPanels.map(p => p.id);
+                // Build balanced equal-size layout tree
+                function buildEqual(pids) {
+                  if (pids.length <= 1) return { type: 'leaf', panelId: pids[0] || '' };
+                  if (pids.length === 2) return { type: 'split', direction, ratio: 0.5, children: [{ type: 'leaf', panelId: pids[0] }, { type: 'leaf', panelId: pids[1] }] };
+                  const mid = Math.ceil(pids.length / 2);
+                  return { type: 'split', direction, ratio: mid / pids.length, children: [buildEqual(pids.slice(0, mid)), buildEqual(pids.slice(mid))] };
+                }
+                await rpcCall('workspace.set_layout', { workspaceId: ws.id, panelLayout: buildEqual(ids) });
+              }
+            }
+          } catch { /* best effort — equalize is a convenience, not critical */ }
+
           // Extract shell command from remaining args (after flags like -h, -v, -t, -P, -F)
           // Real tmux: `tmux split-window -h "gemini --flag"` → last non-flag arg is command
           const swFlags = new Set(['-h', '-v', '-d', '-P', '-b', '-f', '-l']);
