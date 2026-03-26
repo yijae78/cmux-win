@@ -247,6 +247,32 @@ export default function App() {
     >
       {/* Main area: sidebar + content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Sidebar expand button — visible when sidebar is hidden */}
+        {!sidebarVisible && (
+          <button
+            onClick={toggleSidebar}
+            title="Show Sidebar (Ctrl+B)"
+            style={{
+              width: '20px',
+              minWidth: '20px',
+              background: '#1e1e1e',
+              border: 'none',
+              borderRight: '1px solid #3c3c3c',
+              color: '#888',
+              cursor: 'pointer',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#0091FF'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
+          >
+            ▶
+          </button>
+        )}
         {/* Sidebar with smooth width transition */}
         <div
           style={{
