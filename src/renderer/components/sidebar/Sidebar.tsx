@@ -79,6 +79,7 @@ export interface SidebarProps {
   onEqualizeV?: () => void;
   onTogglePanels?: () => void;
   panelsCollapsed?: boolean;
+  onToggleExplorer?: () => void;
 }
 
 const Sidebar: FC<SidebarProps> = ({
@@ -102,6 +103,7 @@ const Sidebar: FC<SidebarProps> = ({
   onEqualizeV,
   onTogglePanels,
   panelsCollapsed,
+  onToggleExplorer,
 }) => {
   const { t } = useTranslation();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -240,15 +242,15 @@ const Sidebar: FC<SidebarProps> = ({
             ⊟
           </button>
         )}
-        {onTogglePanels && (
+        {onToggleExplorer && (
           <button
-            onClick={onTogglePanels}
-            title={panelsCollapsed ? 'Show Panels' : 'Hide Panels'}
-            style={{ background: panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)', border: 'none', color: panelsCollapsed ? '#0091FF' : '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+            onClick={onToggleExplorer}
+            title={explorerVisible ? 'Hide Explorer' : 'Show Explorer'}
+            style={{ background: explorerVisible ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)', border: 'none', color: explorerVisible ? '#0091FF' : '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = panelsCollapsed ? '#0091FF' : '#ddd'; e.currentTarget.style.background = panelsCollapsed ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = explorerVisible ? '#0091FF' : '#ddd'; e.currentTarget.style.background = explorerVisible ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)'; }}
           >
-            {panelsCollapsed ? '▶' : '◀'}
+            {explorerVisible ? '◀' : '▶'}
           </button>
         )}
       </div>

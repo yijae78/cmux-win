@@ -331,6 +331,7 @@ export default function App() {
             onEqualizeV={() => equalizeLayout('vertical')}
             onTogglePanels={togglePanels}
             panelsCollapsed={panelsCollapsed}
+            onToggleExplorer={toggleExplorer}
           />
         </div>
 
