@@ -79,17 +79,18 @@ describe('agent.spawn', () => {
       payload: { agentType: 'claude', workspaceId: 'ws-1', task: 'write tests' },
     });
     const newSurface = store.getState().surfaces.find((s) => s.title === 'claude agent');
-    // GAP-2: pendingCommand now includes --team-name and --agent-name
-    expect(newSurface?.pendingCommand).toMatch(/^claude --team-name "ws-1" --agent-name "claude-\d+" "write tests"\n$/);
+    // GAP-2: pendingCommand includes --team-name and --agent-name, ends with \r
+    expect(newSurface?.pendingCommand).toMatch(/^claude --team-name "ws-1" --agent-name "claude-\d+" "write tests"\r$/);
   });
 
-  it('sets default pendingCommand with team args without task', () => {
+  it('sets default pendingCommand without task (gemini: no team args)', () => {
     store.dispatch({
       type: 'agent.spawn',
       payload: { agentType: 'gemini', workspaceId: 'ws-1' },
     });
     const newSurface = store.getState().surfaces.find((s) => s.title === 'gemini agent');
-    expect(newSurface?.pendingCommand).toMatch(/^gemini --team-name "ws-1" --agent-name "gemini-\d+"\n$/);
+    // Gemini without task = interactive mode (no -p flag, no team args)
+    expect(newSurface?.pendingCommand).toBe('gemini\r');
   });
 
   it('assigns stable paneIndex to new panel', () => {

@@ -245,7 +245,17 @@ export class AppStateStore extends EventEmitter {
       case 'workspace.select': {
         draft.focus.activeWorkspaceId = action.payload.workspaceId;
         const ws = draft.workspaces.find((w) => w.id === action.payload.workspaceId);
-        if (ws) draft.focus.activeWindowId = ws.windowId;
+        if (ws) {
+          draft.focus.activeWindowId = ws.windowId;
+          // F1-FIX: Reset activePanelId/activeSurfaceId to the new workspace's
+          // first panel/surface. Without this, focus still points to the previous
+          // workspace's panel, causing split/send_text to target the wrong panel.
+          const firstPanel = draft.panels.find((p) => p.workspaceId === ws.id);
+          if (firstPanel) {
+            draft.focus.activePanelId = firstPanel.id;
+            draft.focus.activeSurfaceId = firstPanel.activeSurfaceId || firstPanel.surfaceIds[0] || null;
+          }
+        }
         break;
       }
       case 'workspace.rename': {

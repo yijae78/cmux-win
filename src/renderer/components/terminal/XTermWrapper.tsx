@@ -65,6 +65,7 @@ declare global {
 export interface XTermWrapperProps {
   surfaceId: string;
   workspaceId?: string;
+  paneIndex?: number;
   shell?: string;
   cwd?: string;
   fontSize?: number;
@@ -85,6 +86,7 @@ export interface XTermWrapperProps {
 const XTermWrapper: FC<XTermWrapperProps> = ({
   surfaceId,
   workspaceId,
+  paneIndex,
   shell,
   cwd,
   fontSize = 14,
@@ -105,6 +107,8 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
   const scrollbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
+  // F2-FIX: track PTY listener disposers to prevent leak on workspace switch
+  const ptyListenerDisposersRef = useRef<Array<{ dispose: () => void }>>([]);
 
   // -----------------------------------------------------------------------
   // Main effect: create terminal + PTY on mount / surfaceId change
@@ -196,6 +200,10 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         return;
       }
       try {
+        // F2-FIX: dispose any stale PTY listeners from previous mount cycle
+        for (const d of ptyListenerDisposersRef.current) d.dispose();
+        ptyListenerDisposersRef.current = [];
+
         // P2-BUG-5: Reattach to existing PTY if it survived workspace switch
         if (await window.ptyBridge.has(surfaceId)) {
           ptyIdRef.current = surfaceId;
@@ -210,9 +218,10 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
             if (fileContent) terminal.write(fileContent);
           }
 
-          window.ptyBridge.onData(surfaceId, (data) => {
+          const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
           });
+          if (dataDisposer) ptyListenerDisposersRef.current.push(dataDisposer);
         } else {
           // Restore scrollback from file before spawning new PTY
           if (window.cmuxScrollback) {
@@ -227,6 +236,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
             cols: terminal.cols,
             rows: terminal.rows,
             workspaceId,
+            paneIndex,
           });
           if (disposed) {
             window.ptyBridge.kill(surfaceId);
@@ -237,7 +247,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           // Wire data: PTY → terminal
           // Track whether CLI name has been detected for tab title
           let cliDetected = false;
-          window.ptyBridge.onData(surfaceId, (data) => {
+          const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
             // Auto-detect CLI name from PTY output (first match only)
             if (!cliDetected && dispatchRef.current) {
@@ -259,11 +269,13 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
               }
             }
           });
+          if (dataDisposer2) ptyListenerDisposersRef.current.push(dataDisposer2);
 
           // Wire exit
-          window.ptyBridge.onExit(surfaceId, (e) => {
+          const exitDisposer = window.ptyBridge.onExit(surfaceId, (e) => {
             onExit?.(e.exitCode);
           });
+          if (exitDisposer) ptyListenerDisposersRef.current.push(exitDisposer);
 
           // F20: pendingCommand는 별도 useEffect(R4)에서 처리
         }
@@ -416,6 +428,10 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       clearTimeout(scrollbackTimer);
       if (scrollbackIntervalRef.current) clearInterval(scrollbackIntervalRef.current);
       ptyIdRef.current = null;
+
+      // F2-FIX: dispose PTY data/exit listeners to prevent leak across workspace switches
+      for (const d of ptyListenerDisposersRef.current) d.dispose();
+      ptyListenerDisposersRef.current = [];
 
       // Save scrollback before disposing terminal so content survives workspace switch
       const scrollback = extractScrollback(terminal.buffer.active);

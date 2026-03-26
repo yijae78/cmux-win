@@ -123,7 +123,7 @@ export const AgentStatusUpdateAction = z.object({
   type: z.literal('agent.status_update'),
   payload: z.object({
     sessionId: z.string(),
-    status: z.enum(['running', 'idle', 'needs_input']),
+    status: z.enum(['running', 'idle', 'needs_input', 'done', 'error']),
     icon: z.string().optional(),
     color: z.string().optional(),
   }),

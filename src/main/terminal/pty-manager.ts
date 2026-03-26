@@ -11,6 +11,7 @@
  *   Renderer (XTermWrapper)
  */
 import { ipcMain, BrowserWindow } from 'electron';
+import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PtyBridge } from './pty-bridge';
 import { buildPtyEnv } from '../../shared/env-utils';
@@ -18,6 +19,8 @@ import { getShellIntegrationArgs } from '../../shared/shell-integration-utils';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
 const bridge = new PtyBridge();
+// F7: PTY lifecycle events for external consumers (e.g. agent status tracking)
+export const ptyEvents = new EventEmitter();
 const surfacePtyMap = new Map<string, string>();
 
 // BUG-D fix: live PTY output buffer per surface for fresh capture-pane reads.
@@ -69,11 +72,12 @@ export function registerPtyHandlers(): void {
         cols?: number;
         rows?: number;
         workspaceId?: string;
+        paneIndex?: number;
       },
     ) => {
       const mergedEnv = buildPtyEnv(surfaceId, options?.workspaceId, {
         ...process.env,
-      } as Record<string, string>);
+      } as Record<string, string>, options?.paneIndex);
 
       // Shell integration
       const integrationDir = path.join(
@@ -139,6 +143,8 @@ export function registerPtyHandlers(): void {
             win.webContents.send(IPC_CHANNELS.PTY_EXIT, surfaceId, exitInfo);
           }
         }
+        // F7: emit pty-exit event so index.ts can update agent status
+        ptyEvents.emit('pty-exit', surfaceId, exitInfo);
         // Cleanup mapping on exit
         surfacePtyMap.delete(surfaceId);
         liveBuffers.delete(surfaceId);

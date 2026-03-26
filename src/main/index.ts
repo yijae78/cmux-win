@@ -68,7 +68,7 @@ import { checkPidStatus } from '../shared/pid-utils';
 import { HistoryDb } from './browser/history-db';
 import { createTelemetryConfig } from './telemetry/telemetry-manager';
 import { createUpdateConfig, initAutoUpdater } from './updates/update-manager';
-import { registerPtyHandlers, writeToPty, killAllPty } from './terminal/pty-manager';
+import { registerPtyHandlers, writeToPty, killAllPty, ptyEvents } from './terminal/pty-manager';
 import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
 import { TelegramBotService } from './notifications/telegram-bot';
@@ -204,6 +204,28 @@ store.on('side-effect', (effect: { type: string; surfaceId?: string; text?: stri
       })
       .catch((err: Error) => console.warn('[telegram] send failed:', err.message));
   }
+});
+
+// F7: Track PTY exits → mark agents as done/error
+ptyEvents.on('pty-exit', (surfaceId: string, exitInfo: { exitCode: number }) => {
+  const state = store.getState();
+  const agent = state.agents.find((a) => a.surfaceId === surfaceId);
+  if (agent) {
+    store.dispatch({
+      type: 'agent.status_update',
+      payload: {
+        sessionId: agent.sessionId,
+        status: exitInfo.exitCode === 0 ? 'done' : 'error',
+        icon: exitInfo.exitCode === 0 ? '✅' : '❌',
+        color: exitInfo.exitCode === 0 ? '#4CAF50' : '#F44336',
+      },
+    });
+  }
+  // Also update surface terminal metadata with exit code
+  store.dispatch({
+    type: 'surface.update_meta',
+    payload: { surfaceId, terminal: { exitCode: exitInfo.exitCode } },
+  });
 });
 
 // ---------------------------------------------------------------------------

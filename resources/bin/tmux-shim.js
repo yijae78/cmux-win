@@ -64,7 +64,8 @@ if (require.main === module) {
     return panels.find(p => p.id === paneRef) || null;
   }
 
-  // Simple RPC call (copied pattern from cmux-win CLI socket-client)
+  // F6-FIX: RPC call with proper auth sequencing — wait for auth response
+  // before sending the actual request, so auth failures are reported cleanly.
   function rpcCall(method, params) {
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
@@ -79,20 +80,38 @@ if (require.main === module) {
 
       let data = '';
       let resolved = false;
+      let authenticated = !token; // skip auth wait if no token
+
       socket.connect(port, '127.0.0.1', () => {
-        // R2: send auth handshake before request
         if (token) {
           socket.write(JSON.stringify({ jsonrpc: '2.0', method: 'auth.handshake', params: { token }, id: 0 }) + '\n');
+        } else {
+          socket.write(request);
         }
-        socket.write(request);
       });
       socket.on('data', (chunk) => {
         data += chunk.toString();
         if (resolved) return;
-        // Parse as soon as we get the RPC response (id=1), don't wait for 'end'
-        for (const line of data.split('\n')) {
+        const lines = data.split('\n');
+        // Keep last (possibly partial) line in buffer
+        data = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line);
+            // Auth response (id=0): send actual request after successful auth
+            if (parsed.id === 0 && !authenticated) {
+              if (parsed.error) {
+                resolved = true;
+                socket.destroy();
+                reject(new Error('Auth failed: ' + (parsed.error.message || 'unknown')));
+                return;
+              }
+              authenticated = true;
+              socket.write(request);
+              continue;
+            }
+            // Actual RPC response (id=1)
             if (parsed.id === 1) {
               resolved = true;
               socket.destroy();

@@ -1,11 +1,18 @@
 import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
 
-// BUG-D: strip ANSI/CSI escape sequences from raw PTY output for clean text
+// BUG-D + F4-FIX: strip ANSI/CSI and OSC escape sequences from raw PTY output.
+// CSI: \x1b[ ... finalByte    (colors, cursor, etc.)
+// OSC: \x1b] ... ST           (title, CWD, prompt markers — \x07 or \x1b\\)
+// Simple escapes: \x1b followed by single char (e.g. \x1b=, \x1b>)
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
+// eslint-disable-next-line no-control-regex
+const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// eslint-disable-next-line no-control-regex
+const SIMPLE_ESC_RE = /\x1b[=>#(AB]/g;
 function stripAnsiEscapes(s: string): string {
-  return s.replace(ANSI_RE, '');
+  return s.replace(OSC_RE, '').replace(ANSI_RE, '').replace(SIMPLE_ESC_RE, '');
 }
 
 export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateStore): void {

@@ -5,8 +5,8 @@ const { convertTmuxKeys } = require('../../../resources/bin/tmux-shim');
 
 describe('tmux-shim', () => {
   describe('convertTmuxKeys', () => {
-    it('converts Enter to \\n', () => {
-      expect(convertTmuxKeys(['Enter'])).toBe('\n');
+    it('converts Enter to \\r (carriage return for PowerShell compatibility)', () => {
+      expect(convertTmuxKeys(['Enter'])).toBe('\r');
     });
 
     it('converts Space to space', () => {
@@ -34,11 +34,11 @@ describe('tmux-shim', () => {
     });
 
     it('joins multiple args', () => {
-      expect(convertTmuxKeys(['ls', 'Space', '-la', 'Enter'])).toBe('ls -la\n');
+      expect(convertTmuxKeys(['ls', 'Space', '-la', 'Enter'])).toBe('ls -la\r');
     });
 
     it('handles mixed keys and text', () => {
-      expect(convertTmuxKeys(['echo', 'Space', 'hello', 'Enter'])).toBe('echo hello\n');
+      expect(convertTmuxKeys(['echo', 'Space', 'hello', 'Enter'])).toBe('echo hello\r');
     });
   });
 });

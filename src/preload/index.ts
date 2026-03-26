@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('ptyBridge', {
       cols?: number;
       rows?: number;
       workspaceId?: string;
+      paneIndex?: number;
     },
   ): Promise<{ id: string; pid: number }> {
     return ipcRenderer.invoke(IPC_CHANNELS.PTY_SPAWN, surfaceId, options);

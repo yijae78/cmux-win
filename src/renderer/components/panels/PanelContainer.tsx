@@ -272,6 +272,7 @@ const PanelContainer: FC<PanelContainerProps> = ({
           <XTermWrapper
             surfaceId={activeSurface.id}
             workspaceId={workspaceId}
+            paneIndex={panel.paneIndex}
             fontSize={settings.terminal.fontSize}
             fontFamily={settings.terminal.fontFamily}
             cursorStyle={settings.terminal.cursorStyle}

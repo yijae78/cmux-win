@@ -77,7 +77,7 @@ export interface AgentSessionState {
   agentType: 'claude' | 'codex' | 'gemini' | 'opencode';
   workspaceId: string;
   surfaceId: string;
-  status: 'running' | 'idle' | 'needs_input';
+  status: 'running' | 'idle' | 'needs_input' | 'done' | 'error';
   statusIcon: string;
   statusColor: string;
   pid?: number;

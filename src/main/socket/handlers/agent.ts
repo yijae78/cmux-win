@@ -62,7 +62,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
   router.register('agent.status_update', (params) => {
     const p = params as {
       sessionId: string;
-      status: 'running' | 'idle' | 'needs_input';
+      status: 'running' | 'idle' | 'needs_input' | 'done' | 'error';
       icon?: string;
       color?: string;
     };
@@ -94,5 +94,51 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
       throw new Error(result.error ?? 'Failed to end agent session');
     }
     return { ok: true };
+  });
+
+  // F8: Re-run agent in existing panel — sends a new CLI command to a surface
+  // that has already completed (done/error). Resets agent status to running.
+  router.register('agent.rerun', (params) => {
+    const p = params as { surfaceId: string; task: string; agentType?: string };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+    if (!p?.task) throw new Error('task is required');
+
+    const state = store.getState();
+    const surface = state.surfaces.find((s) => s.id === p.surfaceId);
+    if (!surface) throw new Error('Surface not found');
+
+    const agent = state.agents.find((a) => a.surfaceId === p.surfaceId);
+    const agentType = p.agentType || agent?.agentType || 'gemini';
+
+    // Build the CLI command based on agent type
+    let cmd: string;
+    if (agentType === 'gemini') {
+      cmd = `gemini -p "${p.task.replace(/"/g, '\\"')}" -y`;
+    } else if (agentType === 'codex') {
+      cmd = `codex --full-auto "${p.task.replace(/"/g, '\\"')}"`;
+    } else {
+      cmd = `${agentType} "${p.task.replace(/"/g, '\\"')}"`;
+    }
+
+    // Send command to the surface's PTY (shell should be at prompt)
+    store.dispatch({
+      type: 'surface.send_text',
+      payload: { surfaceId: p.surfaceId, text: cmd + '\r' },
+    });
+
+    // Update or create agent entry
+    if (agent) {
+      store.dispatch({
+        type: 'agent.status_update',
+        payload: {
+          sessionId: agent.sessionId,
+          status: 'running',
+          icon: '⚡',
+          color: '#4C8DFF',
+        },
+      });
+    }
+
+    return { ok: true, surfaceId: p.surfaceId };
   });
 }

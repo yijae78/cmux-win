@@ -2,6 +2,7 @@ export function buildPtyEnv(
   surfaceId: string,
   workspaceId: string | undefined,
   baseEnv: Record<string, string>,
+  paneIndex?: number,
 ): Record<string, string> {
   const env = { ...baseEnv };
   env.CMUX_SURFACE_ID = surfaceId;
@@ -35,9 +36,10 @@ export function buildPtyEnv(
   const socketPort = env.CMUX_SOCKET_PORT || '19840';
   env.CMUX_SOCKET_ADDR = `tcp://127.0.0.1:${socketPort}`;
   env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
-  // TMUX_PANE index for this surface (used by claude-wrapper to set TMUX_PANE)
-  const paneIndex = parseInt(surfaceId.replace(/[^0-9a-f]/gi, '').slice(-4) || '0', 16) % 1000;
-  env.CMUX_PANE_INDEX = `${paneIndex}`;
+  // F3-FIX: Use store's monotonic paneIndex (matches tmux shim resolvePane).
+  // Previously derived from UUID hash, which created a mismatch with
+  // store.nextPaneIndex() — causing send-keys to target wrong panels.
+  env.CMUX_PANE_INDEX = `${paneIndex ?? 0}`;
 
   // BUG-C fix: explicitly propagate socket auth token so child processes
   // can authenticate to the socket server even if process.env is filtered.
