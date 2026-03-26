@@ -110,11 +110,12 @@ export function registerPtyHandlers(): void {
         const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
         const now = Date.now();
         const lastApproval = autoApproveCooldowns.get(surfaceId) ?? 0;
-        if (now - lastApproval > 3000) { // 3s cooldown between approvals
+        if (now - lastApproval > 1000) { // 1s cooldown (was 3s — too slow for rapid approvals)
           const needsApproval =
-            // Claude: "Do you want to create X?" with "1. Yes"
+            // Claude: "Do you want to create/proceed?" with "1. Yes"
             (stripped.includes('Do you want to') && stripped.includes('Yes')) ||
             (stripped.includes('Esc to cancel') && stripped.includes('1. Yes')) ||
+            (stripped.includes('requires approval') && stripped.includes('Yes')) ||
             // Gemini: "Apply this change?" with "Allow once"
             stripped.includes('Apply this change') ||
             // Codex: "Press enter to confirm"
