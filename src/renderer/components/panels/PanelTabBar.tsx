@@ -26,6 +26,8 @@ export interface PanelTabBarProps {
   onOpenFolder?: () => void;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
+  onZoomToggle?: () => void;
+  isZoomed?: boolean;
   onPanelClose?: () => void;
   dragHandleRef?: React.Ref<HTMLDivElement>;
   dragHandleListeners?: Record<string, unknown>;
@@ -45,6 +47,8 @@ const PanelTabBar: FC<PanelTabBarProps> = ({
   onOpenFolder,
   onSplitRight,
   onSplitDown,
+  onZoomToggle,
+  isZoomed,
   onPanelClose,
   dragHandleRef,
   dragHandleListeners,
@@ -140,6 +144,29 @@ const PanelTabBar: FC<PanelTabBarProps> = ({
           tooltip="Split Down (Ctrl+Shift+D)"
           onClick={onSplitDown}
         />
+      )}
+
+      {/* Zoom toggle — maximize/restore panel */}
+      {onZoomToggle && (
+        <button
+          onClick={onZoomToggle}
+          title={isZoomed ? 'Restore panel size' : 'Maximize panel (full screen)'}
+          style={{
+            background: isZoomed ? 'rgba(0,145,255,0.15)' : 'none',
+            border: 'none',
+            color: isZoomed ? ACCENT : TEXT_INACTIVE,
+            cursor: 'pointer',
+            fontSize: '13px',
+            padding: '0 6px',
+            height: `${TAB_BAR_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = TEXT_SELECTED; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = isZoomed ? ACCENT : TEXT_INACTIVE; }}
+        >
+          {isZoomed ? '\u2750' : '\u2752'}
+        </button>
       )}
 
       {/* Close panel button */}

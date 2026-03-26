@@ -256,6 +256,12 @@ const PanelContainer: FC<PanelContainerProps> = ({
                 })
             : undefined
         }
+        onZoomToggle={
+          dispatch
+            ? () => void dispatch({ type: 'panel.zoom', payload: { panelId: panel.id } })
+            : undefined
+        }
+        isZoomed={panel.isZoomed}
         onPanelClose={
           dispatch
             ? () => void dispatch({ type: 'panel.close', payload: { panelId: panel.id } })
