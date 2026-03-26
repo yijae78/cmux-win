@@ -204,6 +204,10 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         for (const d of ptyListenerDisposersRef.current) d.dispose();
         ptyListenerDisposersRef.current = [];
 
+        // CLI detection state — shared between data handler and OSC handlers
+        let cliDetected = false;
+        let detectedCliName = '';
+
         // P2-BUG-5: Reattach to existing PTY if it survived workspace switch
         if (await window.ptyBridge.has(surfaceId)) {
           ptyIdRef.current = surfaceId;
@@ -245,9 +249,6 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           ptyIdRef.current = surfaceId;
 
           // Wire data: PTY → terminal
-          // Track CLI name for sticky tab title (won't be overwritten by OSC 0/2)
-          let cliDetected = false;
-          let detectedCliName = '';
           const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
             // Auto-detect CLI name from PTY output
