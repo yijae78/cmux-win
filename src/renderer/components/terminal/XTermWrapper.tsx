@@ -245,26 +245,31 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           ptyIdRef.current = surfaceId;
 
           // Wire data: PTY → terminal
-          // Track whether CLI name has been detected for tab title
+          // Track CLI name for sticky tab title (won't be overwritten by OSC 0/2)
           let cliDetected = false;
+          let detectedCliName = '';
           const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
-            // Auto-detect CLI name from PTY output (first match only)
+            // Auto-detect CLI name from PTY output
             if (!cliDetected && dispatchRef.current) {
               const lower = data.toLowerCase();
               let cliName = '';
-              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing'))) {
-                cliName = 'Claude';
+              let cliIcon = '';
+              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing') || lower.includes('╭'))) {
+                cliName = 'Claude'; cliIcon = '\uD83E\uDDE0';
               } else if (lower.includes('gemini') || lower.includes('google ai')) {
-                cliName = 'Gemini';
+                cliName = 'Gemini'; cliIcon = '\uD83D\uDC8E';
               } else if (lower.includes('codex') || lower.includes('openai')) {
-                cliName = 'Codex';
+                cliName = 'Codex'; cliIcon = '\uD83E\uDD16';
+              } else if (lower.includes('chatgpt')) {
+                cliName = 'ChatGPT'; cliIcon = '\uD83D\uDCAC';
               }
               if (cliName) {
                 cliDetected = true;
+                detectedCliName = `${cliIcon} ${cliName}`;
                 void dispatchRef.current({
                   type: 'surface.update_meta',
-                  payload: { surfaceId, title: cliName },
+                  payload: { surfaceId, title: detectedCliName },
                 });
               }
             }
@@ -318,8 +323,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         });
 
         // OSC 0/2: Set terminal title (used by shells and CLI tools)
+        // Once a CLI is detected, keep the CLI name as sticky title —
+        // don't let shell path overwrites hide which AI is running.
         const handleTitleOsc = (data: string) => {
           if (data && dispatchRef.current) {
+            if (cliDetected) {
+              // CLI detected: keep sticky name, ignore shell path titles
+              return true;
+            }
             void dispatchRef.current({
               type: 'surface.update_meta',
               payload: { surfaceId, title: data },
