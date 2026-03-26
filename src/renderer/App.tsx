@@ -329,9 +329,8 @@ export default function App() {
             }}
             onEqualizeH={() => equalizeLayout('horizontal')}
             onEqualizeV={() => equalizeLayout('vertical')}
-            onTogglePanels={togglePanels}
-            panelsCollapsed={panelsCollapsed}
-            onToggleExplorer={toggleExplorer}
+            onTogglePanels={toggleSidebar}
+            panelsCollapsed={!sidebarVisible}
           />
         </div>
 

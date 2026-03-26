@@ -242,15 +242,15 @@ const Sidebar: FC<SidebarProps> = ({
             ⊟
           </button>
         )}
-        {onToggleExplorer && (
+        {onTogglePanels && (
           <button
-            onClick={onToggleExplorer}
-            title={explorerVisible ? 'Hide Explorer' : 'Show Explorer'}
-            style={{ background: explorerVisible ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)', border: 'none', color: explorerVisible ? '#0091FF' : '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+            onClick={onTogglePanels}
+            title="Hide Sidebar"
+            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = explorerVisible ? '#0091FF' : '#ddd'; e.currentTarget.style.background = explorerVisible ? 'rgba(0,145,255,0.15)' : 'rgba(255,255,255,0.08)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
           >
-            {explorerVisible ? '◀' : '▶'}
+            ◀
           </button>
         )}
       </div>
