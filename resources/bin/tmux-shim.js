@@ -178,17 +178,28 @@ if (require.main === module) {
           const newPaneId = splitResult?.paneIndex !== undefined ? `%${splitResult.paneIndex}` : null;
           if (newPaneId) console.log(newPaneId);
 
-          // If a shell command was provided, send it to the new pane after a brief delay
+          // If a shell command was provided, send it to the new pane after a brief delay.
+          // F10-FIX: PowerShell 5.x doesn't support '&&'. If the command contains '&&',
+          // split into separate commands with a delay between them.
           if (shellCmd && splitResult?.surfaceId) {
-            setTimeout(async () => {
-              try {
-                await rpcCall('surface.send_text', {
-                  surfaceId: splitResult.surfaceId,
-                  text: shellCmd + '\r',
-                });
-              } catch { /* best effort */ }
-            }, 1000);
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            const sid = splitResult.surfaceId;
+            const parts = shellCmd.includes('&&')
+              ? shellCmd.split(/\s*&&\s*/)
+              : [shellCmd];
+            let delay = 1000;
+            for (const part of parts) {
+              const d = delay;
+              setTimeout(async () => {
+                try {
+                  await rpcCall('surface.send_text', {
+                    surfaceId: sid,
+                    text: part.trim() + '\r',
+                  });
+                } catch { /* best effort */ }
+              }, d);
+              delay += 2000; // 2s between commands for shell to process
+            }
+            await new Promise(resolve => setTimeout(resolve, delay + 500));
           }
           break;
         }
