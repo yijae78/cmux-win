@@ -271,29 +271,77 @@ export class TelegramBotService {
       await ctx.reply(`❌ ${agent.agentType} 에이전트에 거부(n) 전송 완료`);
     });
 
+    // E4: /send with optional agent targeting
+    // Usage: /send <text>           → first active agent
+    //        /send claude <text>    → specific agent type
+    //        /send gemini <text>    → specific agent type
     bot.command('send', async (ctx) => {
-      const text = ctx.match?.trim();
-      if (!text) {
-        await ctx.reply('사용법: /send &lt;전송할 텍스트&gt;', { parse_mode: 'HTML' });
-        return;
-      }
-      // Send to the needs_input agent, or the first running agent
-      const agent =
-        this.findNeedsInputAgent() ??
-        this.store.getState().agents.find((a) => a.status === 'running');
-      if (!agent) {
-        await ctx.reply('활성 에이전트가 없습니다.');
+      const raw = ctx.match?.trim();
+      if (!raw) {
+        await ctx.reply(
+          '사용법:\n/send &lt;텍스트&gt; — 활성 에이전트에 전송\n/send claude &lt;텍스트&gt; — 특정 에이전트에 전송',
+          { parse_mode: 'HTML' },
+        );
         return;
       }
 
-      // Confirmation step for safety
+      const agentTypes = ['claude', 'gemini', 'codex', 'opencode'];
+      const firstWord = raw.split(/\s+/)[0].toLowerCase();
+      let targetType: string | null = null;
+      let text = raw;
+
+      if (agentTypes.includes(firstWord)) {
+        targetType = firstWord;
+        text = raw.slice(firstWord.length).trim();
+        if (!text) {
+          await ctx.reply('전송할 텍스트를 입력하세요.');
+          return;
+        }
+      }
+
+      const agents = this.store.getState().agents;
+      let agent = targetType
+        ? agents.find((a) => a.agentType === targetType && a.status !== 'done' && a.status !== 'error')
+        : this.findNeedsInputAgent() ?? agents.find((a) => a.status === 'running');
+
+      if (!agent) {
+        await ctx.reply(targetType ? `활성 ${targetType} 에이전트가 없습니다.` : '활성 에이전트가 없습니다.');
+        return;
+      }
+
       const keyboard = new InlineKeyboard()
         .text('✅ 전송', `send_confirm:${agent.surfaceId}:${encodeURIComponent(text)}`)
         .text('취소', 'send_cancel');
       await ctx.reply(
-        `<code>${escapeHtml(text)}</code>\n\n위 텍스트를 ${escapeHtml(agent.agentType)} 에이전트에 전송할까요?`,
+        `<code>${escapeHtml(text)}</code>\n\n위 텍스트를 <b>${escapeHtml(agent.agentType)}</b> 에이전트에 전송할까요?`,
         { parse_mode: 'HTML', reply_markup: keyboard },
       );
+    });
+
+    // E4: /task — Claude 리더에게 작업 지시 (첫 번째 Claude 에이전트)
+    bot.command('task', async (ctx) => {
+      const text = ctx.match?.trim();
+      if (!text) {
+        await ctx.reply('사용법: /task &lt;작업 내용&gt;', { parse_mode: 'HTML' });
+        return;
+      }
+
+      const agents = this.store.getState().agents;
+      const claude = agents.find((a) => a.agentType === 'claude' && a.status !== 'done' && a.status !== 'error');
+      if (!claude) {
+        // Claude가 없으면 첫 번째 surface에 직접 전송
+        const surfaces = this.store.getState().surfaces;
+        if (surfaces.length === 0) {
+          await ctx.reply('활성 터미널이 없습니다.');
+          return;
+        }
+        this.sendTextToSurface(surfaces[0].id, text + '\r');
+        await ctx.reply(`✅ 첫 번째 터미널에 작업 전송 완료`);
+        return;
+      }
+
+      this.sendTextToSurface(claude.surfaceId, text + '\r');
+      await ctx.reply(`✅ Claude 리더에게 작업 전송 완료:\n<code>${escapeHtml(text)}</code>`, { parse_mode: 'HTML' });
     });
 
     bot.command('help', async (ctx) => {
@@ -304,6 +352,8 @@ export class TelegramBotService {
           '/approve — 대기 중인 에이전트 승인 (y)\n' +
           '/reject — 대기 중인 에이전트 거부 (n)\n' +
           '/send &lt;text&gt; — 에이전트에 텍스트 전송\n' +
+          '/send gemini &lt;text&gt; — 특정 에이전트에 전송\n' +
+          '/task &lt;text&gt; — Claude 리더에게 작업 지시\n' +
           '/help — 이 도움말',
         { parse_mode: 'HTML' },
       );
