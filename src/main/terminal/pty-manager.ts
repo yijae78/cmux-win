@@ -95,7 +95,10 @@ export function registerPtyHandlers(): void {
       const ptyId = result.id;
 
       // Auto-approve: track last approval time to prevent spam
-      const autoApproveCooldowns = new Map<string, number>();
+      // Exposed via globalThis so agent.send_task can refresh cooldown (risk ⑩)
+      const g10 = globalThis as Record<string, unknown>;
+      const autoApproveCooldowns = (g10.__cmuxAutoApproveCooldowns as Map<string, number>) || new Map<string, number>();
+      g10.__cmuxAutoApproveCooldowns = autoApproveCooldowns;
 
       bridge.onData(ptyId, (data) => {
         // BUG-D fix: append to live buffer (raw, unfiltered) for surface.read

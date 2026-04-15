@@ -97,9 +97,64 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     return { ok: true };
   });
 
-  // F8: Re-run agent in existing panel — sends a new CLI command to a surface
-  // that has already completed (done/error). Resets agent status to running.
-  router.register('agent.rerun', (params) => {
+  // B3: surfaceId-level send lock (risk ③: prevent interleaving)
+  const sendLocks = new Map<string, boolean>();
+
+  // B3: agent.send_task — send follow-up task to an interactive agent
+  router.register('agent.send_task', async (params) => {
+    const p = params as { surfaceId: string; task: string };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+    if (!p?.task) throw new Error('task is required');
+
+    // Risk ③: reject if another send is in progress
+    if (sendLocks.get(p.surfaceId)) {
+      throw new Error('Another send is in progress for this surface');
+    }
+    sendLocks.set(p.surfaceId, true);
+
+    try {
+      // Risk ④: verify PTY is alive before sending
+      const g = globalThis as Record<string, unknown>;
+      const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+      if (!liveBuffers?.has(p.surfaceId)) {
+        throw new Error('Surface has no active PTY');
+      }
+
+      // Risk ⑩: refresh auto-approver cooldown to prevent collision
+      const cooldowns = g.__cmuxAutoApproveCooldowns as Map<string, number> | undefined;
+      cooldowns?.set(p.surfaceId, Date.now());
+
+      // Send text (without Enter)
+      store.dispatch({
+        type: 'surface.send_text',
+        payload: { surfaceId: p.surfaceId, text: p.task },
+      });
+
+      // 100ms delay then Enter (ink TUI needs time to process input)
+      await new Promise(r => setTimeout(r, 100));
+
+      store.dispatch({
+        type: 'surface.send_text',
+        payload: { surfaceId: p.surfaceId, text: '\r' },
+      });
+
+      // Update agent status → running
+      const agent = store.getState().agents.find(a => a.surfaceId === p.surfaceId);
+      if (agent) {
+        store.dispatch({
+          type: 'agent.status_update',
+          payload: { sessionId: agent.sessionId, status: 'running', icon: '⚡', color: '#4C8DFF' },
+        });
+      }
+
+      return { ok: true, surfaceId: p.surfaceId };
+    } finally {
+      sendLocks.delete(p.surfaceId);
+    }
+  });
+
+  // B4: agent.rerun — interactive branch + relaunch fallback
+  router.register('agent.rerun', async (params) => {
     const p = params as { surfaceId: string; task: string; agentType?: string };
     if (!p?.surfaceId) throw new Error('surfaceId is required');
     if (!p?.task) throw new Error('task is required');
@@ -111,36 +166,52 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     const agent = state.agents.find((a) => a.surfaceId === p.surfaceId);
     const agentType = p.agentType || agent?.agentType || 'gemini';
 
-    // Build the CLI command based on agent type
+    // Risk ④: check if CLI is still running AND PTY is alive
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+    const ptyAlive = liveBuffers?.has(p.surfaceId) ?? false;
+
+    if (agent && agent.status !== 'done' && agent.status !== 'error' && ptyAlive) {
+      // Interactive mode: send task text directly (text + delay + Enter)
+      store.dispatch({
+        type: 'surface.send_text',
+        payload: { surfaceId: p.surfaceId, text: p.task },
+      });
+      await new Promise(r => setTimeout(r, 100));
+      store.dispatch({
+        type: 'surface.send_text',
+        payload: { surfaceId: p.surfaceId, text: '\r' },
+      });
+      store.dispatch({
+        type: 'agent.status_update',
+        payload: { sessionId: agent.sessionId, status: 'running', icon: '⚡', color: '#4C8DFF' },
+      });
+      return { ok: true, surfaceId: p.surfaceId, mode: 'interactive' };
+    }
+
+    // B2: Relaunch with interactive flags
     let cmd: string;
     if (agentType === 'gemini') {
-      cmd = `gemini -p "${p.task.replace(/"/g, '\\"')}" -y`;
+      cmd = `gemini -i "${p.task.replace(/"/g, '\\"')}" -y`;
     } else if (agentType === 'codex') {
-      cmd = `codex --full-auto "${p.task.replace(/"/g, '\\"')}"`;
+      cmd = `codex --full-auto --no-alt-screen "${p.task.replace(/"/g, '\\"')}"`;
     } else {
       cmd = `${agentType} "${p.task.replace(/"/g, '\\"')}"`;
     }
 
-    // Send command to the surface's PTY (shell should be at prompt)
     store.dispatch({
       type: 'surface.send_text',
       payload: { surfaceId: p.surfaceId, text: cmd + '\r' },
     });
 
-    // Update or create agent entry
     if (agent) {
       store.dispatch({
         type: 'agent.status_update',
-        payload: {
-          sessionId: agent.sessionId,
-          status: 'running',
-          icon: '⚡',
-          color: '#4C8DFF',
-        },
+        payload: { sessionId: agent.sessionId, status: 'running', icon: '⚡', color: '#4C8DFF' },
       });
     }
 
-    return { ok: true, surfaceId: p.surfaceId };
+    return { ok: true, surfaceId: p.surfaceId, mode: 'relaunch' };
   });
 
   // L10: agent.wait — block until PTY exits or timeout
