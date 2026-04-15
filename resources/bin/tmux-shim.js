@@ -183,11 +183,20 @@ if (require.main === module) {
 
         case 'split-window': {
           const direction = args.includes('-h') ? 'horizontal' : 'vertical';
-          // 현재 surface에서 panel 찾기
-          const surfaceId = process.env.CMUX_SURFACE_ID;
+          // F1: surface 자동 선택 (env 없을 때)
+          let surfaceId = process.env.CMUX_SURFACE_ID || null;
           if (!surfaceId) {
-            process.stderr.write('CMUX_SURFACE_ID not set\n');
-            process.exit(1);
+            const swAutoResult = await rpcCall('panel.list', {});
+            const swAutoPanels = swAutoResult?.panels || [];
+            if (swAutoPanels.length === 1) {
+              surfaceId = swAutoPanels[0].activeSurfaceId;
+            } else if (swAutoPanels.length > 1) {
+              process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
+              process.exit(1);
+            } else {
+              process.stderr.write('No panels found\n');
+              process.exit(1);
+            }
           }
           // surface → panel 매핑은 surface.list로 조회
           const surfResult = await rpcCall('surface.list', {});

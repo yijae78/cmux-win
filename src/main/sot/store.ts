@@ -488,17 +488,17 @@ export class AppStateStore extends EventEmitter {
         const teamArgs = `--team-name "${teamName}" --agent-name "${agentName}"`;
         // CLI-specific launch modes:
         // - Claude: interactive + team args (send_text works)
-        // - Gemini: -p (headless) + -y (yolo auto-approve)
-        // - Codex: --full-auto (sandboxed auto-approve)
+        // - Gemini: -i (interactive) + -y (yolo auto-approve) — stays alive after task
+        // - Codex: --full-auto --no-alt-screen (interactive, scrollback visible)
         let agentCmd: string;
         if (agentType === 'gemini') {
           agentCmd = task
-            ? `gemini -p "${task}" -y\r`
-            : `gemini\r`;
+            ? `gemini -i "${task}" -y\r`
+            : `gemini -y\r`;
         } else if (agentType === 'codex') {
           agentCmd = task
-            ? `codex --full-auto "${task}"\r`
-            : `codex\r`;
+            ? `codex --full-auto --no-alt-screen "${task}"\r`
+            : `codex --full-auto --no-alt-screen\r`;
         } else {
           // claude, opencode: interactive
           agentCmd = task

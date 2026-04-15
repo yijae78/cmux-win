@@ -20,32 +20,87 @@ import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
 import { ptyEvents } from '../../terminal/pty-manager';
 
-function waitForExit(surfaceId: string, timeoutMs: number): Promise<{ exitCode: number | null; timeout: boolean }> {
-  return new Promise((resolve) => {
-    const onExit = (sid: string, exitInfo: { exitCode: number }) => {
-      if (sid === surfaceId) {
-        clearTimeout(timer);
-        ptyEvents.removeListener('pty-exit', onExit);
-        resolve({ exitCode: exitInfo.exitCode, timeout: false });
-      }
-    };
-    const timer = setTimeout(() => {
-      ptyEvents.removeListener('pty-exit', onExit);
-      resolve({ exitCode: null, timeout: true });
-    }, timeoutMs);
-    ptyEvents.on('pty-exit', onExit);
-  });
-}
+// ANSI escape regexes (shared by readOutput and waitForIdle)
+const ansiRe = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
+const oscRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 function readOutput(surfaceId: string, lines: number): string {
   const g = globalThis as Record<string, unknown>;
   const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
   const scrollbackStore = g.__cmuxScrollbackStore as Map<string, string> | undefined;
   const raw = liveBuffers?.get(surfaceId) ?? scrollbackStore?.get(surfaceId) ?? '';
-  const ansiRe = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
-  const oscRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
   const clean = raw.replace(oscRe, '').replace(ansiRe, '');
   return clean.split('\n').slice(-lines).join('\n');
+}
+
+/**
+ * waitForIdle — Detect when an interactive agent finishes its current task.
+ * Uses dual conditions: idle pattern match + output stabilization.
+ * Also monitors pty-exit in parallel (agent crash safety — risk ②).
+ */
+function waitForIdle(
+  surfaceId: string,
+  agentType: string,
+  timeoutMs: number,
+): Promise<{ idle: boolean; timeout: boolean; exited: boolean; output: string }> {
+  return new Promise((resolve) => {
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+
+    const startLen = (liveBuffers?.get(surfaceId) ?? '').length;
+    let lastLen = startLen;
+    let stableCount = 0;
+
+    // Risk ②: Monitor pty-exit in parallel (agent crash)
+    const onExit = (sid: string) => {
+      if (sid !== surfaceId) return;
+      cleanup();
+      resolve({ idle: false, timeout: false, exited: true,
+               output: readOutput(surfaceId, 30) });
+    };
+    ptyEvents.on('pty-exit', onExit);
+
+    // Risk ⑤: Multiple idle patterns per agent type (version-proof)
+    const idlePatterns: Record<string, string[]> = {
+      gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
+      codex: ['What would you like', 'Enter a prompt'],
+    };
+    const patterns = idlePatterns[agentType] || [];
+
+    const interval = setInterval(() => {
+      const raw = liveBuffers?.get(surfaceId) ?? '';
+      // Search last 500 chars of clean text for idle patterns
+      const tail = raw.slice(-500).replace(ansiRe, '');
+
+      const patternMatch = patterns.some(p => tail.includes(p))
+                           && raw.length > startLen;
+
+      const outputStable = raw.length === lastLen && raw.length > startLen;
+      if (outputStable) stableCount++;
+      else stableCount = 0;
+
+      // Dual condition: (pattern AND 1s stable) OR (5s stable without pattern)
+      if ((patternMatch && stableCount >= 2) || stableCount >= 10) {
+        cleanup();
+        resolve({ idle: true, timeout: false, exited: false,
+                 output: readOutput(surfaceId, 30) });
+      }
+
+      lastLen = raw.length;
+    }, 500);
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ idle: false, timeout: true, exited: false,
+               output: readOutput(surfaceId, 30) });
+    }, timeoutMs);
+
+    function cleanup() {
+      clearInterval(interval);
+      clearTimeout(timer);
+      ptyEvents.removeListener('pty-exit', onExit);
+    }
+  });
 }
 
 export function registerWorkflowHandlers(router: JsonRpcRouter, store: AppStateStore): void {
@@ -102,29 +157,16 @@ export function registerWorkflowHandlers(router: JsonRpcRouter, store: AppStateS
         continue;
       }
 
-      // 2. Wait for non-interactive agents (gemini, codex)
-      if (step.agent === 'gemini' || step.agent === 'codex') {
-        const waitResult = await waitForExit(surfaceId, stepTimeout);
-        const output = readOutput(surfaceId, 30);
-        results.push({
-          step: i,
-          agent: step.agent,
-          task: step.task,
-          exitCode: waitResult.exitCode,
-          timeout: waitResult.timeout,
-          output,
-        });
-      } else {
-        // Claude/opencode: interactive, don't wait for exit
-        results.push({
-          step: i,
-          agent: step.agent,
-          task: step.task,
-          exitCode: null,
-          timeout: false,
-          output: '(interactive agent — not waiting for exit)',
-        });
-      }
+      // 2. All agents are now interactive — wait for idle state
+      const idleResult = await waitForIdle(surfaceId, step.agent, stepTimeout);
+      results.push({
+        step: i,
+        agent: step.agent,
+        task: step.task,
+        exitCode: idleResult.exited ? 1 : (idleResult.idle ? 0 : null),
+        timeout: idleResult.timeout,
+        output: idleResult.output,
+      });
     }
 
     return {

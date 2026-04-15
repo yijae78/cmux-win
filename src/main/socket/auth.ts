@@ -122,7 +122,8 @@ export class SocketAuth {
         method.startsWith('panel.') ||
         method.startsWith('window.') ||
         method.startsWith('notification.') ||
-        method.startsWith('agent.')
+        method.startsWith('agent.') ||
+        method.startsWith('workflow.')
       );
     }
 
