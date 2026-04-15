@@ -215,11 +215,17 @@ export class AppStateStore extends EventEmitter {
           isZoomed: false,
           paneIndex: this.nextPaneIndex(draft),
         });
+        // E1: Auto-start Claude CLI on first workspace
+        // Ensures Dispatch always has a Claude CLI target
+        const isFirstWorkspace = draft.workspaces.length === 1;
+        const claudeCmd = isFirstWorkspace ? 'claude\r' : undefined;
+
         draft.surfaces.push({
           id: surfaceId,
           panelId,
           surfaceType: 'terminal',
-          title: 'Terminal',
+          title: claudeCmd ? '\uD83E\uDDE0 Claude' : 'Terminal',
+          pendingCommand: claudeCmd,
         });
         const win = draft.windows.find((w) => w.id === action.payload.windowId);
         if (win) win.workspaceIds.push(id);

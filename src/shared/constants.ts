@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: SettingsState = {
     codexHooksEnabled: true,
     geminiHooksEnabled: true,
     orchestrationMode: 'auto',
+    autoStartClaude: true,
   },
   telegram: {
     enabled: false,
