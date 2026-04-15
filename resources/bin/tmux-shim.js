@@ -25,8 +25,13 @@ if (typeof module !== 'undefined') {
   module.exports = { convertTmuxKeys };
 }
 
-// Only run main logic when executed directly (not when required as a module)
-if (require.main === module) {
+// Run main logic when executed directly OR required by the tmux bash shim.
+// The bash shim does require(__dirname, 'tmux-shim.js'), so require.main !== module.
+// On Windows, filename may use backslashes, so check both separators.
+const _mainFile = require.main?.filename || '';
+const _isTmuxShim = _mainFile.endsWith('/tmux') || _mainFile.endsWith('\\tmux')
+                  || _mainFile.endsWith('/tmux-shim.js') || _mainFile.endsWith('\\tmux-shim.js');
+if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-shim')) {
   const args = process.argv.slice(2);
   const command = args[0];
 
