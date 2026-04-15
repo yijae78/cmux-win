@@ -3,6 +3,8 @@
 
 const net = require('net');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 // Key conversion for send-keys
 // FIX: Enter must be \r (carriage return), NOT \n (line feed).
@@ -33,7 +35,42 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  const port = parseInt(process.env.CMUX_SOCKET_PORT || '19840', 10);
+  // F1: Auto-detect cmux-win connection (token + port) from env or file.
+  // Enables tmux-shim to work from ANY terminal (Dispatch, Cursor, standalone).
+  function resolveConnection() {
+    // 1. Environment variables (cmux-win 내부 PTY — 최우선)
+    if (process.env.CMUX_SOCKET_TOKEN && process.env.CMUX_SOCKET_PORT) {
+      return {
+        token: process.env.CMUX_SOCKET_TOKEN,
+        port: parseInt(process.env.CMUX_SOCKET_PORT, 10),
+      };
+    }
+
+    // 2. Token file fallback (외부 터미널, Dispatch 등)
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    const candidates = [
+      path.join(appData, 'Electron', 'socket-token'),   // dev 모드
+      path.join(appData, 'cmux-win', 'socket-token'),    // 패키지 모드
+    ];
+    for (const tokenPath of candidates) {
+      try {
+        const content = fs.readFileSync(tokenPath, 'utf8');
+        const lines = content.split('\n');
+        const token = (lines[0] || '').trim();
+        const port = lines[1] ? parseInt(lines[1].trim(), 10) : 19840;
+        if (token && token.length > 10) {
+          return { token, port };
+        }
+      } catch { /* file not found, try next */ }
+    }
+
+    // 3. Env token only (port default)
+    const envToken = process.env.CMUX_SOCKET_TOKEN || null;
+    return { token: envToken, port: parseInt(process.env.CMUX_SOCKET_PORT || '19840', 10) };
+  }
+
+  const conn = resolveConnection();
+  const port = conn.port;
   const addr = `tcp://127.0.0.1:${port}`;
 
   // Parse -t flag
@@ -70,7 +107,7 @@ if (require.main === module) {
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
       socket.setTimeout(5000);
-      const token = process.env.CMUX_SOCKET_TOKEN;
+      const token = conn.token;
       const request = JSON.stringify({
         jsonrpc: '2.0',
         method,
@@ -265,10 +302,21 @@ if (require.main === module) {
             return true;
           });
           const text = convertTmuxKeys(keyArgs);
-          let surfaceId = process.env.CMUX_SURFACE_ID;
+          let surfaceId = process.env.CMUX_SURFACE_ID || null;
           if (target) {
             const skPanel = await resolvePane(target);
             if (skPanel) surfaceId = skPanel.activeSurfaceId;
+          }
+          // F1: surface 자동 선택 (env 없을 때)
+          if (!surfaceId && !target) {
+            const autoResult = await rpcCall('panel.list', {});
+            const autoPanels = autoResult?.panels || [];
+            if (autoPanels.length === 1) {
+              surfaceId = autoPanels[0].activeSurfaceId;
+            } else if (autoPanels.length > 1) {
+              process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
+              process.exit(1);
+            }
           }
           if (surfaceId) {
             await rpcCall('surface.send_text', { surfaceId, text });
@@ -338,10 +386,21 @@ if (require.main === module) {
         case 'capture-pane': {
           // R6: read terminal scrollback via surface.read RPC
           const capTarget = getTarget();
-          let capSurfaceId = process.env.CMUX_SURFACE_ID;
+          let capSurfaceId = process.env.CMUX_SURFACE_ID || null;
           if (capTarget) {
             const cpPanel = await resolvePane(capTarget);
             if (cpPanel) capSurfaceId = cpPanel.activeSurfaceId;
+          }
+          // F1: surface 자동 선택 (env 없을 때)
+          if (!capSurfaceId && !capTarget) {
+            const capAutoResult = await rpcCall('panel.list', {});
+            const capAutoPanels = capAutoResult?.panels || [];
+            if (capAutoPanels.length === 1) {
+              capSurfaceId = capAutoPanels[0].activeSurfaceId;
+            } else if (capAutoPanels.length > 1) {
+              process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
+              process.exit(1);
+            }
           }
           try {
             const result = await rpcCall('surface.read', { surfaceId: capSurfaceId });
