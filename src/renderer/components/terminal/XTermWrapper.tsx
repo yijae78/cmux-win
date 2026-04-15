@@ -260,6 +260,29 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
           const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
+            // CLI detection for reattached PTY (same logic as new spawn)
+            if (!cliDetected && dispatchRef.current) {
+              const lower = data.toLowerCase();
+              let cliName = '';
+              let cliIcon = '';
+              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing') || lower.includes('╭'))) {
+                cliName = 'Claude'; cliIcon = '\uD83E\uDDE0';
+              } else if (lower.includes('gemini') || lower.includes('google ai')) {
+                cliName = 'Gemini'; cliIcon = '\uD83D\uDC8E';
+              } else if (lower.includes('codex') || lower.includes('openai')) {
+                cliName = 'Codex'; cliIcon = '\uD83E\uDD16';
+              } else if (lower.includes('chatgpt')) {
+                cliName = 'ChatGPT'; cliIcon = '\uD83D\uDCAC';
+              }
+              if (cliName) {
+                cliDetected = true;
+                detectedCliName = `${cliIcon} ${cliName}`;
+                void dispatchRef.current({
+                  type: 'surface.update_meta',
+                  payload: { surfaceId, title: detectedCliName },
+                });
+              }
+            }
           });
           if (dataDisposer) ptyListenerDisposersRef.current.push(dataDisposer);
         } else {
