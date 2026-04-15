@@ -39,15 +39,16 @@
 | CLI | 실행 방식 | 이유 |
 |-----|----------|------|
 | **Claude** | `claude` (interactive) → `send_text`로 작업 지시 | TUI가 PTY write를 입력으로 받음 |
-| **Gemini** | `gemini -p "프롬프트" -y` (headless + 자동승인) | ink TUI가 send_text를 받지 않음 |
-| **Codex** | `codex --full-auto "프롬프트"` (자동실행) | ink TUI가 send_text를 받지 않음 |
+| **Gemini** | `gemini -i "프롬프트" -y` (interactive + 자동승인) | `-i`로 세션 유지, send_text로 후속 작업 전송 (Enter 분리 필요) |
+| **Codex** | `codex --full-auto --no-alt-screen "프롬프트"` (interactive) | `--no-alt-screen`으로 scrollback 유지, 세션 지속 |
 
 ### 3. 자동 승인 (Auto-Approver)
 앱에 내장된 PTY 레벨 자동 승인기가 있습니다:
 - "Do you want to create" → 자동 Enter
 - "Apply this change" → 자동 Enter (Gemini)
 - "Press enter to confirm" → 자동 Enter (Codex)
-- 3초 쿨다운으로 중복 방지
+- "requires approval" → 자동 Enter (Claude)
+- 1초 쿨다운으로 중복 방지
 
 ### 4. 소켓 API (TCP localhost:19840)
 앱의 모든 기능을 JSON-RPC 2.0으로 제어할 수 있습니다:
@@ -87,8 +88,15 @@
 
 ### 7. 텔레그램 봇 연동
 - 알림 전달 (outbound) + 원격 제어 (inbound)
-- /status, /approve, /reject, /send 명령
+- /status, /agents, /approve, /reject 명령
+- /send gemini "작업" — 특정 에이전트에 텍스트 전송
+- /task "작업" — Claude 리더에게 작업 지시
 - Bot token은 Electron safeStorage로 암호화 저장
+
+### 8. Claude CLI 자동 실행
+- 앱 시작 시 첫 번째 터미널에 Claude CLI 자동 실행
+- Claude Desktop Dispatch 대상이 항상 존재
+- 원격(핸드폰)에서 Dispatch → Claude CLI → tmux-shim → 다른 에이전트 제어
 
 ## 프로젝트 구조
 
