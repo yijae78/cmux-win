@@ -303,9 +303,12 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
                 // Read first 20 lines from terminal buffer (already parsed, no ANSI)
+                // Read current viewport (visible area) — contains banner + prompt
                 const buf = terminal.buffer.active;
                 let text = '';
-                for (let i = 0; i < Math.min(buf.length, 20); i++) {
+                const viewStart = buf.baseY;
+                const viewEnd = viewStart + terminal.rows;
+                for (let i = viewStart; i < viewEnd; i++) {
                   const line = buf.getLine(i);
                   if (line) text += line.translateToString(true) + ' ';
                 }
@@ -356,9 +359,12 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
               const cooldown = cliDetected ? 5000 : 2000;
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
+                // Read current viewport (visible area) — contains banner + prompt
                 const buf = terminal.buffer.active;
                 let text = '';
-                for (let i = 0; i < Math.min(buf.length, 20); i++) {
+                const viewStart = buf.baseY;
+                const viewEnd = viewStart + terminal.rows;
+                for (let i = viewStart; i < viewEnd; i++) {
                   const line = buf.getLine(i);
                   if (line) text += line.translateToString(true) + ' ';
                 }
