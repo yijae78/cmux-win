@@ -19,7 +19,9 @@ import { parseOsc133P, parseOsc7 } from '../../../shared/osc-parser';
  * Returns { name, icon } or null if no CLI detected.
  */
 function detectCliFromOutput(data: string): { name: string; icon: string } | null {
-  const lower = data.toLowerCase();
+  // Strip ANSI escape sequences before keyword check — cursor positioning
+  // (e.g. \x1b[2;15H) breaks up words like "Claude" into individual characters
+  const lower = data.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').toLowerCase();
 
   let baseName = '';
   let icon = '';
@@ -294,13 +296,20 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
           const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
-            // CLI detection — 5s cooldown after first detect, then re-check for CLI switches
+            // CLI detection — read clean text from xterm.js buffer (ANSI-free)
             if (dispatchRef.current) {
               const now = Date.now();
               const cooldown = cliDetected ? 5000 : 2000;
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
-                const detected = detectCliFromOutput(data);
+                // Read first 20 lines from terminal buffer (already parsed, no ANSI)
+                const buf = terminal.buffer.active;
+                let text = '';
+                for (let i = 0; i < Math.min(buf.length, 20); i++) {
+                  const line = buf.getLine(i);
+                  if (line) text += line.translateToString(true) + ' ';
+                }
+                const detected = detectCliFromOutput(text);
                 if (detected) {
                   const newTitle = `${detected.icon} ${detected.name}`;
                   if (detectedCliName !== newTitle) {
@@ -341,13 +350,19 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           // Wire data: PTY → terminal
           const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
-            // CLI detection — 5s cooldown after first detect, then re-check for CLI switches
+            // CLI detection — read clean text from xterm.js buffer (ANSI-free)
             if (dispatchRef.current) {
               const now = Date.now();
               const cooldown = cliDetected ? 5000 : 2000;
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
-                const detected = detectCliFromOutput(data);
+                const buf = terminal.buffer.active;
+                let text = '';
+                for (let i = 0; i < Math.min(buf.length, 20); i++) {
+                  const line = buf.getLine(i);
+                  if (line) text += line.translateToString(true) + ' ';
+                }
+                const detected = detectCliFromOutput(text);
                 if (detected) {
                   const newTitle = `${detected.icon} ${detected.name}`;
                   if (detectedCliName !== newTitle) {
