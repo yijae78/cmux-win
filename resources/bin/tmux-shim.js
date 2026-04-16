@@ -187,7 +187,7 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
         }
 
         case 'split-window': {
-          const direction = args.includes('-h') ? 'horizontal' : 'vertical';
+          const direction = args.includes('-h') ? 'horizontal' : args.includes('-v') ? 'vertical' : 'horizontal';
           // F1: surface 자동 선택 (env 없을 때)
           let surfaceId = process.env.CMUX_SURFACE_ID || null;
           if (!surfaceId) {

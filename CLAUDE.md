@@ -98,6 +98,13 @@
 - Claude Desktop Dispatch 대상이 항상 존재
 - 원격(핸드폰)에서 Dispatch → Claude CLI → tmux-shim → 다른 에이전트 제어
 
+### 9. Cowork Bridge (파일시스템 우편함)
+- 외부에서 `%USERPROFILE%/cmux-bridge/inbox/`에 task.json 드롭
+- 씨윈이 자동 감지 → 지정 패널에 명령 전송 → 결과를 outbox/에 기록
+- heartbeat.json으로 씨윈 생존 확인 가능 (30초 주기)
+- mode: "leader"면 리더 지시 prefix 자동 추가
+- task 스키마: `{id, target_panel, prompt, mode, timeout_sec, created_at}`
+
 ## 프로젝트 구조
 
 ```
@@ -145,7 +152,7 @@ client.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'surface.read',
 
 ### tmux-shim 명령 (Claude Agent Teams 호환):
 ```bash
-tmux split-window -h          # 패널 분할
+tmux split-window -h          # 패널 분할 (항상 -h, -v 사용 금지)
 tmux send-keys -t %1 "text" Enter  # 텍스트 전송
 tmux capture-pane -t %1 -p   # 화면 읽기
 tmux list-panes               # 패널 목록
@@ -169,7 +176,9 @@ npx vitest run
 
 ## 주의사항
 - `electron-vite build`는 현재 main 단계 후 멈추는 이슈 있음 → esbuild 직접 사용
-- Gemini CLI에 `send_text`로 텍스트 전달 안 됨 → `-p "prompt" -y` 인자 방식 사용
-- Codex CLI도 동일 → `--full-auto "prompt"` 사용
+- Gemini: `gemini -i "prompt" -y` 형식으로 실행 (interactive + 자동승인)
+- Codex: `codex --full-auto --no-alt-screen "prompt"` 형식으로 실행
+- Claude를 여러 패널에서 중복 실행하지 말 것 — 리더 1개만 실행
+- /model 등 슬래시 명령은 해당 CLI 입력창에서만 동작 — send-keys로 전달 불가
 - claude.ai 웹은 데스크톱 반응형 CSS 없음 → 모바일 UA 적용
 - 소켓 토큰은 앱 시작마다 새로 생성됨 (경로: %APPDATA%/Electron/socket-token)

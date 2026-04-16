@@ -74,6 +74,7 @@ import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
 import { TelegramBotService } from './notifications/telegram-bot';
 import { loadBotToken } from './notifications/telegram-token-store';
+import { BridgeWatcher } from './bridge-watcher';
 
 // ---------------------------------------------------------------------------
 // 1. Load persisted state (BUG-14: clear windows for fresh session)
@@ -315,10 +316,8 @@ async function createWindow(): Promise<BrowserWindow> {
       win.webContents.send(IPC_CHANNELS.WINDOW_ID, windowId);
       // Show window after content is ready (avoids blank flash)
       win.show();
-      // DevTools: Ctrl+Shift+I to open manually (not auto-open)
-      // if (process.env.ELECTRON_RENDERER_URL) {
-      //   win.webContents.openDevTools({ mode: 'detach' });
-      // }
+      // DevTools: temporary debug — will revert after inspection
+      win.webContents.openDevTools({ mode: 'detach' });
       resolve(win);
     });
 
@@ -443,6 +442,23 @@ app.whenReady().then(async () => {
       void telegramBot.configure(newSettings, token).catch((err: Error) => {
         console.error('[telegram] Failed to reconfigure bot:', err.message);
       });
+    }
+  });
+
+  // Cowork Bridge Watcher initialization
+  const bridgeWatcher = new BridgeWatcher(store);
+  if (store.getState().settings.bridge.enabled) {
+    bridgeWatcher.start();
+  }
+
+  // Re-configure Bridge when settings change
+  store.on('change', (action: { type?: string }) => {
+    if (action?.type === 'settings.update') {
+      const bridgeSettings = store.getState().settings.bridge;
+      bridgeWatcher.stop();
+      if (bridgeSettings.enabled) {
+        bridgeWatcher.start();
+      }
     }
   });
 
@@ -580,6 +596,7 @@ store.on('change', (action: { type?: string; payload?: { surfaceId?: string } })
 app.on('before-quit', () => {
   // C3: Stop Telegram bot polling BEFORE quit to prevent process hang
   telegramBot.stop();
+  bridgeWatcher.stop();
 
   try {
     const dir = path.dirname(scrollbackPath);

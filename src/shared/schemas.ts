@@ -132,6 +132,12 @@ export const SettingsStateSchema = z.object({
   telemetry: z.object({ enabled: z.boolean() }),
   updates: z.object({ autoCheck: z.boolean(), channel: z.enum(['stable', 'nightly']) }),
   accessibility: z.object({ screenReaderMode: z.boolean(), reducedMotion: z.boolean() }),
+  bridge: z.object({
+    enabled: z.boolean(),
+    basePath: z.string(),
+    heartbeatIntervalSec: z.number().int().min(5),
+    pollIntervalSec: z.number().int().min(1),
+  }),
 });
 
 export const FocusStateSchema = z.object({

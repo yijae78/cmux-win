@@ -43,4 +43,10 @@ export const DEFAULT_SETTINGS: SettingsState = {
   telemetry: { enabled: true },
   updates: { autoCheck: true, channel: 'stable' },
   accessibility: { screenReaderMode: false, reducedMotion: false },
+  bridge: {
+    enabled: true,
+    basePath: '',
+    heartbeatIntervalSec: 30,
+    pollIntervalSec: 5,
+  },
 };

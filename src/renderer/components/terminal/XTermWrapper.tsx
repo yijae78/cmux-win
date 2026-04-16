@@ -13,6 +13,39 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { Action } from '../../../shared/actions';
 import { parseOsc133P, parseOsc7 } from '../../../shared/osc-parser';
+
+/**
+ * Detect CLI type and model from PTY output data.
+ * Returns { name, icon } or null if no CLI detected.
+ */
+function detectCliFromOutput(data: string): { name: string; icon: string } | null {
+  const lower = data.toLowerCase();
+
+  let baseName = '';
+  let icon = '';
+
+  if (lower.includes('claude') &&
+      (lower.includes('code') || lower.includes('baked') ||
+       lower.includes('musing') || lower.includes('\u256D'))) {
+    baseName = 'Claude';
+    icon = '\uD83E\uDDE0';
+    // Model name from PTY banner: "Opus 4.6 (1M context)"
+    if (lower.includes('opus')) baseName = 'Claude (Opus)';
+    else if (lower.includes('sonnet')) baseName = 'Claude (Sonnet)';
+    else if (lower.includes('haiku')) baseName = 'Claude (Haiku)';
+  } else if (lower.includes('gemini') || lower.includes('google ai')) {
+    baseName = 'Gemini';
+    icon = '\uD83D\uDC8E';
+  } else if (lower.includes('codex') || lower.includes('openai')) {
+    baseName = 'Codex';
+    icon = '\uD83E\uDD16';
+  } else if (lower.includes('chatgpt')) {
+    baseName = 'ChatGPT';
+    icon = '\uD83D\uDCAC';
+  }
+
+  return baseName ? { name: baseName, icon } : null;
+}
 import { BUNDLED_THEMES } from '../../../shared/bundled-themes';
 import { extractScrollback } from '../../../shared/scrollback-utils';
 
@@ -243,6 +276,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         // CLI detection state — shared between data handler and OSC handlers
         let cliDetected = false;
         let detectedCliName = '';
+        let lastDetectTime = 0;
 
         // P2-BUG-5: Reattach to existing PTY if it survived workspace switch
         if (await window.ptyBridge.has(surfaceId)) {
@@ -260,27 +294,24 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
           const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
-            // CLI detection for reattached PTY (same logic as new spawn)
-            if (!cliDetected && dispatchRef.current) {
-              const lower = data.toLowerCase();
-              let cliName = '';
-              let cliIcon = '';
-              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing') || lower.includes('╭'))) {
-                cliName = 'Claude'; cliIcon = '\uD83E\uDDE0';
-              } else if (lower.includes('gemini') || lower.includes('google ai')) {
-                cliName = 'Gemini'; cliIcon = '\uD83D\uDC8E';
-              } else if (lower.includes('codex') || lower.includes('openai')) {
-                cliName = 'Codex'; cliIcon = '\uD83E\uDD16';
-              } else if (lower.includes('chatgpt')) {
-                cliName = 'ChatGPT'; cliIcon = '\uD83D\uDCAC';
-              }
-              if (cliName) {
-                cliDetected = true;
-                detectedCliName = `${cliIcon} ${cliName}`;
-                void dispatchRef.current({
-                  type: 'surface.update_meta',
-                  payload: { surfaceId, title: detectedCliName },
-                });
+            // CLI detection — 5s cooldown after first detect, then re-check for CLI switches
+            if (dispatchRef.current) {
+              const now = Date.now();
+              const cooldown = cliDetected ? 5000 : 2000;
+              if (now - lastDetectTime > cooldown) {
+                lastDetectTime = now;
+                const detected = detectCliFromOutput(data);
+                if (detected) {
+                  const newTitle = `${detected.icon} ${detected.name}`;
+                  if (detectedCliName !== newTitle) {
+                    detectedCliName = newTitle;
+                    cliDetected = true;
+                    void dispatchRef.current({
+                      type: 'surface.update_meta',
+                      payload: { surfaceId, title: newTitle },
+                    });
+                  }
+                }
               }
             }
           });
@@ -310,27 +341,24 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           // Wire data: PTY → terminal
           const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
-            // Auto-detect CLI name from PTY output
-            if (!cliDetected && dispatchRef.current) {
-              const lower = data.toLowerCase();
-              let cliName = '';
-              let cliIcon = '';
-              if (lower.includes('claude') && (lower.includes('code') || lower.includes('baked') || lower.includes('musing') || lower.includes('╭'))) {
-                cliName = 'Claude'; cliIcon = '\uD83E\uDDE0';
-              } else if (lower.includes('gemini') || lower.includes('google ai')) {
-                cliName = 'Gemini'; cliIcon = '\uD83D\uDC8E';
-              } else if (lower.includes('codex') || lower.includes('openai')) {
-                cliName = 'Codex'; cliIcon = '\uD83E\uDD16';
-              } else if (lower.includes('chatgpt')) {
-                cliName = 'ChatGPT'; cliIcon = '\uD83D\uDCAC';
-              }
-              if (cliName) {
-                cliDetected = true;
-                detectedCliName = `${cliIcon} ${cliName}`;
-                void dispatchRef.current({
-                  type: 'surface.update_meta',
-                  payload: { surfaceId, title: detectedCliName },
-                });
+            // CLI detection — 5s cooldown after first detect, then re-check for CLI switches
+            if (dispatchRef.current) {
+              const now = Date.now();
+              const cooldown = cliDetected ? 5000 : 2000;
+              if (now - lastDetectTime > cooldown) {
+                lastDetectTime = now;
+                const detected = detectCliFromOutput(data);
+                if (detected) {
+                  const newTitle = `${detected.icon} ${detected.name}`;
+                  if (detectedCliName !== newTitle) {
+                    detectedCliName = newTitle;
+                    cliDetected = true;
+                    void dispatchRef.current({
+                      type: 'surface.update_meta',
+                      payload: { surfaceId, title: newTitle },
+                    });
+                  }
+                }
               }
             }
           });

@@ -247,7 +247,7 @@ export default function App() {
     >
       {/* Main area: sidebar + content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar expand button — visible when sidebar is hidden */}
+        {/* Sidebar edge bar — full-height hover bar with ▶ at top */}
         {!sidebarVisible && (
           <button
             onClick={toggleSidebar}
@@ -262,13 +262,13 @@ export default function App() {
               cursor: 'pointer',
               fontSize: '13px',
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               justifyContent: 'center',
               flexShrink: 0,
-              padding: 0,
+              padding: '38px 0 0 0',
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#0091FF'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#0091FF'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1e1e1e'; (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
           >
             ▶
           </button>
@@ -281,8 +281,10 @@ export default function App() {
             overflow: 'hidden',
             transition: 'width 0.15s ease-out, min-width 0.15s ease-out',
             flexShrink: 0,
+            position: 'relative',
           }}
         >
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '200px', height: '100%' }}>
           <Sidebar
             workspaces={orderedWorkspaces}
             activeWorkspaceId={activeWsId}
@@ -358,6 +360,7 @@ export default function App() {
             onTogglePanels={toggleSidebar}
             panelsCollapsed={!sidebarVisible}
           />
+          </div>
         </div>
 
         {/* Workspace content area: titlebar + panels */}
@@ -379,7 +382,7 @@ export default function App() {
               userSelect: 'none',
             }}
           >
-            {/* Left: folder icon — toggle file explorer */}
+            {/* Folder icon — toggle file explorer */}
             <button
               onClick={() => setExplorerVisible((v) => !v)}
               title={explorerVisible ? 'Hide Explorer (Ctrl+E)' : 'Show Explorer (Ctrl+E)'}

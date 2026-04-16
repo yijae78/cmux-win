@@ -155,6 +155,12 @@ export interface SettingsState {
   telemetry: { enabled: boolean };
   updates: { autoCheck: boolean; channel: 'stable' | 'nightly' };
   accessibility: { screenReaderMode: boolean; reducedMotion: boolean };
+  bridge: {
+    enabled: boolean;
+    basePath: string;
+    heartbeatIntervalSec: number;
+    pollIntervalSec: number;
+  };
 }
 
 export interface ShortcutState {
