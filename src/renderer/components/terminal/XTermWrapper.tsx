@@ -31,10 +31,19 @@ function detectCliFromOutput(data: string): { name: string; icon: string } | nul
        lower.includes('musing') || lower.includes('\u256D'))) {
     baseName = 'Claude';
     icon = '\uD83E\uDDE0';
-    // Model name from PTY banner: "Opus 4.6 (1M context)"
-    if (lower.includes('opus')) baseName = 'Claude (Opus)';
-    else if (lower.includes('sonnet')) baseName = 'Claude (Sonnet)';
-    else if (lower.includes('haiku')) baseName = 'Claude (Haiku)';
+    // Model name from PTY banner: "Opus 4.6 (1M context)" / "Sonnet 4.6 with high effort"
+    // Use lastIndexOf with banner-format pattern (e.g. "opus 4.") to avoid
+    // false positives from notice text like "Opus now defaults to 1M context".
+    // Most recent occurrence wins (current model after /model switch).
+    const opusIdx = lower.lastIndexOf('opus 4.');
+    const sonnetIdx = lower.lastIndexOf('sonnet 4.');
+    const haikuIdx = lower.lastIndexOf('haiku 4.');
+    const maxIdx = Math.max(opusIdx, sonnetIdx, haikuIdx);
+    if (maxIdx >= 0) {
+      if (maxIdx === sonnetIdx) baseName = 'Claude (Sonnet)';
+      else if (maxIdx === haikuIdx) baseName = 'Claude (Haiku)';
+      else baseName = 'Claude (Opus)';
+    }
   } else if (lower.includes('gemini') || lower.includes('google ai')) {
     baseName = 'Gemini';
     icon = '\uD83D\uDC8E';
