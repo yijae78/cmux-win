@@ -88,7 +88,7 @@ export function registerPtyHandlers(): void {
       const integration = getShellIntegrationArgs(shellName, integrationDir);
       Object.assign(mergedEnv, integration.env);
 
-      const result = bridge.spawn({ ...options, env: mergedEnv });
+      const result = bridge.spawn({ ...options, env: mergedEnv, args: integration.args });
       surfacePtyMap.set(surfaceId, result.id);
 
       // Register data/exit listeners and forward to all renderer windows

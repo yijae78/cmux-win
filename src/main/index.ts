@@ -487,6 +487,23 @@ app.whenReady().then(async () => {
         const dst = path.join(safeBinDir, f);
         if (fs.existsSync(src)) fs.copyFileSync(src, dst);
       }
+      // Copy shell-integration scripts (PowerShell/Bash prompt hooks, OSC 7/133)
+      const srcShellDir = path.join(__dirname, '../../resources/shell-integration');
+      const dstShellDir = path.join(os.homedir(), '.cmux-win', 'shell-integration');
+      try {
+        const copyRecursive = (src: string, dst: string) => {
+          const stat = fs.statSync(src);
+          if (stat.isDirectory()) {
+            if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+            for (const f of fs.readdirSync(src)) copyRecursive(path.join(src, f), path.join(dst, f));
+          } else {
+            fs.copyFileSync(src, dst);
+          }
+        };
+        if (fs.existsSync(srcShellDir)) copyRecursive(srcShellDir, dstShellDir);
+      } catch (err) {
+        console.error('[cmux-win] Failed to copy shell-integration files:', err);
+      }
       // Create bash-compatible tmux shim (Claude Code uses bash, not cmd)
       const bashShimContent = '#!/usr/bin/env node\nconst path = require("path");\nrequire(path.join(__dirname, "tmux-shim.js"));\n';
       const bashShim = path.join(safeBinDir, 'tmux');

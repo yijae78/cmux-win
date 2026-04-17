@@ -9,7 +9,7 @@ export function getShellIntegrationArgs(
 
   if (shellLower === 'powershell' || shellLower.includes('pwsh')) {
     const psScript = path.join(integrationDir, 'powershell.ps1');
-    return { args: ['-NoExit', '-Command', `. '${psScript}'`], env };
+    return { args: ['-ExecutionPolicy', 'Bypass', '-NoExit', '-Command', `. '${psScript}'`], env };
   }
 
   if (shellLower === 'wsl') {

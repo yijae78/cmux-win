@@ -33,6 +33,7 @@ export interface PtySpawnOptions {
   cols?: number;
   rows?: number;
   env?: Record<string, string>;
+  args?: string[];
 }
 
 export interface PtyInstance {
@@ -156,7 +157,7 @@ export class PtyBridge {
       ...options.env,
     } as Record<string, string>;
 
-    const ptyProcess = pty.spawn(resolvedShell, [], {
+    const ptyProcess = pty.spawn(resolvedShell, options.args ?? [], {
       name: 'xterm-256color',
       cols,
       rows,
