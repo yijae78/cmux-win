@@ -289,6 +289,34 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         let detectedCliName = '';
         let lastDetectTime = 0;
 
+        // Model change detection: rolling buffer of ANSI-stripped PTY data
+        // Detects model switches (e.g. /model sonnet) from the raw PTY stream
+        // without relying on viewport reads which have timing issues.
+        let modelRollingBuf = '';
+        const MODEL_BUF_SIZE = 300;
+        const checkModelFromStream = (sid: string, rawData: string) => {
+          if (!cliDetected || !detectedCliName?.includes('Claude')) return;
+          const stripped = rawData.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+          modelRollingBuf = (modelRollingBuf + stripped).slice(-MODEL_BUF_SIZE);
+          const lower = modelRollingBuf.toLowerCase();
+          const opusIdx = lower.lastIndexOf('opus 4.');
+          const sonnetIdx = lower.lastIndexOf('sonnet 4.');
+          const haikuIdx = lower.lastIndexOf('haiku 4.');
+          const maxIdx = Math.max(opusIdx, sonnetIdx, haikuIdx);
+          if (maxIdx < 0) return;
+          let newModel = 'Claude (Opus)';
+          if (maxIdx === sonnetIdx) newModel = 'Claude (Sonnet)';
+          else if (maxIdx === haikuIdx) newModel = 'Claude (Haiku)';
+          const newTitle = `\uD83E\uDDE0 ${newModel}`;
+          if (detectedCliName !== newTitle && dispatchRef.current) {
+            detectedCliName = newTitle;
+            void dispatchRef.current({
+              type: 'surface.update_meta',
+              payload: { surfaceId: sid, title: newTitle },
+            });
+          }
+        };
+
         // P2-BUG-5: Reattach to existing PTY if it survived workspace switch
         if (await window.ptyBridge.has(surfaceId)) {
           ptyIdRef.current = surfaceId;
@@ -305,13 +333,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
           const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
+            // Model change detection from raw PTY stream (bypass viewport timing issues)
+            checkModelFromStream(surfaceId, data);
             // CLI detection — read clean text from xterm.js buffer (ANSI-free)
             if (dispatchRef.current) {
               const now = Date.now();
               const cooldown = cliDetected ? 5000 : 2000;
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
-                // Read first 20 lines from terminal buffer (already parsed, no ANSI)
                 // Read current viewport (visible area) — contains banner + prompt
                 const buf = terminal.buffer.active;
                 let text = '';
@@ -362,6 +391,8 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           // Wire data: PTY → terminal
           const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
             terminal.write(data);
+            // Model change detection from raw PTY stream (bypass viewport timing issues)
+            checkModelFromStream(surfaceId, data);
             // CLI detection — read clean text from xterm.js buffer (ANSI-free)
             if (dispatchRef.current) {
               const now = Date.now();
