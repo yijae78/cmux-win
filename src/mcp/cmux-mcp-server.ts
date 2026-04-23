@@ -208,11 +208,30 @@ function stripAnsi(str: string): string {
     .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
 }
 
-const IDLE_PATTERNS: Record<string, string[]> = {
+// 3-2: Idle patterns — loaded from external config, fallback to defaults
+const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
   gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
   codex: ['What would you like', 'Enter a prompt'],
   claude: ['❯ ', '> '],
 };
+
+function loadIdlePatterns(): Record<string, string[]> {
+  const configPath = path.join(
+    process.env.HOME || process.env.USERPROFILE || '',
+    '.cmux-win',
+    'idle-patterns.json',
+  );
+  try {
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_IDLE_PATTERNS;
+}
+
+const IDLE_PATTERNS = loadIdlePatterns();
 
 /**
  * M1: Improved idle detection — pattern must appear in last 3 lines of output
