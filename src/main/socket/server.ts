@@ -151,7 +151,19 @@ export class SocketApiServer {
                 );
               }
             }
-          } catch { /* ignore */ }
+          } catch {
+              // C4: JSON parse failure must block — never pass unparseable data to router
+              methodAllowed = false;
+              if (!socket.destroyed) {
+                socket.write(
+                  JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: null,
+                    error: { code: -32700, message: 'Parse error' },
+                  }) + '\n',
+                );
+              }
+            }
 
           if (methodAllowed) {
             this.router
