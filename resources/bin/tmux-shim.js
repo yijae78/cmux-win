@@ -419,7 +419,9 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
           try {
             const result = await rpcCall('surface.read', { surfaceId: capSurfaceId });
             console.log(result?.content ?? '');
-          } catch {
+          } catch (err) {
+            // M3: report capture-pane errors via stderr instead of silent empty string
+            process.stderr.write(`capture-pane error: ${err?.message || err}\n`);
             console.log('');
           }
           break;
