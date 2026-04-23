@@ -20,5 +20,8 @@ export const IPC_CHANNELS = {
   BROWSER_EXECUTE_RESULT: 'cmux:browser-execute-result',
   FILE_READ: 'cmux:file-read',
   FILE_LIST_DIR: 'cmux:file-list-dir',
+  FILE_WATCH: 'cmux:file-watch',
+  FILE_UNWATCH: 'cmux:file-unwatch',
+  FILE_CHANGED: 'cmux:file-changed',
   DIALOG_OPEN_FOLDER: 'cmux:dialog-open-folder',
 } as const;

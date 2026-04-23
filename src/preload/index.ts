@@ -172,6 +172,17 @@ contextBridge.exposeInMainWorld('cmuxFile', {
   openFolderDialog(): Promise<{ path: string } | { cancelled: true }> {
     return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER);
   },
+  watchFile(filePath: string, callback: (changedPath: string) => void): () => void {
+    const handler = (_event: unknown, changed: string) => {
+      if (changed === filePath) callback(changed);
+    };
+    ipcRenderer.on(IPC_CHANNELS.FILE_CHANGED, handler as (...args: unknown[]) => void);
+    ipcRenderer.send(IPC_CHANNELS.FILE_WATCH, filePath);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.FILE_CHANGED, handler as (...args: unknown[]) => void);
+      ipcRenderer.send(IPC_CHANNELS.FILE_UNWATCH, filePath);
+    };
+  },
 });
 
 // ---------------------------------------------------------------------------

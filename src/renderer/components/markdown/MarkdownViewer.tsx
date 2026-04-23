@@ -6,6 +6,7 @@ declare global {
   interface Window {
     cmuxFile?: {
       readFile(filePath: string): Promise<{ content: string } | { error: string }>;
+      watchFile?(filePath: string, callback: (changedPath: string) => void): () => void;
     };
   }
 }
@@ -73,12 +74,20 @@ const MarkdownViewer: FC<MarkdownViewerProps> = ({ filePath }) => {
     setLoading(true);
     loadFile(filePath).finally(() => setLoading(false));
 
-    // Poll for changes every 2 seconds
-    timerRef.current = setInterval(() => {
-      loadFile(filePath);
-    }, POLL_INTERVAL_MS);
+    // M9: Use fs.watch via IPC instead of polling; fall back to polling if unavailable
+    let unwatchFn: (() => void) | null = null;
+    if (window.cmuxFile?.watchFile) {
+      unwatchFn = window.cmuxFile.watchFile(filePath, () => {
+        loadFile(filePath);
+      });
+    } else {
+      timerRef.current = setInterval(() => {
+        loadFile(filePath);
+      }, POLL_INTERVAL_MS);
+    }
 
     return () => {
+      if (unwatchFn) unwatchFn();
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;

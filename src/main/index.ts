@@ -416,6 +416,28 @@ app.whenReady().then(async () => {
     }
   });
 
+  // M9: File watcher IPC — replaces polling in MarkdownViewer
+  const fileWatchers = new Map<string, fs.FSWatcher>();
+  ipcMain.on(IPC_CHANNELS.FILE_WATCH, (event, filePath: string) => {
+    if (fileWatchers.has(filePath)) return;
+    try {
+      const watcher = fs.watch(filePath, { persistent: false }, () => {
+        event.sender.send(IPC_CHANNELS.FILE_CHANGED, filePath);
+      });
+      watcher.on('error', () => {
+        fileWatchers.delete(filePath);
+      });
+      fileWatchers.set(filePath, watcher);
+    } catch { /* file may not exist yet */ }
+  });
+  ipcMain.on(IPC_CHANNELS.FILE_UNWATCH, (_event, filePath: string) => {
+    const watcher = fileWatchers.get(filePath);
+    if (watcher) {
+      watcher.close();
+      fileWatchers.delete(filePath);
+    }
+  });
+
   // Open folder dialog IPC handler (for file explorer)
   ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FOLDER, async () => {
     const win = BrowserWindow.getFocusedWindow();
