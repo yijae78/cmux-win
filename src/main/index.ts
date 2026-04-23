@@ -517,7 +517,9 @@ app.whenReady().then(async () => {
         fs.writeFileSync(path.join(userBinDir, 'tmux'), bashShimContent);
         fs.copyFileSync(path.join(safeBinDir, 'tmux-shim.js'), path.join(userBinDir, 'tmux-shim.js'));
         try { fs.chmodSync(path.join(userBinDir, 'tmux'), 0o755); } catch {}
-      } catch {}
+      } catch (err) {
+        console.error('[cmux-win] Failed to copy shims to ~/bin/:', err);
+      }
     } catch (err) {
       console.error('[cmux-win] Failed to copy shim files:', err);
     }
