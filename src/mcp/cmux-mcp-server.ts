@@ -602,14 +602,19 @@ server.registerTool(
 // ────────────────────────────────────────────
 
 async function findAgentSurface(agentType?: string): Promise<string | undefined> {
-  const tree = await client.call('system.tree');
-  for (const ws of tree.workspaces ?? []) {
-    for (const agent of ws.agents ?? []) {
-      const t = (agent.agentType ?? '').toLowerCase();
-      if (!agentType || t === agentType.toLowerCase()) {
-        return agent.surfaceId;
+  try {
+    const tree = await client.call('system.tree');
+    if (!tree || typeof tree !== 'object') return undefined;
+    for (const ws of (tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }).workspaces ?? []) {
+      for (const agent of ws.agents ?? []) {
+        const t = (agent.agentType ?? '').toLowerCase();
+        if (!agentType || t === agentType.toLowerCase()) {
+          return agent.surfaceId;
+        }
       }
     }
+  } catch {
+    // M6: connection failure or malformed response — return undefined
   }
   return undefined;
 }
