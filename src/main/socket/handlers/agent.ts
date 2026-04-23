@@ -98,7 +98,9 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
   });
 
   // B3: surfaceId-level send lock (risk ③: prevent interleaving)
-  const sendLocks = new Map<string, boolean>();
+  // H6: lock with TTL (30s) to auto-release stale locks
+  const SEND_LOCK_TTL = 30_000;
+  const sendLocks = new Map<string, number>(); // surfaceId → lock timestamp
 
   // B3: agent.send_task — send follow-up task to an interactive agent
   router.register('agent.send_task', async (params) => {
@@ -106,11 +108,12 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     if (!p?.surfaceId) throw new Error('surfaceId is required');
     if (!p?.task) throw new Error('task is required');
 
-    // Risk ③: reject if another send is in progress
-    if (sendLocks.get(p.surfaceId)) {
+    // Risk ③: reject if another send is in progress (H6: auto-expire after TTL)
+    const lockTime = sendLocks.get(p.surfaceId);
+    if (lockTime && Date.now() - lockTime < SEND_LOCK_TTL) {
       throw new Error('Another send is in progress for this surface');
     }
-    sendLocks.set(p.surfaceId, true);
+    sendLocks.set(p.surfaceId, Date.now());
 
     try {
       // Risk ④: verify PTY is alive before sending
