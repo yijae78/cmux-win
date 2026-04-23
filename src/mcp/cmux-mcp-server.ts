@@ -60,10 +60,23 @@ class CmuxSocketClient {
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
   private buffer = '';
+  // H5: deduplicate concurrent ensureConnection() calls
+  private connectingPromise: Promise<void> | null = null;
 
   /** 연결이 살아있지 않으면 자동 재연결 + 재인증 */
   async ensureConnection(): Promise<void> {
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
+    if (this.connectingPromise) return this.connectingPromise;
+
+    this.connectingPromise = this._doConnect();
+    try {
+      await this.connectingPromise;
+    } finally {
+      this.connectingPromise = null;
+    }
+  }
+
+  private async _doConnect(): Promise<void> {
     this.disconnect();
 
     const info = findSocketToken();
