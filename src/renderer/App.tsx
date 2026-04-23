@@ -27,6 +27,7 @@ import { collectLeafIds, rebuildEqualLayout } from '../shared/panel-layout-utils
 import Sidebar from './components/sidebar/Sidebar';
 import PanelLayout from './components/panels/PanelLayout';
 import PanelContainer from './components/panels/PanelContainer';
+import { PanelContext, type PanelContextValue } from './components/panels/PanelContext';
 import CommandPalette from './components/command-palette/CommandPalette';
 import SettingsPanel from './components/settings/SettingsPanel';
 
@@ -202,6 +203,25 @@ export default function App() {
     () => appState?.panels.filter((p) => p.workspaceId === activeWsId) ?? [],
     [appState, activeWsId],
   );
+
+  // L1: PanelContext — shared data for PanelContainer/PanelLayout to reduce prop drilling
+  const panelContextValue = useMemo<PanelContextValue | null>(() => {
+    if (!appState) return null;
+    return {
+      surfaces: appState.surfaces,
+      settings: appState.settings,
+      workspaceId: activeWsId || '',
+      dispatch,
+      onPanelFocus: (id: string) => void dispatch({ type: 'panel.focus', payload: { panelId: id } }),
+      onSurfaceFocus: (id: string) => void dispatch({ type: 'surface.focus', payload: { surfaceId: id } }),
+      onSurfaceClose: (id: string) => void dispatch({ type: 'surface.close', payload: { surfaceId: id } }),
+      onNewSurface: (id: string) => void dispatch({ type: 'surface.create', payload: { panelId: id, surfaceType: 'terminal' } }),
+      onEqualizeH: () => equalizeLayout('horizontal'),
+      onEqualizeV: () => equalizeLayout('vertical'),
+      onBrowserUrlChange: (sid: string, u: string) => void dispatch({ type: 'surface.update_meta', payload: { surfaceId: sid, browser: { url: u } } }),
+      onBrowserTitleChange: (sid: string, titleVal: string) => void dispatch({ type: 'surface.update_meta', payload: { surfaceId: sid, title: titleVal } }),
+    };
+  }, [appState, activeWsId, dispatch, equalizeLayout]);
 
   // Derive active CWD from active surface terminal metadata (for titlebar)
   const activeCwd = useMemo(() => {
@@ -575,8 +595,9 @@ export default function App() {
                   New Terminal
                 </button>
               </div>
-            ) : activeWs ? (
-              zoomedPanel ? (
+            ) : activeWs && panelContextValue ? (
+              <PanelContext.Provider value={panelContextValue}>
+              {zoomedPanel ? (
                 <PanelContainer
                   panel={zoomedPanel}
                   surfaces={appState.surfaces}
@@ -704,7 +725,8 @@ export default function App() {
                   }
                   dispatch={dispatch}
                 />
-              )
+              )}
+              </PanelContext.Provider>
             ) : (
               <div
                 style={{
