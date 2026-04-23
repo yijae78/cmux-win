@@ -30151,35 +30151,44 @@ function launchCmuxWin() {
       "\uBC14\uD0D5 \uD654\uBA74",
       "cmux-win"
     );
-    const candidates = [];
-    const electronBin = path.join(projectDir, "node_modules", ".bin", "electron.cmd");
+    const electronCli = path.join(projectDir, "node_modules", "electron", "cli.js");
     const mainJs = path.join(projectDir, "out", "main", "index.js");
-    if (fs.existsSync(electronBin) && fs.existsSync(mainJs)) {
-      candidates.push({ cmd: electronBin, args: [mainJs], cwd: projectDir });
+    if (fs.existsSync(electronCli) && fs.existsSync(mainJs)) {
+      console.log(`[mcp] Launching: node ${electronCli} ${mainJs}`);
+      try {
+        const child = (0, import_node_child_process.spawn)(process.execPath, [electronCli, mainJs], {
+          cwd: projectDir,
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false,
+          env: { ...process.env }
+        });
+        child.unref();
+        console.log(`[mcp] Launched PID: ${child.pid}`);
+      } catch (err) {
+        console.log(`[mcp] Dev launch failed: ${err}`);
+      }
+      resolve();
+      return;
     }
     const appData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
     const installedExe = path.join(appData, "cmux-win", "cmux-win.exe");
     if (fs.existsSync(installedExe)) {
-      candidates.push({ cmd: installedExe, args: [] });
-    }
-    if (candidates.length === 0) {
-      console.log("[mcp] No cmux-win executable found \u2014 cannot auto-launch");
+      console.log(`[mcp] Launching installed: ${installedExe}`);
+      try {
+        const child = (0, import_node_child_process.spawn)(installedExe, [], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false
+        });
+        child.unref();
+      } catch (err) {
+        console.log(`[mcp] Installed launch failed: ${err}`);
+      }
       resolve();
       return;
     }
-    const { cmd, args, cwd } = candidates[0];
-    console.log(`[mcp] Launching: ${cmd} ${args.join(" ")}`);
-    try {
-      const child = (0, import_node_child_process.execFile)(cmd, args, {
-        cwd,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: false
-      });
-      child.unref?.();
-    } catch (err) {
-      console.log(`[mcp] Launch failed: ${err}`);
-    }
+    console.log("[mcp] No cmux-win executable found \u2014 cannot auto-launch");
     resolve();
   });
 }
