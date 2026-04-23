@@ -30253,10 +30253,12 @@ var CmuxSocketClient = class {
   }
 };
 var client = new CmuxSocketClient();
-var server = new McpServer({
-  name: "cmux-win",
-  version: "1.0.0"
-});
+var server = new McpServer(
+  { name: "cmux-win", version: "1.0.0" },
+  {
+    instructions: '\uC774 MCP \uC11C\uBC84\uB294 "cmux-win" (\uBCC4\uCE6D: \uC528\uC708, Cw, C-Win, SeaWin, \uC528\uBBA5\uC2A4, cmux) \uC571\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD569\uB2C8\uB2E4. \uC0AC\uC6A9\uC790\uAC00 "\uC528\uC708", "Cw", "cmux", "\uC528\uBBA5\uC2A4", "C-Win", "SeaWin" \uB4F1\uC758 \uB2E8\uC5B4\uB97C \uC0AC\uC6A9\uD558\uBA74 \uC774 \uC11C\uBC84\uC758 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC528\uC708\uC740 Windows\uC6A9 AI \uD130\uBBF8\uB110 \uBA40\uD2F0\uD50C\uB809\uC11C\uB85C, \uC5EC\uB7EC AI CLI(Claude, Gemini, Codex)\uB97C \uB3D9\uC2DC\uC5D0 \uC2E4\uD589\uD558\uACE0 \uD611\uC5C5\uC2DC\uD0B5\uB2C8\uB2E4. \uC0C1\uD0DC \uD655\uC778\uC740 cmux_status, \uC791\uC5C5 \uC9C0\uC2DC\uB294 cmux_send_task, \uD654\uBA74 \uC77D\uAE30\uB294 cmux_read_panel, \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131\uC740 cmux_spawn_agent, \uC54C\uB9BC\uC740 cmux_notifications, \uC2B9\uC778\uC740 cmux_approve\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.'
+  }
+);
 function text(data) {
   return {
     content: [
@@ -30270,16 +30272,16 @@ function text(data) {
 server.registerTool(
   "cmux_status",
   {
-    title: "\uC0C1\uD0DC \uC870\uD68C",
-    description: "cmux-win \uC804\uCCB4 \uC0C1\uD0DC \u2014 \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4, \uD328\uB110, \uC5D0\uC774\uC804\uD2B8, \uD3EC\uCEE4\uC2A4 \uC815\uBCF4\uB97C \uBC18\uD658\uD569\uB2C8\uB2E4."
+    title: "\uC528\uC708 \uC0C1\uD0DC \uC870\uD68C",
+    description: '\uC528\uC708(cmux-win/Cw/SeaWin) \uC804\uCCB4 \uC0C1\uD0DC\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4, \uD328\uB110, \uC5D0\uC774\uC804\uD2B8, \uD3EC\uCEE4\uC2A4 \uC815\uBCF4\uB97C \uBC18\uD658\uD569\uB2C8\uB2E4. "\uC528\uC708 \uC0C1\uD0DC", "cmux \uC0C1\uD0DC", "Cw \uBB50 \uD558\uACE0 \uC788\uC5B4?" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.'
   },
   async () => text(await client.call("system.tree"))
 );
 server.registerTool(
   "cmux_send_task",
   {
-    title: "\uC791\uC5C5 \uC9C0\uC2DC",
-    description: "AI \uC5D0\uC774\uC804\uD2B8\uC5D0\uAC8C \uC791\uC5C5\uC744 \uC804\uB2EC\uD569\uB2C8\uB2E4. surfaceId \uC0DD\uB7B5 \uC2DC \uCCAB \uBC88\uC9F8 Claude \uC5D0\uC774\uC804\uD2B8\uB97C \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4.",
+    title: "\uC528\uC708 \uC791\uC5C5 \uC9C0\uC2DC",
+    description: '\uC528\uC708(cmux-win/Cw) \uC548\uC758 AI \uC5D0\uC774\uC804\uD2B8(Claude \uB9AC\uB354 \uB4F1)\uC5D0\uAC8C \uC791\uC5C5\uC744 \uC804\uB2EC\uD569\uB2C8\uB2E4. surfaceId \uC0DD\uB7B5 \uC2DC \uCCAB \uBC88\uC9F8 Claude \uC5D0\uC774\uC804\uD2B8\uB97C \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4. "\uC528\uC708\uC5D0 \uC791\uC5C5 \uC2DC\uCF1C", "Cw\uC5D0 \uC804\uB2EC\uD574", "cmux Claude\uD55C\uD14C \uC774\uAC70 \uD574\uB2EC\uB77C\uACE0 \uD574" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
       task: external_exports3.string().describe("\uC804\uB2EC\uD560 \uC791\uC5C5 \uB0B4\uC6A9"),
       surfaceId: external_exports3.string().optional().describe("\uB300\uC0C1 \uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC \uC790\uB3D9 \uD0D0\uC0C9)")
@@ -30304,8 +30306,8 @@ server.registerTool(
 server.registerTool(
   "cmux_read_panel",
   {
-    title: "\uD328\uB110 \uC77D\uAE30",
-    description: "\uD130\uBBF8\uB110/\uD328\uB110 \uD654\uBA74\uC758 \uD14D\uC2A4\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4.",
+    title: "\uC528\uC708 \uD328\uB110 \uC77D\uAE30",
+    description: '\uC528\uC708(cmux-win/Cw) \uD130\uBBF8\uB110/\uD328\uB110 \uD654\uBA74\uC758 \uD14D\uC2A4\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. "\uC528\uC708 \uD654\uBA74 \uBCF4\uC5EC\uC918", "Cw \uD130\uBBF8\uB110 \uC77D\uC5B4", "cmux \uBB50\uB77C\uACE0 \uB098\uC640\uC788\uC5B4?" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
       surfaceId: external_exports3.string().describe("\uC11C\uD53C\uC2A4 ID"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (\uAE30\uBCF8: \uC804\uCCB4)")
@@ -30321,8 +30323,8 @@ server.registerTool(
 server.registerTool(
   "cmux_spawn_agent",
   {
-    title: "\uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131",
-    description: "\uC0C8 AI \uC5D0\uC774\uC804\uD2B8(gemini, codex \uB4F1)\uB97C \uD328\uB110\uC5D0 \uC0DD\uC131\uD569\uB2C8\uB2E4. workspaceId \uC0DD\uB7B5 \uC2DC \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4.",
+    title: "\uC528\uC708 \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131",
+    description: '\uC528\uC708(cmux-win/Cw)\uC5D0 \uC0C8 AI \uC5D0\uC774\uC804\uD2B8(gemini, codex \uB4F1)\uB97C \uD328\uB110\uC5D0 \uC0DD\uC131\uD569\uB2C8\uB2E4. workspaceId \uC0DD\uB7B5 \uC2DC \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4. "\uC528\uC708\uC5D0 Gemini \uB744\uC6CC", "Cw\uC5D0 Codex \uCD94\uAC00\uD574", "cmux\uC5D0 \uC5D0\uC774\uC804\uD2B8 \uD558\uB098 \uB354 \uB9CC\uB4E4\uC5B4" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
       agentType: external_exports3.string().describe("\uC5D0\uC774\uC804\uD2B8 \uD0C0\uC785 (gemini, codex, claude)"),
       task: external_exports3.string().optional().describe("\uCD08\uAE30 \uC791\uC5C5 \uB0B4\uC6A9"),
@@ -30344,16 +30346,16 @@ server.registerTool(
 server.registerTool(
   "cmux_notifications",
   {
-    title: "\uC54C\uB9BC \uC870\uD68C",
-    description: "cmux-win \uC54C\uB9BC \uBAA9\uB85D\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4."
+    title: "\uC528\uC708 \uC54C\uB9BC \uC870\uD68C",
+    description: '\uC528\uC708(cmux-win/Cw) \uC54C\uB9BC \uBAA9\uB85D\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4. "\uC528\uC708 \uC54C\uB9BC \uC788\uC5B4?", "Cw \uC54C\uB9BC \uD655\uC778", "cmux \uB178\uD2F0\uD53C\uCF00\uC774\uC158" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.'
   },
   async () => text(await client.call("notification.list"))
 );
 server.registerTool(
   "cmux_approve",
   {
-    title: "\uC218\uB3D9 \uC2B9\uC778",
-    description: "\uC2B9\uC778 \uB300\uAE30 \uC911\uC778 \uC5D0\uC774\uC804\uD2B8\uC5D0 Enter\uB97C \uC804\uC1A1\uD558\uC5EC \uC2B9\uC778\uD569\uB2C8\uB2E4.",
+    title: "\uC528\uC708 \uC218\uB3D9 \uC2B9\uC778",
+    description: '\uC528\uC708(cmux-win/Cw)\uC5D0\uC11C \uC2B9\uC778 \uB300\uAE30 \uC911\uC778 \uC5D0\uC774\uC804\uD2B8\uC5D0 Enter\uB97C \uC804\uC1A1\uD558\uC5EC \uC2B9\uC778\uD569\uB2C8\uB2E4. "\uC528\uC708 \uC2B9\uC778\uD574\uC918", "Cw approve", "cmux \uCEE8\uD38C" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
       surfaceId: external_exports3.string().describe("\uC2B9\uC778\uD560 \uC11C\uD53C\uC2A4 ID")
     })

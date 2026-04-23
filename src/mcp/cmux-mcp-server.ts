@@ -190,10 +190,17 @@ class CmuxSocketClient {
 
 const client = new CmuxSocketClient();
 
-const server = new McpServer({
-  name: 'cmux-win',
-  version: '1.0.0',
-});
+const server = new McpServer(
+  { name: 'cmux-win', version: '1.0.0' },
+  {
+    instructions:
+      '이 MCP 서버는 "cmux-win" (별칭: 씨윈, Cw, C-Win, SeaWin, 씨뮥스, cmux) 앱을 원격 제어합니다. ' +
+      '사용자가 "씨윈", "Cw", "cmux", "씨뮥스", "C-Win", "SeaWin" 등의 단어를 사용하면 이 서버의 도구를 사용하세요. ' +
+      '씨윈은 Windows용 AI 터미널 멀티플렉서로, 여러 AI CLI(Claude, Gemini, Codex)를 동시에 실행하고 협업시킵니다. ' +
+      '상태 확인은 cmux_status, 작업 지시는 cmux_send_task, 화면 읽기는 cmux_read_panel, ' +
+      '에이전트 생성은 cmux_spawn_agent, 알림은 cmux_notifications, 승인은 cmux_approve를 사용합니다.',
+  },
+);
 
 function text(data: unknown) {
   return {
@@ -210,9 +217,9 @@ function text(data: unknown) {
 server.registerTool(
   'cmux_status',
   {
-    title: '상태 조회',
+    title: '씨윈 상태 조회',
     description:
-      'cmux-win 전체 상태 — 워크스페이스, 패널, 에이전트, 포커스 정보를 반환합니다.',
+      '씨윈(cmux-win/Cw/SeaWin) 전체 상태를 조회합니다. 워크스페이스, 패널, 에이전트, 포커스 정보를 반환합니다. "씨윈 상태", "cmux 상태", "Cw 뭐 하고 있어?" 등의 요청에 사용하세요.',
   },
   async () => text(await client.call('system.tree')),
 );
@@ -221,9 +228,9 @@ server.registerTool(
 server.registerTool(
   'cmux_send_task',
   {
-    title: '작업 지시',
+    title: '씨윈 작업 지시',
     description:
-      'AI 에이전트에게 작업을 전달합니다. surfaceId 생략 시 첫 번째 Claude 에이전트를 자동 탐색합니다.',
+      '씨윈(cmux-win/Cw) 안의 AI 에이전트(Claude 리더 등)에게 작업을 전달합니다. surfaceId 생략 시 첫 번째 Claude 에이전트를 자동 탐색합니다. "씨윈에 작업 시켜", "Cw에 전달해", "cmux Claude한테 이거 해달라고 해" 등의 요청에 사용하세요.',
     inputSchema: z.object({
       task: z.string().describe('전달할 작업 내용'),
       surfaceId: z.string().optional().describe('대상 서피스 ID (생략 시 자동 탐색)'),
@@ -250,8 +257,8 @@ server.registerTool(
 server.registerTool(
   'cmux_read_panel',
   {
-    title: '패널 읽기',
-    description: '터미널/패널 화면의 텍스트를 읽습니다.',
+    title: '씨윈 패널 읽기',
+    description: '씨윈(cmux-win/Cw) 터미널/패널 화면의 텍스트를 읽습니다. "씨윈 화면 보여줘", "Cw 터미널 읽어", "cmux 뭐라고 나와있어?" 등의 요청에 사용하세요.',
     inputSchema: z.object({
       surfaceId: z.string().describe('서피스 ID'),
       lines: z.number().optional().describe('읽을 줄 수 (기본: 전체)'),
@@ -269,9 +276,9 @@ server.registerTool(
 server.registerTool(
   'cmux_spawn_agent',
   {
-    title: '에이전트 생성',
+    title: '씨윈 에이전트 생성',
     description:
-      '새 AI 에이전트(gemini, codex 등)를 패널에 생성합니다. workspaceId 생략 시 자동 탐색합니다.',
+      '씨윈(cmux-win/Cw)에 새 AI 에이전트(gemini, codex 등)를 패널에 생성합니다. workspaceId 생략 시 자동 탐색합니다. "씨윈에 Gemini 띄워", "Cw에 Codex 추가해", "cmux에 에이전트 하나 더 만들어" 등의 요청에 사용하세요.',
     inputSchema: z.object({
       agentType: z.string().describe('에이전트 타입 (gemini, codex, claude)'),
       task: z.string().optional().describe('초기 작업 내용'),
@@ -295,8 +302,8 @@ server.registerTool(
 server.registerTool(
   'cmux_notifications',
   {
-    title: '알림 조회',
-    description: 'cmux-win 알림 목록을 조회합니다.',
+    title: '씨윈 알림 조회',
+    description: '씨윈(cmux-win/Cw) 알림 목록을 조회합니다. "씨윈 알림 있어?", "Cw 알림 확인", "cmux 노티피케이션" 등의 요청에 사용하세요.',
   },
   async () => text(await client.call('notification.list')),
 );
@@ -305,8 +312,8 @@ server.registerTool(
 server.registerTool(
   'cmux_approve',
   {
-    title: '수동 승인',
-    description: '승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다.',
+    title: '씨윈 수동 승인',
+    description: '씨윈(cmux-win/Cw)에서 승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다. "씨윈 승인해줘", "Cw approve", "cmux 컨펌" 등의 요청에 사용하세요.',
     inputSchema: z.object({
       surfaceId: z.string().describe('승인할 서피스 ID'),
     }),
