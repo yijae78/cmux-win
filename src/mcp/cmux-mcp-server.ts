@@ -382,13 +382,35 @@ function text(data: unknown) {
   };
 }
 
+// ── 0. cmux_launch (씨윈 실행 전용) ──
+server.registerTool(
+  'cmux_launch',
+  {
+    title: '씨윈 실행/열기',
+    description:
+      '씨윈(cmux-win/Cw/SeaWin)을 실행합니다. 씨윈이 이미 실행 중이면 상태를 반환하고, 꺼져 있으면 자동으로 실행한 후 상태를 반환합니다. ' +
+      '"씨윈 열어", "씨윈 켜", "씨윈 실행해", "씨윈 시작", "Cw 열어", "cmux 실행" 등의 요청에 반드시 이 도구를 사용하세요. ' +
+      '★ 이 도구는 씨윈이 꺼져있어도 호출 가능합니다 — 자동으로 앱을 실행합니다.',
+  },
+  async () => {
+    try {
+      const tree = await client.call('system.tree');
+      return text({ status: 'running', ...tree });
+    } catch (e: any) {
+      return text({ status: 'launch_attempted', message: '씨윈 자동 실행을 시도했습니다. 잠시 후 cmux_status로 확인하세요.', error: e.message });
+    }
+  },
+);
+
 // ── 1. cmux_status ──
 server.registerTool(
   'cmux_status',
   {
     title: '씨윈 상태 조회',
     description:
-      '씨윈(cmux-win/Cw/SeaWin) 전체 상태를 조회합니다. 워크스페이스, 패널, 에이전트, 포커스 정보를 반환합니다. "씨윈 상태", "cmux 상태", "Cw 뭐 하고 있어?" 등의 요청에 사용하세요.',
+      '씨윈(cmux-win/Cw/SeaWin) 전체 상태를 조회합니다. 워크스페이스, 패널, 에이전트, 포커스 정보를 반환합니다. ' +
+      '"씨윈 상태", "cmux 상태", "Cw 뭐 하고 있어?" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
   },
   async () => text(await client.call('system.tree')),
 );
@@ -399,7 +421,9 @@ server.registerTool(
   {
     title: '씨윈 작업 지시',
     description:
-      '씨윈(cmux-win/Cw) 안의 AI 에이전트에게 작업을 전달합니다. agentType으로 대상 지정 가능 (claude, gemini, codex). 생략 시 Claude를 자동 탐색합니다. "씨윈에 작업 시켜", "씨윈 Gemini에게 전달해", "Cw Claude한테 이거 해달라고 해" 등의 요청에 사용하세요.',
+      '씨윈(cmux-win/Cw) 안의 AI 에이전트에게 작업을 전달합니다. agentType으로 대상 지정 가능 (claude, gemini, codex). 생략 시 Claude를 자동 탐색합니다. ' +
+      '"씨윈에 작업 시켜", "씨윈 Gemini에게 전달해", "Cw Claude한테 이거 해달라고 해" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
     inputSchema: z.object({
       task: z.string().describe('전달할 작업 내용'),
       agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex). 생략 시 claude'),
@@ -428,7 +452,10 @@ server.registerTool(
   'cmux_read_panel',
   {
     title: '씨윈 패널 읽기',
-    description: '씨윈(cmux-win/Cw) 터미널/패널 화면의 텍스트를 읽습니다. agentType으로 대상 지정 가능. "씨윈 화면 보여줘", "씨윈 Gemini 화면 읽어", "Cw 터미널 읽어" 등의 요청에 사용하세요.',
+    description:
+      '씨윈(cmux-win/Cw) 터미널/패널 화면의 텍스트를 읽습니다. agentType으로 대상 지정 가능. ' +
+      '"씨윈 화면 보여줘", "씨윈 Gemini 화면 읽어", "Cw 터미널 읽어" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
     inputSchema: z.object({
       agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex)'),
       surfaceId: z.string().optional().describe('서피스 ID (생략 시 agentType으로 자동 탐색)'),
@@ -455,7 +482,9 @@ server.registerTool(
   {
     title: '씨윈 에이전트 생성',
     description:
-      '씨윈(cmux-win/Cw)에 새 AI 에이전트(gemini, codex 등)를 패널에 생성합니다. workspaceId 생략 시 자동 탐색합니다. "씨윈에 Gemini 띄워", "Cw에 Codex 추가해", "cmux에 에이전트 하나 더 만들어" 등의 요청에 사용하세요.',
+      '씨윈(cmux-win/Cw)에 새 AI 에이전트(gemini, codex 등)를 패널에 생성합니다. workspaceId 생략 시 자동 탐색합니다. ' +
+      '"씨윈에 Gemini 띄워", "Cw에 Codex 추가해", "cmux에 에이전트 하나 더 만들어" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
     inputSchema: z.object({
       agentType: z.string().describe('에이전트 타입 (gemini, codex, claude)'),
       task: z.string().optional().describe('초기 작업 내용'),
@@ -480,7 +509,9 @@ server.registerTool(
   'cmux_notifications',
   {
     title: '씨윈 알림 조회',
-    description: '씨윈(cmux-win/Cw) 알림 목록을 조회합니다. "씨윈 알림 있어?", "Cw 알림 확인", "cmux 노티피케이션" 등의 요청에 사용하세요.',
+    description:
+      '씨윈(cmux-win/Cw) 알림 목록을 조회합니다. "씨윈 알림 있어?", "Cw 알림 확인", "cmux 노티피케이션" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
   },
   async () => text(await client.call('notification.list')),
 );
@@ -494,7 +525,8 @@ server.registerTool(
       '씨윈(cmux-win/Cw) AI 에이전트에게 작업을 전달하고 완료될 때까지 대기합니다. ' +
       '완료되면 결과를 반환하고, 시간이 오래 걸리면 task_id를 반환합니다. ' +
       'task_id를 받으면 반드시 cmux_get_result를 반복 호출하여 최종 결과를 받으세요. ' +
-      '"씨윈에 작업 시키고 결과 알려줘", "Cw Gemini한테 이거 하고 결과 보고해" 등의 요청에 사용하세요.',
+      '"씨윈에 작업 시키고 결과 알려줘", "Cw Gemini한테 이거 하고 결과 보고해" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
     inputSchema: z.object({
       task: z.string().describe('전달할 작업 내용'),
       agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex). 생략 시 claude'),
@@ -671,7 +703,10 @@ server.registerTool(
   'cmux_approve',
   {
     title: '씨윈 수동 승인',
-    description: '씨윈(cmux-win/Cw)에서 승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다. agentType으로 대상 지정 가능. "씨윈 승인해줘", "씨윈 Gemini 승인", "Cw approve" 등의 요청에 사용하세요.',
+    description:
+      '씨윈(cmux-win/Cw)에서 승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다. agentType으로 대상 지정 가능. ' +
+      '"씨윈 승인해줘", "씨윈 Gemini 승인", "Cw approve" 등의 요청에 사용하세요. ' +
+      '★ 씨윈이 꺼져있어도 호출 가능 — 자동으로 실행 후 연결합니다.',
     inputSchema: z.object({
       agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex)'),
       surfaceId: z.string().optional().describe('승인할 서피스 ID (생략 시 agentType으로 자동 탐색)'),
