@@ -15,7 +15,7 @@
  * Custom frameless titlebar with window drag region and Windows controls.
  */
 import React from 'react';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppState } from './hooks/useAppState';
 import { useDispatch } from './hooks/useDispatch';
@@ -119,8 +119,17 @@ export default function App() {
   const [panelsCollapsed, setPanelsCollapsed] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // H7: track auto-launch timer for cleanup on unmount
+  const autoLaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const appState = isStandalone ? createMockState() : electronState;
+
+  // H7: cleanup auto-launch timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoLaunchTimerRef.current) clearTimeout(autoLaunchTimerRef.current);
+    };
+  }, []);
 
   // Subscribe to windowId from main process
   useEffect(() => {
@@ -336,7 +345,7 @@ export default function App() {
                   });
                   if (!firstFolderOpened) {
                     setFirstFolderOpened(true);
-                    setTimeout(() => {
+                    autoLaunchTimerRef.current = setTimeout(() => {
                       void dispatch({
                         type: 'surface.send_text',
                         payload: { surfaceId, text: 'claude\r' },
@@ -603,7 +612,7 @@ export default function App() {
                       });
                       if (!firstFolderOpened) {
                         setFirstFolderOpened(true);
-                        setTimeout(() => {
+                        autoLaunchTimerRef.current = setTimeout(() => {
                           void dispatch({
                             type: 'surface.send_text',
                             payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
@@ -670,7 +679,7 @@ export default function App() {
                       });
                       if (!firstFolderOpened) {
                         setFirstFolderOpened(true);
-                        setTimeout(() => {
+                        autoLaunchTimerRef.current = setTimeout(() => {
                           void dispatch({
                             type: 'surface.send_text',
                             payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
