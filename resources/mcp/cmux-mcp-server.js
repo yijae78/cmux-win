@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+#!C:/Program Files/Git/usr/bin/env node
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -30119,6 +30120,7 @@ var StdioServerTransport = class {
 var net = __toESM(require("node:net"));
 var fs = __toESM(require("node:fs"));
 var path = __toESM(require("node:path"));
+var import_node_child_process = require("node:child_process");
 console.log = (...args) => console.error("[mcp]", ...args);
 function findSocketToken() {
   const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming");
@@ -30141,21 +30143,83 @@ function findSocketToken() {
   }
   return best ? { token: best.token, port: best.port } : null;
 }
+function launchCmuxWin() {
+  return new Promise((resolve) => {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const projectDir = path.join(
+      home,
+      "OneDrive - the presbyerian church of korea",
+      "\uBC14\uD0D5 \uD654\uBA74",
+      "cmux-win"
+    );
+    const candidates = [];
+    const electronBin = path.join(projectDir, "node_modules", ".bin", "electron.cmd");
+    const mainJs = path.join(projectDir, "out", "main", "index.js");
+    if (fs.existsSync(electronBin) && fs.existsSync(mainJs)) {
+      candidates.push({ cmd: electronBin, args: [mainJs], cwd: projectDir });
+    }
+    const appData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const installedExe = path.join(appData, "cmux-win", "cmux-win.exe");
+    if (fs.existsSync(installedExe)) {
+      candidates.push({ cmd: installedExe, args: [] });
+    }
+    if (candidates.length === 0) {
+      console.log("[mcp] No cmux-win executable found \u2014 cannot auto-launch");
+      resolve();
+      return;
+    }
+    const { cmd, args, cwd } = candidates[0];
+    console.log(`[mcp] Launching: ${cmd} ${args.join(" ")}`);
+    try {
+      const child = (0, import_node_child_process.execFile)(cmd, args, {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false
+      });
+      child.unref?.();
+    } catch (err) {
+      console.log(`[mcp] Launch failed: ${err}`);
+    }
+    resolve();
+  });
+}
 var CmuxSocketClient = class {
   socket = null;
   authenticated = false;
   nextId = 1;
   pending = /* @__PURE__ */ new Map();
   buffer = "";
+  // H5: deduplicate concurrent ensureConnection() calls
+  connectingPromise = null;
   /** 연결이 살아있지 않으면 자동 재연결 + 재인증 */
   async ensureConnection() {
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
+    if (this.connectingPromise) return this.connectingPromise;
+    this.connectingPromise = this._doConnect();
+    try {
+      await this.connectingPromise;
+    } finally {
+      this.connectingPromise = null;
+    }
+  }
+  async _doConnect() {
     this.disconnect();
-    const info = findSocketToken();
+    let info = findSocketToken();
     if (!info) {
-      throw new Error(
-        "cmux-win\uC774 \uC2E4\uD589 \uC911\uC774 \uC544\uB2D9\uB2C8\uB2E4. \uC571\uC744 \uBA3C\uC800 \uC2DC\uC791\uD574\uC8FC\uC138\uC694. (socket-token \uD30C\uC77C \uC5C6\uC74C)"
-      );
+      console.log("[mcp] cmux-win not running \u2014 attempting auto-launch...");
+      await launchCmuxWin();
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        info = findSocketToken();
+        if (info) break;
+      }
+      if (!info) {
+        throw new Error(
+          "cmux-win \uC790\uB3D9 \uC2E4\uD589\uC744 \uC2DC\uB3C4\uD588\uC73C\uB098 \uC18C\uCF13 \uD1A0\uD070\uC774 \uC0DD\uC131\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694."
+        );
+      }
+      console.log("[mcp] cmux-win launched successfully, connecting...");
     }
     await this.connectAndAuth(info);
   }
@@ -30253,21 +30317,46 @@ var CmuxSocketClient = class {
   }
 };
 function stripAnsi(str) {
-  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07]*\x07/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
+  return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
-var IDLE_PATTERNS = {
+var DEFAULT_IDLE_PATTERNS = {
   gemini: ["Type your message", "Enter your prompt", "What can I help"],
   codex: ["What would you like", "Enter a prompt"],
   claude: ["\u276F ", "> "]
 };
+function loadIdlePatterns() {
+  const configPath = path.join(
+    process.env.HOME || process.env.USERPROFILE || "",
+    ".cmux-win",
+    "idle-patterns.json"
+  );
+  try {
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    }
+  } catch {
+  }
+  return DEFAULT_IDLE_PATTERNS;
+}
+var IDLE_PATTERNS = loadIdlePatterns();
 function isAgentIdle(screenText, agentType) {
   const clean = stripAnsi(screenText);
-  const tail = clean.slice(-500);
+  const lines = clean.split("\n").filter((l) => l.trim().length > 0);
+  const tail = lines.slice(-3).join("\n");
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
 var taskStore = /* @__PURE__ */ new Map();
 var taskSeq = 0;
+var TASK_TTL_MS = 10 * 60 * 1e3;
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of taskStore) {
+    if (entry.status === "done" && now - entry.startedAt > TASK_TTL_MS) {
+      taskStore.delete(id);
+    }
+  }
+}, 6e4);
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -30275,7 +30364,7 @@ var client = new CmuxSocketClient();
 var server = new McpServer(
   { name: "cmux-win", version: "1.0.0" },
   {
-    instructions: '\uC774 MCP \uC11C\uBC84\uB294 "cmux-win" (\uBCC4\uCE6D: \uC528\uC708, Cw, C-Win, SeaWin, \uC528\uBBA5\uC2A4, cmux) \uC571\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD569\uB2C8\uB2E4. \uC0AC\uC6A9\uC790\uAC00 "\uC528\uC708", "Cw", "cmux", "\uC528\uBBA5\uC2A4", "C-Win", "SeaWin" \uB4F1\uC758 \uB2E8\uC5B4\uB97C \uC0AC\uC6A9\uD558\uBA74 \uC774 \uC11C\uBC84\uC758 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC528\uC708\uC740 Windows\uC6A9 AI \uD130\uBBF8\uB110 \uBA40\uD2F0\uD50C\uB809\uC11C\uB85C, \uC5EC\uB7EC AI CLI(Claude, Gemini, Codex)\uB97C \uB3D9\uC2DC\uC5D0 \uC2E4\uD589\uD558\uACE0 \uD611\uC5C5\uC2DC\uD0B5\uB2C8\uB2E4. \uC0C1\uD0DC \uD655\uC778\uC740 cmux_status, \uC791\uC5C5 \uC9C0\uC2DC\uB294 cmux_send_task \uB610\uB294 cmux_send_task_and_wait, \uD654\uBA74 \uC77D\uAE30\uB294 cmux_read_panel, \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131\uC740 cmux_spawn_agent, \uC54C\uB9BC\uC740 cmux_notifications, \uC2B9\uC778\uC740 cmux_approve\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \u2605 \uC911\uC694: cmux_send_task_and_wait\uAC00 status="running"\uC744 \uBC18\uD658\uD558\uBA74, \uBC18\uB4DC\uC2DC cmux_get_result\uB97C \uD638\uCD9C\uD558\uC5EC status\uAC00 "done"\uC774 \uB420 \uB54C\uAE4C\uC9C0 \uBC18\uBCF5\uD558\uC138\uC694. \uC644\uB8CC\uB418\uBA74 \uACB0\uACFC\uB97C \uC0AC\uC6A9\uC790\uC5D0\uAC8C \uBCF4\uACE0\uD558\uC138\uC694. \uC808\uB300 polling\uC744 \uAC74\uB108\uB6F0\uC9C0 \uB9C8\uC138\uC694. \uC0AC\uC6A9\uC790\uAC00 \uD578\uB4DC\uD3F0\uC73C\uB85C \uACB0\uACFC\uB97C \uAE30\uB2E4\uB9AC\uACE0 \uC788\uC2B5\uB2C8\uB2E4.'
+    instructions: '\uC774 MCP \uC11C\uBC84\uB294 "cmux-win" (\uBCC4\uCE6D: \uC528\uC708, Cw, C-Win, SeaWin, \uC528\uBBA5\uC2A4, cmux) \uC571\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD569\uB2C8\uB2E4. \uC0AC\uC6A9\uC790\uAC00 "\uC528\uC708", "Cw", "cmux", "\uC528\uBBA5\uC2A4", "C-Win", "SeaWin" \uB4F1\uC758 \uB2E8\uC5B4\uB97C \uC0AC\uC6A9\uD558\uBA74 \uC774 \uC11C\uBC84\uC758 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC528\uC708\uC740 Windows\uC6A9 AI \uD130\uBBF8\uB110 \uBA40\uD2F0\uD50C\uB809\uC11C\uB85C, \uC5EC\uB7EC AI CLI(Claude, Gemini, Codex)\uB97C \uB3D9\uC2DC\uC5D0 \uC2E4\uD589\uD558\uACE0 \uD611\uC5C5\uC2DC\uD0B5\uB2C8\uB2E4. \uC0C1\uD0DC \uD655\uC778\uC740 cmux_status, \uC791\uC5C5 \uC9C0\uC2DC\uB294 cmux_send_task \uB610\uB294 cmux_send_task_and_wait, \uD654\uBA74 \uC77D\uAE30\uB294 cmux_read_panel, \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131\uC740 cmux_spawn_agent, \uC54C\uB9BC\uC740 cmux_notifications, \uC2B9\uC778\uC740 cmux_approve\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \u2605 \uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uAC71\uC815\uD558\uC9C0 \uB9C8\uC138\uC694 \u2014 \uC544\uBB34 \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD558\uBA74 \uC528\uC708\uC774 \uC790\uB3D9\uC73C\uB85C \uC2E4\uD589\uB429\uB2C8\uB2E4. "\uC528\uC708 \uC5F4\uC5B4", "\uC528\uC708 \uCF1C" \uB4F1\uC758 \uC694\uCCAD\uC5D0\uB294 cmux_status\uB97C \uD638\uCD9C\uD558\uC138\uC694 (\uC790\uB3D9 \uC2E4\uD589 \uD6C4 \uC0C1\uD0DC \uBCF4\uACE0). \u2605 \uC911\uC694: cmux_send_task_and_wait\uAC00 status="running"\uC744 \uBC18\uD658\uD558\uBA74, \uBC18\uB4DC\uC2DC cmux_get_result\uB97C \uD638\uCD9C\uD558\uC5EC status\uAC00 "done"\uC774 \uB420 \uB54C\uAE4C\uC9C0 \uBC18\uBCF5\uD558\uC138\uC694. \uC644\uB8CC\uB418\uBA74 \uACB0\uACFC\uB97C \uC0AC\uC6A9\uC790\uC5D0\uAC8C \uBCF4\uACE0\uD558\uC138\uC694. \uC808\uB300 polling\uC744 \uAC74\uB108\uB6F0\uC9C0 \uB9C8\uC138\uC694. \uC0AC\uC6A9\uC790\uAC00 \uD578\uB4DC\uD3F0\uC73C\uB85C \uACB0\uACFC\uB97C \uAE30\uB2E4\uB9AC\uACE0 \uC788\uC2B5\uB2C8\uB2E4.'
   }
 );
 function text(data) {
@@ -30547,14 +30636,18 @@ server.registerTool(
   }
 );
 async function findAgentSurface(agentType) {
-  const tree = await client.call("system.tree");
-  for (const ws of tree.workspaces ?? []) {
-    for (const agent of ws.agents ?? []) {
-      const t = (agent.agentType ?? "").toLowerCase();
-      if (!agentType || t === agentType.toLowerCase()) {
-        return agent.surfaceId;
+  try {
+    const tree = await client.call("system.tree");
+    if (!tree || typeof tree !== "object") return void 0;
+    for (const ws of tree.workspaces ?? []) {
+      for (const agent of ws.agents ?? []) {
+        const t = (agent.agentType ?? "").toLowerCase();
+        if (!agentType || t === agentType.toLowerCase()) {
+          return agent.surfaceId;
+        }
       }
     }
+  } catch {
   }
   return void 0;
 }
