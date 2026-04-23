@@ -224,6 +224,17 @@ interface TaskEntry {
 const taskStore = new Map<string, TaskEntry>();
 let taskSeq = 0;
 
+// H1: TTL-based cleanup — purge completed tasks older than 10 minutes (runs every 60s)
+const TASK_TTL_MS = 10 * 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of taskStore) {
+    if (entry.status === 'done' && now - entry.startedAt > TASK_TTL_MS) {
+      taskStore.delete(id);
+    }
+  }
+}, 60_000);
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
