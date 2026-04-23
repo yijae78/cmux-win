@@ -214,9 +214,15 @@ const IDLE_PATTERNS: Record<string, string[]> = {
   claude: ['❯ ', '> '],
 };
 
+/**
+ * M1: Improved idle detection — pattern must appear in last 3 lines of output
+ * to avoid false positives from mid-output '> ' strings (e.g., error messages).
+ */
 function isAgentIdle(screenText: string, agentType: string): boolean {
   const clean = stripAnsi(screenText);
-  const tail = clean.slice(-500);
+  // Only check last 3 non-empty lines for prompt patterns
+  const lines = clean.split('\n').filter((l) => l.trim().length > 0);
+  const tail = lines.slice(-3).join('\n');
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
