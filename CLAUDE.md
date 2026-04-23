@@ -162,12 +162,13 @@ tmux has-session              # 세션 확인
 ## 빌드 & 실행
 
 ```bash
-# 빌드 (esbuild 사용)
-npx esbuild src/main/index.ts --bundle --outfile=out/main/index.js --platform=node --format=cjs --external:electron --external:node-pty --external:better-sqlite3 --external:grammy --external:@grammyjs/auto-retry
-npx esbuild src/preload/index.ts --bundle --outfile=out/preload/index.js --platform=node --format=cjs --external:electron
-npx esbuild src/renderer/main.tsx --bundle --outfile=out/renderer/assets/index.js --format=esm --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css --jsx=automatic --external:electron
+# 빌드 (electron-vite 사용 — package.json scripts 기준)
+npm run build          # electron-vite build (main + preload + renderer)
 
-# 실행
+# 개발 모드
+npm run dev            # electron-vite dev (HMR)
+
+# 실행 (빌드 후)
 npx electron out/main/index.js
 
 # 테스트
@@ -175,7 +176,6 @@ npx vitest run
 ```
 
 ## 주의사항
-- `electron-vite build`는 현재 main 단계 후 멈추는 이슈 있음 → esbuild 직접 사용
 - Gemini: `gemini -i "prompt" -y` 형식으로 실행 (interactive + 자동승인)
 - Codex: `codex --full-auto --no-alt-screen "prompt"` 형식으로 실행
 - Claude를 여러 패널에서 중복 실행하지 말 것 — 리더 1개만 실행
