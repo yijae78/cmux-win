@@ -2,7 +2,7 @@
 function cmux_prompt_start {
   $e = [char]0x1b
   Write-Host -NoNewline "${e}]133;A${e}\"
-  $cwdUri = "file://localhost/" + ($PWD.Path -replace '\\','/' -replace ' ','%20')
+  $cwdUri = "file://localhost/" + [uri]::EscapeUriString(($PWD.Path -replace '\\','/'))
   Write-Host -NoNewline "${e}]7;${cwdUri}${e}\"
   $branch = git branch --show-current 2>$null
   if ($branch) {
