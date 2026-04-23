@@ -2,8 +2,7 @@
  * XTermWrapper — React component that hosts an xterm.js terminal and
  * connects it to a PTY instance via the preload bridge.
  *
- * BUG-7:  Import from scoped @xterm packages (not the deprecated 'xterm').
- * BUG-13: Separate useEffect for font changes so the terminal re-fits.
+ * Uses scoped @xterm packages (BUG-7 fix) and separate useEffect for font changes (BUG-13 fix).
  */
 import React from 'react';
 import { useRef, useEffect, type FC } from 'react';

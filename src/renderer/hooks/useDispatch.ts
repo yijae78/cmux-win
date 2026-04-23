@@ -1,8 +1,7 @@
 /**
  * useDispatch — React hook that dispatches actions via the preload bridge.
  *
- * BUG-17: This file must NOT import IPC_CHANNELS. It calls through
- * window.cmuxIpc.dispatch() which handles the channel internally.
+ * Note: Does NOT import IPC_CHANNELS — calls through window.cmuxIpc.dispatch() instead.
  */
 import { useCallback } from 'react';
 import type { Action } from '../../shared/actions';

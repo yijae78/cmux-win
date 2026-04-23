@@ -3,9 +3,7 @@ import type { Action } from '../../../shared/actions';
 import type { AppState } from '../../../shared/types';
 import { IPC_CHANNELS } from '../../../shared/ipc-channels';
 
-/**
- * BUG-11: DO NOT import from 'electron'. Use BroadcastTarget interface instead.
- */
+/** Uses BroadcastTarget interface instead of importing electron directly. */
 export interface BroadcastTarget {
   isDestroyed(): boolean;
   webContents: {
@@ -18,7 +16,7 @@ interface RegisteredWindow {
   onClose: () => void;
 }
 
-// BUG-9: sliceMap must include 'window' → 'windows'
+// sliceMap: action type prefix → state slice name (includes 'window' → 'windows')
 const sliceMap: Record<string, keyof AppState> = {
   window: 'windows',
   workspace: 'workspaces',
