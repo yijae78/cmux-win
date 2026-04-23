@@ -4,3 +4,9 @@ out/
 coverage/
 .env
 tests/e2e/screenshots/
+.cache/
+.eslintcache
+.DS_Store
+Thumbs.db
+tmp-captures/
+*.swp
