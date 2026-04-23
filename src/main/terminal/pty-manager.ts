@@ -13,10 +13,45 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { PtyBridge } from './pty-bridge';
 import { buildPtyEnv } from '../../shared/env-utils';
 import { getShellIntegrationArgs } from '../../shared/shell-integration-utils';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+
+// M2: Auto-approve patterns — loaded from external config, fallback to built-in defaults
+interface ApproveRule { includes: string[] }
+type ApprovePatterns = Record<string, ApproveRule[]>;
+
+const DEFAULT_APPROVE_PATTERNS: ApprovePatterns = {
+  claude: [
+    { includes: ['Do you want to', 'Yes'] },
+    { includes: ['Esc to cancel', '1. Yes'] },
+    { includes: ['requires approval', 'Yes'] },
+  ],
+  gemini: [
+    { includes: ['Apply this change'] },
+  ],
+  codex: [
+    { includes: ['Press enter to confirm'] },
+  ],
+};
+
+function loadApprovePatterns(): ApprovePatterns {
+  const configPath = path.join(os.homedir(), '.cmux-win', 'auto-approve-patterns.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      return JSON.parse(raw) as ApprovePatterns;
+    }
+  } catch (err) {
+    console.error('[cmux-win] Failed to load auto-approve-patterns.json, using defaults:', err);
+  }
+  return DEFAULT_APPROVE_PATTERNS;
+}
+
+const approvePatterns = loadApprovePatterns();
 
 const bridge = new PtyBridge();
 // F7: PTY lifecycle events for external consumers (e.g. agent status tracking)
@@ -114,15 +149,17 @@ export function registerPtyHandlers(): void {
         const now = Date.now();
         const lastApproval = autoApproveCooldowns.get(surfaceId) ?? 0;
         if (now - lastApproval > 1000) { // 1s cooldown (was 3s — too slow for rapid approvals)
-          const needsApproval =
-            // Claude: "Do you want to create/proceed?" with "1. Yes"
-            (stripped.includes('Do you want to') && stripped.includes('Yes')) ||
-            (stripped.includes('Esc to cancel') && stripped.includes('1. Yes')) ||
-            (stripped.includes('requires approval') && stripped.includes('Yes')) ||
-            // Gemini: "Apply this change?" with "Allow once"
-            stripped.includes('Apply this change') ||
-            // Codex: "Press enter to confirm"
-            stripped.includes('Press enter to confirm');
+          // M2: check all approve patterns from config (external or default)
+          let needsApproval = false;
+          for (const rules of Object.values(approvePatterns)) {
+            for (const rule of rules) {
+              if (rule.includes.every((p) => stripped.includes(p))) {
+                needsApproval = true;
+                break;
+              }
+            }
+            if (needsApproval) break;
+          }
           if (needsApproval) {
             autoApproveCooldowns.set(surfaceId, now);
             // Delay slightly to let the full prompt render
