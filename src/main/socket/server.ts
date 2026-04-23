@@ -83,6 +83,13 @@ export class SocketApiServer {
     socket.on('data', (data) => {
       buffer += data.toString();
 
+      // C3: Prevent OOM from oversized buffer (max 10 MB)
+      if (buffer.length > 10 * 1024 * 1024) {
+        console.error('[socket] Buffer exceeded 10 MB limit — disconnecting client');
+        socket.destroy();
+        return;
+      }
+
       // Process all complete lines (newline-delimited)
       let newlineIdx = buffer.indexOf('\n');
       while (newlineIdx !== -1) {
