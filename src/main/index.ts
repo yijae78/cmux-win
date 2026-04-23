@@ -537,6 +537,42 @@ app.whenReady().then(async () => {
     // Write token to file so external tools (CLI, debug) can authenticate
     const tokenPath = path.join(app.getPath('userData'), 'socket-token');
     fs.writeFileSync(tokenPath, `${process.env.CMUX_SOCKET_TOKEN}\n${actualPort}`);
+
+    // ── MCP server: copy bundle + register in Claude Desktop config ──
+    try {
+      const mcpSrc = path.join(__dirname, '../../resources/mcp/cmux-mcp-server.js');
+      const mcpDst = path.join(os.homedir(), '.cmux-win', 'mcp', 'cmux-mcp-server.js');
+      const mcpDir = path.dirname(mcpDst);
+      if (!fs.existsSync(mcpDir)) fs.mkdirSync(mcpDir, { recursive: true });
+      if (fs.existsSync(mcpSrc)) fs.copyFileSync(mcpSrc, mcpDst);
+
+      // Find Claude Desktop config (standard + MSIX)
+      const configPaths: string[] = [];
+      const roaming = process.env.APPDATA || '';
+      const local = process.env.LOCALAPPDATA || '';
+      const stdPath = path.join(roaming, 'Claude', 'claude_desktop_config.json');
+      if (fs.existsSync(stdPath)) configPaths.push(stdPath);
+      try {
+        for (const d of fs.readdirSync(path.join(local, 'Packages'))) {
+          if (!d.startsWith('Claude_')) continue;
+          const p = path.join(local, 'Packages', d, 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json');
+          if (fs.existsSync(p)) configPaths.push(p);
+        }
+      } catch { /* Packages dir may not exist */ }
+
+      for (const cfgPath of configPaths) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        if (!cfg.mcpServers) cfg.mcpServers = {};
+        cfg.mcpServers['cmux-win'] = {
+          command: 'node',
+          args: [mcpDst.replace(/\\/g, '/')],
+        };
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        console.warn(`[cmux-win] MCP server registered → ${cfgPath}`);
+      }
+    } catch (mcpErr) {
+      console.warn('[cmux-win] MCP auto-register skipped:', (mcpErr as Error).message);
+    }
   } catch (err) {
     console.error('[cmux-win] Failed to start socket server:', err);
   }
