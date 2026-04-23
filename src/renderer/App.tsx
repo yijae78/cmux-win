@@ -110,16 +110,21 @@ export default function App() {
   const { t } = useTranslation();
   const electronState = useAppState();
   const dispatch = useDispatch();
+  // -- Lifecycle state --
   const [windowId, setWindowId] = useState<string | null>(isStandalone ? 'win-1' : null);
   const [initialized, setInitialized] = useState(isStandalone);
+  const [firstFolderOpened, setFirstFolderOpened] = useState(false);
+
+  // -- UI visibility (L2: grouped) --
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [explorerVisible, setExplorerVisible] = useState(false);
-  const [explorerRootPath, setExplorerRootPath] = useState<string | undefined>(undefined);
-  const [openedProjects, setOpenedProjects] = useState<string[]>([]);
-  const [firstFolderOpened, setFirstFolderOpened] = useState(false);
   const [panelsCollapsed, setPanelsCollapsed] = useState(false);
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+
+  // -- Explorer state --
+  const [explorerRootPath, setExplorerRootPath] = useState<string | undefined>(undefined);
+  const [openedProjects, setOpenedProjects] = useState<string[]>([]);
   // H7: track auto-launch timer for cleanup on unmount
   const autoLaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
