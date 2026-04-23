@@ -63,12 +63,16 @@ const PanelDivider: FC<PanelDividerProps> = ({ direction, onDrag }) => {
         };
 
         const up = () => {
-          setActive(false);
-          overlay.remove();
-          document.removeEventListener('mousemove', move);
-          document.removeEventListener('mouseup', up);
-          // Commit final ratio to store (one dispatch, not per-frame)
-          onDragRef.current(lastRatio);
+          try {
+            setActive(false);
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            // Commit final ratio to store (one dispatch, not per-frame)
+            onDragRef.current(lastRatio);
+          } finally {
+            // L4: guarantee overlay removal even if callbacks throw
+            overlay.remove();
+          }
         };
 
         document.addEventListener('mousemove', move);
