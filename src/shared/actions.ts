@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GeometrySchema, PanelTypeEnum } from './schemas';
+import { GeometrySchema, PanelTypeEnum, PanelLayoutTreeSchema } from './schemas';
 
 // ===== Window =====
 export const WindowCreateAction = z.object({
@@ -196,7 +196,7 @@ export const WorkspaceSetLayoutAction = z.object({
   type: z.literal('workspace.set_layout'),
   payload: z.object({
     workspaceId: z.string(),
-    panelLayout: z.any(),
+    panelLayout: PanelLayoutTreeSchema,
   }),
 });
 
