@@ -2,17 +2,22 @@ import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
 
 // BUG-D + F4-FIX: strip ANSI/CSI and OSC escape sequences from raw PTY output.
-// CSI: \x1b[ ... finalByte    (colors, cursor, etc.)
-// OSC: \x1b] ... ST           (title, CWD, prompt markers — \x07 or \x1b\\)
-// Simple escapes: \x1b followed by single char (e.g. \x1b=, \x1b>)
+// M8: Comprehensive ANSI stripping — CSI, OSC, DCS, charset, misc escapes, C0 controls
 // eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g;
+const CSI_RE = /\x1B\[[0-9;?]*[a-zA-Z]/g;
 // eslint-disable-next-line no-control-regex
-const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const OSC_RE = /\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g;
 // eslint-disable-next-line no-control-regex
-const SIMPLE_ESC_RE = /\x1b[=>#(AB]/g;
+const DCS_RE = /\x1BP[^\x1B]*\x1B\\/g;
+// eslint-disable-next-line no-control-regex
+const CHARSET_RE = /\x1B[()][0-9A-B]/g;
+// eslint-disable-next-line no-control-regex
+const MISC_ESC_RE = /\x1B[>=<N~}{F|7-8]/g;
+// eslint-disable-next-line no-control-regex
+const C0_RE = /[\x00-\x08\x0B-\x0C\x0E-\x1F]/g;
 function stripAnsiEscapes(s: string): string {
-  return s.replace(OSC_RE, '').replace(ANSI_RE, '').replace(SIMPLE_ESC_RE, '');
+  return s.replace(OSC_RE, '').replace(DCS_RE, '').replace(CSI_RE, '')
+    .replace(CHARSET_RE, '').replace(MISC_ESC_RE, '').replace(C0_RE, '');
 }
 
 export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateStore): void {

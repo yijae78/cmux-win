@@ -203,9 +203,12 @@ class CmuxSocketClient {
 
 function stripAnsi(str: string): string {
   return str
-    .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/\x1B\][^\x07]*\x07/g, '')
-    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
+    .replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '')           // CSI sequences (incl. ? private modes)
+    .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '') // OSC sequences (BEL or ST terminator)
+    .replace(/\x1BP[^\x1B]*\x1B\\/g, '')               // DCS sequences
+    .replace(/\x1B[()][0-9A-B]/g, '')                   // Character set designations
+    .replace(/\x1B[>=<N~}{F|7-8]/g, '')                 // Misc single-char escapes (DECPNM, save/restore)
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');   // C0 control chars
 }
 
 // 3-2: Idle patterns — loaded from external config, fallback to defaults
