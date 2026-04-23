@@ -11,6 +11,7 @@ import { z } from 'zod';
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
 
 // ── stdout 보호: console.log → stderr (stdout은 MCP 프로토콜 전용) ──
 console.log = (...args: unknown[]) => console.error('[mcp]', ...args);
@@ -47,6 +48,61 @@ function findSocketToken(): { token: string; port: number } | null {
   return best ? { token: best.token, port: best.port } : null;
 }
 
+/**
+ * Auto-launch cmux-win when MCP tools are called but the app isn't running.
+ * Tries multiple known paths: dev (electron + out/main), installed (.exe).
+ */
+function launchCmuxWin(): Promise<void> {
+  return new Promise((resolve) => {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    const projectDir = path.join(
+      home,
+      'OneDrive - the presbyerian church of korea',
+      '바탕 화면',
+      'cmux-win',
+    );
+
+    // Candidate launch methods (try in order)
+    const candidates: Array<{ cmd: string; args: string[]; cwd?: string }> = [];
+
+    // 1. Dev mode: npx electron out/main/index.js
+    const electronBin = path.join(projectDir, 'node_modules', '.bin', 'electron.cmd');
+    const mainJs = path.join(projectDir, 'out', 'main', 'index.js');
+    if (fs.existsSync(electronBin) && fs.existsSync(mainJs)) {
+      candidates.push({ cmd: electronBin, args: [mainJs], cwd: projectDir });
+    }
+
+    // 2. Installed: cmux-win.exe in AppData
+    const appData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const installedExe = path.join(appData, 'cmux-win', 'cmux-win.exe');
+    if (fs.existsSync(installedExe)) {
+      candidates.push({ cmd: installedExe, args: [] });
+    }
+
+    if (candidates.length === 0) {
+      console.log('[mcp] No cmux-win executable found — cannot auto-launch');
+      resolve();
+      return;
+    }
+
+    const { cmd, args, cwd } = candidates[0];
+    console.log(`[mcp] Launching: ${cmd} ${args.join(' ')}`);
+    try {
+      const child = execFile(cmd, args, {
+        cwd,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      } as Parameters<typeof execFile>[2]);
+      child.unref?.();
+    } catch (err) {
+      console.log(`[mcp] Launch failed: ${err}`);
+    }
+    // Don't wait for process — resolve immediately, caller polls for socket-token
+    resolve();
+  });
+}
+
 // ────────────────────────────────────────────
 //  JSON-RPC 2.0 Socket Client
 // ────────────────────────────────────────────
@@ -79,11 +135,23 @@ class CmuxSocketClient {
   private async _doConnect(): Promise<void> {
     this.disconnect();
 
-    const info = findSocketToken();
+    let info = findSocketToken();
     if (!info) {
-      throw new Error(
-        'cmux-win이 실행 중이 아닙니다. 앱을 먼저 시작해주세요. (socket-token 파일 없음)',
-      );
+      // Auto-launch cmux-win if not running
+      console.log('[mcp] cmux-win not running — attempting auto-launch...');
+      await launchCmuxWin();
+      // Wait up to 15s for socket-token to appear
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        info = findSocketToken();
+        if (info) break;
+      }
+      if (!info) {
+        throw new Error(
+          'cmux-win 자동 실행을 시도했으나 소켓 토큰이 생성되지 않았습니다. 앱을 수동으로 시작해주세요.',
+        );
+      }
+      console.log('[mcp] cmux-win launched successfully, connecting...');
     }
 
     await this.connectAndAuth(info);
@@ -295,6 +363,8 @@ const server = new McpServer(
       '씨윈은 Windows용 AI 터미널 멀티플렉서로, 여러 AI CLI(Claude, Gemini, Codex)를 동시에 실행하고 협업시킵니다. ' +
       '상태 확인은 cmux_status, 작업 지시는 cmux_send_task 또는 cmux_send_task_and_wait, 화면 읽기는 cmux_read_panel, ' +
       '에이전트 생성은 cmux_spawn_agent, 알림은 cmux_notifications, 승인은 cmux_approve를 사용합니다. ' +
+      '★ 씨윈이 꺼져있어도 걱정하지 마세요 — 아무 도구를 호출하면 씨윈이 자동으로 실행됩니다. ' +
+      '"씨윈 열어", "씨윈 켜" 등의 요청에는 cmux_status를 호출하세요 (자동 실행 후 상태 보고). ' +
       '★ 중요: cmux_send_task_and_wait가 status="running"을 반환하면, 반드시 cmux_get_result를 호출하여 ' +
       'status가 "done"이 될 때까지 반복하세요. 완료되면 결과를 사용자에게 보고하세요. ' +
       '절대 polling을 건너뛰지 마세요. 사용자가 핸드폰으로 결과를 기다리고 있습니다.',
