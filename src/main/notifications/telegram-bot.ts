@@ -56,14 +56,17 @@ export class TelegramBotService {
    * Safe to call multiple times (settings change, etc.).
    */
   async configure(settings: TelegramSettings, botToken: string | null): Promise<void> {
-    // Always stop existing bot first
+    // M10: Always stop existing bot first and wait for cleanup
     if (this.bot) {
+      const oldBot = this.bot;
+      this.bot = null;
       try {
-        this.bot.stop();
+        oldBot.stop();
+        // Brief delay to let grammY release polling connection
+        await new Promise((r) => setTimeout(r, 500));
       } catch {
         /* ignore stop errors */
       }
-      this.bot = null;
     }
 
     this.settings = { ...settings };
