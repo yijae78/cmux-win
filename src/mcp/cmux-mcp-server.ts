@@ -185,7 +185,51 @@ class CmuxSocketClient {
 }
 
 // ────────────────────────────────────────────
-//  MCP Server + 6 Tools
+//  ANSI 제거 + Idle 감지
+// ────────────────────────────────────────────
+
+function stripAnsi(str: string): string {
+  return str
+    .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1B\][^\x07]*\x07/g, '')
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
+}
+
+const IDLE_PATTERNS: Record<string, string[]> = {
+  gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
+  codex: ['What would you like', 'Enter a prompt'],
+  claude: ['❯ ', '> '],
+};
+
+function isAgentIdle(screenText: string, agentType: string): boolean {
+  const clean = stripAnsi(screenText);
+  const tail = clean.slice(-500);
+  const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
+  return patterns.some((p) => tail.includes(p));
+}
+
+// ────────────────────────────────────────────
+//  Task Store (장기 작업 상태 저장)
+// ────────────────────────────────────────────
+
+interface TaskEntry {
+  surfaceId: string;
+  agentType: string;
+  task: string;
+  status: 'running' | 'done' | 'error';
+  result?: string;
+  startedAt: number;
+}
+
+const taskStore = new Map<string, TaskEntry>();
+let taskSeq = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// ────────────────────────────────────────────
+//  MCP Server + 9 Tools
 // ────────────────────────────────────────────
 
 const client = new CmuxSocketClient();
@@ -197,8 +241,11 @@ const server = new McpServer(
       '이 MCP 서버는 "cmux-win" (별칭: 씨윈, Cw, C-Win, SeaWin, 씨뮥스, cmux) 앱을 원격 제어합니다. ' +
       '사용자가 "씨윈", "Cw", "cmux", "씨뮥스", "C-Win", "SeaWin" 등의 단어를 사용하면 이 서버의 도구를 사용하세요. ' +
       '씨윈은 Windows용 AI 터미널 멀티플렉서로, 여러 AI CLI(Claude, Gemini, Codex)를 동시에 실행하고 협업시킵니다. ' +
-      '상태 확인은 cmux_status, 작업 지시는 cmux_send_task, 화면 읽기는 cmux_read_panel, ' +
-      '에이전트 생성은 cmux_spawn_agent, 알림은 cmux_notifications, 승인은 cmux_approve를 사용합니다.',
+      '상태 확인은 cmux_status, 작업 지시는 cmux_send_task 또는 cmux_send_task_and_wait, 화면 읽기는 cmux_read_panel, ' +
+      '에이전트 생성은 cmux_spawn_agent, 알림은 cmux_notifications, 승인은 cmux_approve를 사용합니다. ' +
+      '★ 중요: cmux_send_task_and_wait가 status="running"을 반환하면, 반드시 cmux_get_result를 호출하여 ' +
+      'status가 "done"이 될 때까지 반복하세요. 완료되면 결과를 사용자에게 보고하세요. ' +
+      '절대 polling을 건너뛰지 마세요. 사용자가 핸드폰으로 결과를 기다리고 있습니다.',
   },
 );
 
@@ -230,17 +277,18 @@ server.registerTool(
   {
     title: '씨윈 작업 지시',
     description:
-      '씨윈(cmux-win/Cw) 안의 AI 에이전트(Claude 리더 등)에게 작업을 전달합니다. surfaceId 생략 시 첫 번째 Claude 에이전트를 자동 탐색합니다. "씨윈에 작업 시켜", "Cw에 전달해", "cmux Claude한테 이거 해달라고 해" 등의 요청에 사용하세요.',
+      '씨윈(cmux-win/Cw) 안의 AI 에이전트에게 작업을 전달합니다. agentType으로 대상 지정 가능 (claude, gemini, codex). 생략 시 Claude를 자동 탐색합니다. "씨윈에 작업 시켜", "씨윈 Gemini에게 전달해", "Cw Claude한테 이거 해달라고 해" 등의 요청에 사용하세요.',
     inputSchema: z.object({
       task: z.string().describe('전달할 작업 내용'),
-      surfaceId: z.string().optional().describe('대상 서피스 ID (생략 시 자동 탐색)'),
+      agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex). 생략 시 claude'),
+      surfaceId: z.string().optional().describe('대상 서피스 ID (생략 시 agentType으로 자동 탐색)'),
     }),
   },
-  async ({ task, surfaceId }) => {
+  async ({ task, agentType, surfaceId }) => {
     if (!surfaceId) {
-      surfaceId = await findClaudeSurface();
+      surfaceId = await findAgentSurface(agentType ?? 'claude');
       if (!surfaceId) {
-        return text('Claude 에이전트를 찾을 수 없습니다. surfaceId를 직접 지정해주세요.');
+        return text(`${agentType ?? 'claude'} 에이전트를 찾을 수 없습니다. 먼저 cmux_spawn_agent로 생성하거나 surfaceId를 직접 지정해주세요.`);
       }
     }
     try {
@@ -258,13 +306,20 @@ server.registerTool(
   'cmux_read_panel',
   {
     title: '씨윈 패널 읽기',
-    description: '씨윈(cmux-win/Cw) 터미널/패널 화면의 텍스트를 읽습니다. "씨윈 화면 보여줘", "Cw 터미널 읽어", "cmux 뭐라고 나와있어?" 등의 요청에 사용하세요.',
+    description: '씨윈(cmux-win/Cw) 터미널/패널 화면의 텍스트를 읽습니다. agentType으로 대상 지정 가능. "씨윈 화면 보여줘", "씨윈 Gemini 화면 읽어", "Cw 터미널 읽어" 등의 요청에 사용하세요.',
     inputSchema: z.object({
-      surfaceId: z.string().describe('서피스 ID'),
+      agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex)'),
+      surfaceId: z.string().optional().describe('서피스 ID (생략 시 agentType으로 자동 탐색)'),
       lines: z.number().optional().describe('읽을 줄 수 (기본: 전체)'),
     }),
   },
-  async ({ surfaceId, lines }) => {
+  async ({ agentType, surfaceId, lines }) => {
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agentType);
+      if (!surfaceId) {
+        return text(`${agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
+      }
+    }
     const params: Record<string, unknown> = { surfaceId };
     if (lines !== undefined) params.lines = lines;
     const result = await client.call('surface.read', params);
@@ -308,17 +363,205 @@ server.registerTool(
   async () => text(await client.call('notification.list')),
 );
 
-// ── 6. cmux_approve ──
+// ── 6. cmux_send_task_and_wait ──
+server.registerTool(
+  'cmux_send_task_and_wait',
+  {
+    title: '씨윈 작업 지시 + 완료 대기',
+    description:
+      '씨윈(cmux-win/Cw) AI 에이전트에게 작업을 전달하고 완료될 때까지 대기합니다. ' +
+      '완료되면 결과를 반환하고, 시간이 오래 걸리면 task_id를 반환합니다. ' +
+      'task_id를 받으면 반드시 cmux_get_result를 반복 호출하여 최종 결과를 받으세요. ' +
+      '"씨윈에 작업 시키고 결과 알려줘", "Cw Gemini한테 이거 하고 결과 보고해" 등의 요청에 사용하세요.',
+    inputSchema: z.object({
+      task: z.string().describe('전달할 작업 내용'),
+      agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex). 생략 시 claude'),
+      surfaceId: z.string().optional().describe('대상 서피스 ID (생략 시 자동 탐색)'),
+      timeout: z.number().optional().describe('최대 대기 시간(초). 기본 50초'),
+    }),
+  },
+  async ({ task, agentType, surfaceId, timeout }) => {
+    const agent = agentType ?? 'claude';
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agent);
+      if (!surfaceId) {
+        return text(`${agent} 에이전트를 찾을 수 없습니다. cmux_spawn_agent로 먼저 생성하세요.`);
+      }
+    }
+
+    // 작업 전송
+    try {
+      await client.call('agent.send_task', { surfaceId, task });
+    } catch {
+      await client.call('surface.send_text', { surfaceId, text: task + '\r' });
+    }
+
+    const maxWait = Math.min(timeout ?? 50, 50); // 최대 50초 (60초 타임아웃 안전 마진)
+    const interval = 5;
+
+    // 작업 전송 후 잠시 대기 (에이전트가 작업 시작할 시간)
+    await sleep(3000);
+
+    // 폴링: 완료까지 대기
+    for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+      await sleep(interval * 1000);
+
+      try {
+        // Progress 로그 전송 (타임아웃 리셋 시도)
+        await server.sendLoggingMessage({
+          level: 'info',
+          data: `씨윈 작업 진행중... ${elapsed + interval}초 경과`,
+        });
+      } catch { /* best effort */ }
+
+      try {
+        const screen = await client.call('surface.read', { surfaceId });
+        const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+
+        if (isAgentIdle(content, agent)) {
+          // 완료! 결과 반환
+          const cleanResult = stripAnsi(content).trim();
+          const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+          return text({
+            status: 'done',
+            agentType: agent,
+            surfaceId,
+            result: lastLines,
+          });
+        }
+      } catch { /* surface.read 실패 시 계속 폴링 */ }
+    }
+
+    // 50초 안에 미완료 → task_id 발급, 백그라운드 체크용
+    const taskId = `task_${++taskSeq}_${Date.now()}`;
+    taskStore.set(taskId, {
+      surfaceId: surfaceId!,
+      agentType: agent,
+      task,
+      status: 'running',
+      startedAt: Date.now(),
+    });
+
+    return text({
+      status: 'running',
+      task_id: taskId,
+      agentType: agent,
+      elapsed_sec: maxWait,
+      instruction: '⚠️ 작업이 아직 진행중입니다. 반드시 cmux_get_result 도구를 task_id와 함께 호출하여 완료를 확인하세요.',
+    });
+  },
+);
+
+// ── 7. cmux_get_result ──
+server.registerTool(
+  'cmux_get_result',
+  {
+    title: '씨윈 작업 결과 확인',
+    description:
+      '씨윈(cmux-win/Cw) 진행 중인 작업의 완료 여부와 결과를 확인합니다. ' +
+      'cmux_send_task_and_wait가 status="running"을 반환했을 때 사용합니다. ' +
+      'status가 "done"이 될 때까지 반복 호출하세요. 절대 중단하지 마세요.',
+    inputSchema: z.object({
+      task_id: z.string().describe('cmux_send_task_and_wait에서 반환된 task_id'),
+    }),
+  },
+  async ({ task_id }) => {
+    const entry = taskStore.get(task_id);
+    if (!entry) {
+      return text({ status: 'error', message: `task_id "${task_id}"를 찾을 수 없습니다.` });
+    }
+
+    if (entry.status === 'done') {
+      return text({ status: 'done', result: entry.result });
+    }
+
+    try {
+      const screen = await client.call('surface.read', { surfaceId: entry.surfaceId });
+      const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+
+      if (isAgentIdle(content, entry.agentType)) {
+        const cleanResult = stripAnsi(content).trim();
+        const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+        entry.status = 'done';
+        entry.result = lastLines;
+
+        return text({
+          status: 'done',
+          agentType: entry.agentType,
+          result: lastLines,
+        });
+      }
+
+      const elapsed = Math.round((Date.now() - entry.startedAt) / 1000);
+      return text({
+        status: 'running',
+        task_id,
+        agentType: entry.agentType,
+        elapsed_sec: elapsed,
+        instruction: '⚠️ 아직 진행중입니다. 10초 후 cmux_get_result를 다시 호출하세요. 절대 중단하지 마세요.',
+      });
+    } catch (e: any) {
+      entry.status = 'error';
+      return text({ status: 'error', message: e.message });
+    }
+  },
+);
+
+// ── 8. cmux_test_timeout ──
+server.registerTool(
+  'cmux_test_timeout',
+  {
+    title: '씨윈 타임아웃 테스트',
+    description:
+      'MCP 도구 타임아웃 리셋 테스트용. 지정 시간(초) 동안 대기하며 progress를 전송합니다. ' +
+      '60초 이상 생존하면 progress 리셋이 작동하는 것입니다.',
+    inputSchema: z.object({
+      waitSeconds: z.number().describe('대기 시간(초). 예: 70'),
+    }),
+  },
+  async ({ waitSeconds }) => {
+    const start = Date.now();
+    const rounds = Math.ceil(waitSeconds / 5);
+
+    for (let i = 0; i < rounds; i++) {
+      await sleep(5000);
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      try {
+        await server.sendLoggingMessage({
+          level: 'info',
+          data: `타임아웃 테스트: ${elapsed}초 경과 / ${waitSeconds}초 목표`,
+        });
+      } catch { /* best effort */ }
+    }
+
+    const totalElapsed = Math.round((Date.now() - start) / 1000);
+    return text({
+      status: 'survived',
+      elapsed_sec: totalElapsed,
+      target_sec: waitSeconds,
+      message: `${totalElapsed}초 생존! Progress 리셋 ${totalElapsed > 60 ? '작동 확인!' : '미확인 (60초 미만)'}`,
+    });
+  },
+);
+
+// ── 9. cmux_approve ──
 server.registerTool(
   'cmux_approve',
   {
     title: '씨윈 수동 승인',
-    description: '씨윈(cmux-win/Cw)에서 승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다. "씨윈 승인해줘", "Cw approve", "cmux 컨펌" 등의 요청에 사용하세요.',
+    description: '씨윈(cmux-win/Cw)에서 승인 대기 중인 에이전트에 Enter를 전송하여 승인합니다. agentType으로 대상 지정 가능. "씨윈 승인해줘", "씨윈 Gemini 승인", "Cw approve" 등의 요청에 사용하세요.',
     inputSchema: z.object({
-      surfaceId: z.string().describe('승인할 서피스 ID'),
+      agentType: z.string().optional().describe('대상 에이전트 타입 (claude, gemini, codex)'),
+      surfaceId: z.string().optional().describe('승인할 서피스 ID (생략 시 agentType으로 자동 탐색)'),
     }),
   },
-  async ({ surfaceId }) => {
+  async ({ agentType, surfaceId }) => {
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agentType);
+      if (!surfaceId) {
+        return text(`${agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
+      }
+    }
     await client.call('surface.send_text', { surfaceId, text: '\r' });
     return text({ ok: true, surfaceId, approved: true });
   },
@@ -328,13 +571,13 @@ server.registerTool(
 //  Helpers
 // ────────────────────────────────────────────
 
-async function findClaudeSurface(): Promise<string | undefined> {
+async function findAgentSurface(agentType?: string): Promise<string | undefined> {
   const tree = await client.call('system.tree');
   for (const ws of tree.workspaces ?? []) {
-    for (const panel of ws.panels ?? []) {
-      for (const surf of panel.surfaces ?? []) {
-        const t = (surf.agent?.type ?? surf.agent?.cli ?? '').toLowerCase();
-        if (t === 'claude') return surf.id;
+    for (const agent of ws.agents ?? []) {
+      const t = (agent.agentType ?? '').toLowerCase();
+      if (!agentType || t === agentType.toLowerCase()) {
+        return agent.surfaceId;
       }
     }
   }

@@ -27758,7 +27758,7 @@ var Protocol = class {
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
     const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : void 0;
-    const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : void 0;
+    const taskStore2 = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : void 0;
     const fullExtra = {
       signal: abortController.signal,
       sessionId: capturedTransport?.sessionId,
@@ -27781,8 +27781,8 @@ var Protocol = class {
           requestOptions.relatedTask = { taskId: relatedTaskId };
         }
         const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
-        if (effectiveTaskId && taskStore) {
-          await taskStore.updateTaskStatus(effectiveTaskId, "input_required");
+        if (effectiveTaskId && taskStore2) {
+          await taskStore2.updateTaskStatus(effectiveTaskId, "input_required");
         }
         return await this.request(r, resultSchema, requestOptions);
       },
@@ -27790,7 +27790,7 @@ var Protocol = class {
       requestId: request.id,
       requestInfo: extra?.requestInfo,
       taskId: relatedTaskId,
-      taskStore,
+      taskStore: taskStore2,
       taskRequestedTtl: taskCreationParams?.ttl,
       closeSSEStream: extra?.closeSSEStream,
       closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
@@ -28363,8 +28363,8 @@ var Protocol = class {
     });
   }
   requestTaskStore(request, sessionId) {
-    const taskStore = this._taskStore;
-    if (!taskStore) {
+    const taskStore2 = this._taskStore;
+    if (!taskStore2) {
       throw new Error("No task store configured");
     }
     return {
@@ -28372,21 +28372,21 @@ var Protocol = class {
         if (!request) {
           throw new Error("No request provided");
         }
-        return await taskStore.createTask(taskParams, request.id, {
+        return await taskStore2.createTask(taskParams, request.id, {
           method: request.method,
           params: request.params
         }, sessionId);
       },
       getTask: async (taskId) => {
-        const task = await taskStore.getTask(taskId, sessionId);
+        const task = await taskStore2.getTask(taskId, sessionId);
         if (!task) {
           throw new McpError(ErrorCode.InvalidParams, "Failed to retrieve task: Task not found");
         }
         return task;
       },
       storeTaskResult: async (taskId, status, result) => {
-        await taskStore.storeTaskResult(taskId, status, result, sessionId);
-        const task = await taskStore.getTask(taskId, sessionId);
+        await taskStore2.storeTaskResult(taskId, status, result, sessionId);
+        const task = await taskStore2.getTask(taskId, sessionId);
         if (task) {
           const notification = TaskStatusNotificationSchema.parse({
             method: "notifications/tasks/status",
@@ -28399,18 +28399,18 @@ var Protocol = class {
         }
       },
       getTaskResult: (taskId) => {
-        return taskStore.getTaskResult(taskId, sessionId);
+        return taskStore2.getTaskResult(taskId, sessionId);
       },
       updateTaskStatus: async (taskId, status, statusMessage) => {
-        const task = await taskStore.getTask(taskId, sessionId);
+        const task = await taskStore2.getTask(taskId, sessionId);
         if (!task) {
           throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
         }
         if (isTerminal(task.status)) {
           throw new McpError(ErrorCode.InvalidParams, `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`);
         }
-        await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
-        const updatedTask = await taskStore.getTask(taskId, sessionId);
+        await taskStore2.updateTaskStatus(taskId, status, statusMessage, sessionId);
+        const updatedTask = await taskStore2.getTask(taskId, sessionId);
         if (updatedTask) {
           const notification = TaskStatusNotificationSchema.parse({
             method: "notifications/tasks/status",
@@ -28423,7 +28423,7 @@ var Protocol = class {
         }
       },
       listTasks: (cursor) => {
-        return taskStore.listTasks(cursor, sessionId);
+        return taskStore2.listTasks(cursor, sessionId);
       }
     };
   }
@@ -30252,11 +30252,30 @@ var CmuxSocketClient = class {
     this.pending.clear();
   }
 };
+function stripAnsi(str) {
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07]*\x07/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
+}
+var IDLE_PATTERNS = {
+  gemini: ["Type your message", "Enter your prompt", "What can I help"],
+  codex: ["What would you like", "Enter a prompt"],
+  claude: ["\u276F ", "> "]
+};
+function isAgentIdle(screenText, agentType) {
+  const clean = stripAnsi(screenText);
+  const tail = clean.slice(-500);
+  const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
+  return patterns.some((p) => tail.includes(p));
+}
+var taskStore = /* @__PURE__ */ new Map();
+var taskSeq = 0;
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 var client = new CmuxSocketClient();
 var server = new McpServer(
   { name: "cmux-win", version: "1.0.0" },
   {
-    instructions: '\uC774 MCP \uC11C\uBC84\uB294 "cmux-win" (\uBCC4\uCE6D: \uC528\uC708, Cw, C-Win, SeaWin, \uC528\uBBA5\uC2A4, cmux) \uC571\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD569\uB2C8\uB2E4. \uC0AC\uC6A9\uC790\uAC00 "\uC528\uC708", "Cw", "cmux", "\uC528\uBBA5\uC2A4", "C-Win", "SeaWin" \uB4F1\uC758 \uB2E8\uC5B4\uB97C \uC0AC\uC6A9\uD558\uBA74 \uC774 \uC11C\uBC84\uC758 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC528\uC708\uC740 Windows\uC6A9 AI \uD130\uBBF8\uB110 \uBA40\uD2F0\uD50C\uB809\uC11C\uB85C, \uC5EC\uB7EC AI CLI(Claude, Gemini, Codex)\uB97C \uB3D9\uC2DC\uC5D0 \uC2E4\uD589\uD558\uACE0 \uD611\uC5C5\uC2DC\uD0B5\uB2C8\uB2E4. \uC0C1\uD0DC \uD655\uC778\uC740 cmux_status, \uC791\uC5C5 \uC9C0\uC2DC\uB294 cmux_send_task, \uD654\uBA74 \uC77D\uAE30\uB294 cmux_read_panel, \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131\uC740 cmux_spawn_agent, \uC54C\uB9BC\uC740 cmux_notifications, \uC2B9\uC778\uC740 cmux_approve\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.'
+    instructions: '\uC774 MCP \uC11C\uBC84\uB294 "cmux-win" (\uBCC4\uCE6D: \uC528\uC708, Cw, C-Win, SeaWin, \uC528\uBBA5\uC2A4, cmux) \uC571\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD569\uB2C8\uB2E4. \uC0AC\uC6A9\uC790\uAC00 "\uC528\uC708", "Cw", "cmux", "\uC528\uBBA5\uC2A4", "C-Win", "SeaWin" \uB4F1\uC758 \uB2E8\uC5B4\uB97C \uC0AC\uC6A9\uD558\uBA74 \uC774 \uC11C\uBC84\uC758 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC528\uC708\uC740 Windows\uC6A9 AI \uD130\uBBF8\uB110 \uBA40\uD2F0\uD50C\uB809\uC11C\uB85C, \uC5EC\uB7EC AI CLI(Claude, Gemini, Codex)\uB97C \uB3D9\uC2DC\uC5D0 \uC2E4\uD589\uD558\uACE0 \uD611\uC5C5\uC2DC\uD0B5\uB2C8\uB2E4. \uC0C1\uD0DC \uD655\uC778\uC740 cmux_status, \uC791\uC5C5 \uC9C0\uC2DC\uB294 cmux_send_task \uB610\uB294 cmux_send_task_and_wait, \uD654\uBA74 \uC77D\uAE30\uB294 cmux_read_panel, \uC5D0\uC774\uC804\uD2B8 \uC0DD\uC131\uC740 cmux_spawn_agent, \uC54C\uB9BC\uC740 cmux_notifications, \uC2B9\uC778\uC740 cmux_approve\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \u2605 \uC911\uC694: cmux_send_task_and_wait\uAC00 status="running"\uC744 \uBC18\uD658\uD558\uBA74, \uBC18\uB4DC\uC2DC cmux_get_result\uB97C \uD638\uCD9C\uD558\uC5EC status\uAC00 "done"\uC774 \uB420 \uB54C\uAE4C\uC9C0 \uBC18\uBCF5\uD558\uC138\uC694. \uC644\uB8CC\uB418\uBA74 \uACB0\uACFC\uB97C \uC0AC\uC6A9\uC790\uC5D0\uAC8C \uBCF4\uACE0\uD558\uC138\uC694. \uC808\uB300 polling\uC744 \uAC74\uB108\uB6F0\uC9C0 \uB9C8\uC138\uC694. \uC0AC\uC6A9\uC790\uAC00 \uD578\uB4DC\uD3F0\uC73C\uB85C \uACB0\uACFC\uB97C \uAE30\uB2E4\uB9AC\uACE0 \uC788\uC2B5\uB2C8\uB2E4.'
   }
 );
 function text(data) {
@@ -30281,17 +30300,18 @@ server.registerTool(
   "cmux_send_task",
   {
     title: "\uC528\uC708 \uC791\uC5C5 \uC9C0\uC2DC",
-    description: '\uC528\uC708(cmux-win/Cw) \uC548\uC758 AI \uC5D0\uC774\uC804\uD2B8(Claude \uB9AC\uB354 \uB4F1)\uC5D0\uAC8C \uC791\uC5C5\uC744 \uC804\uB2EC\uD569\uB2C8\uB2E4. surfaceId \uC0DD\uB7B5 \uC2DC \uCCAB \uBC88\uC9F8 Claude \uC5D0\uC774\uC804\uD2B8\uB97C \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4. "\uC528\uC708\uC5D0 \uC791\uC5C5 \uC2DC\uCF1C", "Cw\uC5D0 \uC804\uB2EC\uD574", "cmux Claude\uD55C\uD14C \uC774\uAC70 \uD574\uB2EC\uB77C\uACE0 \uD574" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
+    description: '\uC528\uC708(cmux-win/Cw) \uC548\uC758 AI \uC5D0\uC774\uC804\uD2B8\uC5D0\uAC8C \uC791\uC5C5\uC744 \uC804\uB2EC\uD569\uB2C8\uB2E4. agentType\uC73C\uB85C \uB300\uC0C1 \uC9C0\uC815 \uAC00\uB2A5 (claude, gemini, codex). \uC0DD\uB7B5 \uC2DC Claude\uB97C \uC790\uB3D9 \uD0D0\uC0C9\uD569\uB2C8\uB2E4. "\uC528\uC708\uC5D0 \uC791\uC5C5 \uC2DC\uCF1C", "\uC528\uC708 Gemini\uC5D0\uAC8C \uC804\uB2EC\uD574", "Cw Claude\uD55C\uD14C \uC774\uAC70 \uD574\uB2EC\uB77C\uACE0 \uD574" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
       task: external_exports3.string().describe("\uC804\uB2EC\uD560 \uC791\uC5C5 \uB0B4\uC6A9"),
-      surfaceId: external_exports3.string().optional().describe("\uB300\uC0C1 \uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC \uC790\uB3D9 \uD0D0\uC0C9)")
+      agentType: external_exports3.string().optional().describe("\uB300\uC0C1 \uC5D0\uC774\uC804\uD2B8 \uD0C0\uC785 (claude, gemini, codex). \uC0DD\uB7B5 \uC2DC claude"),
+      surfaceId: external_exports3.string().optional().describe("\uB300\uC0C1 \uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC agentType\uC73C\uB85C \uC790\uB3D9 \uD0D0\uC0C9)")
     })
   },
-  async ({ task, surfaceId }) => {
+  async ({ task, agentType, surfaceId }) => {
     if (!surfaceId) {
-      surfaceId = await findClaudeSurface();
+      surfaceId = await findAgentSurface(agentType ?? "claude");
       if (!surfaceId) {
-        return text("Claude \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. surfaceId\uB97C \uC9C1\uC811 \uC9C0\uC815\uD574\uC8FC\uC138\uC694.");
+        return text(`${agentType ?? "claude"} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBA3C\uC800 cmux_spawn_agent\uB85C \uC0DD\uC131\uD558\uAC70\uB098 surfaceId\uB97C \uC9C1\uC811 \uC9C0\uC815\uD574\uC8FC\uC138\uC694.`);
       }
     }
     try {
@@ -30307,13 +30327,20 @@ server.registerTool(
   "cmux_read_panel",
   {
     title: "\uC528\uC708 \uD328\uB110 \uC77D\uAE30",
-    description: '\uC528\uC708(cmux-win/Cw) \uD130\uBBF8\uB110/\uD328\uB110 \uD654\uBA74\uC758 \uD14D\uC2A4\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. "\uC528\uC708 \uD654\uBA74 \uBCF4\uC5EC\uC918", "Cw \uD130\uBBF8\uB110 \uC77D\uC5B4", "cmux \uBB50\uB77C\uACE0 \uB098\uC640\uC788\uC5B4?" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
+    description: '\uC528\uC708(cmux-win/Cw) \uD130\uBBF8\uB110/\uD328\uB110 \uD654\uBA74\uC758 \uD14D\uC2A4\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. agentType\uC73C\uB85C \uB300\uC0C1 \uC9C0\uC815 \uAC00\uB2A5. "\uC528\uC708 \uD654\uBA74 \uBCF4\uC5EC\uC918", "\uC528\uC708 Gemini \uD654\uBA74 \uC77D\uC5B4", "Cw \uD130\uBBF8\uB110 \uC77D\uC5B4" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
-      surfaceId: external_exports3.string().describe("\uC11C\uD53C\uC2A4 ID"),
+      agentType: external_exports3.string().optional().describe("\uB300\uC0C1 \uC5D0\uC774\uC804\uD2B8 \uD0C0\uC785 (claude, gemini, codex)"),
+      surfaceId: external_exports3.string().optional().describe("\uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC agentType\uC73C\uB85C \uC790\uB3D9 \uD0D0\uC0C9)"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (\uAE30\uBCF8: \uC804\uCCB4)")
     })
   },
-  async ({ surfaceId, lines }) => {
+  async ({ agentType, surfaceId, lines }) => {
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agentType);
+      if (!surfaceId) {
+        return text(`${agentType ?? "\uC9C0\uC815\uB41C"} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      }
+    }
     const params = { surfaceId };
     if (lines !== void 0) params.lines = lines;
     const result = await client.call("surface.read", params);
@@ -30352,26 +30379,180 @@ server.registerTool(
   async () => text(await client.call("notification.list"))
 );
 server.registerTool(
+  "cmux_send_task_and_wait",
+  {
+    title: "\uC528\uC708 \uC791\uC5C5 \uC9C0\uC2DC + \uC644\uB8CC \uB300\uAE30",
+    description: '\uC528\uC708(cmux-win/Cw) AI \uC5D0\uC774\uC804\uD2B8\uC5D0\uAC8C \uC791\uC5C5\uC744 \uC804\uB2EC\uD558\uACE0 \uC644\uB8CC\uB420 \uB54C\uAE4C\uC9C0 \uB300\uAE30\uD569\uB2C8\uB2E4. \uC644\uB8CC\uB418\uBA74 \uACB0\uACFC\uB97C \uBC18\uD658\uD558\uACE0, \uC2DC\uAC04\uC774 \uC624\uB798 \uAC78\uB9AC\uBA74 task_id\uB97C \uBC18\uD658\uD569\uB2C8\uB2E4. task_id\uB97C \uBC1B\uC73C\uBA74 \uBC18\uB4DC\uC2DC cmux_get_result\uB97C \uBC18\uBCF5 \uD638\uCD9C\uD558\uC5EC \uCD5C\uC885 \uACB0\uACFC\uB97C \uBC1B\uC73C\uC138\uC694. "\uC528\uC708\uC5D0 \uC791\uC5C5 \uC2DC\uD0A4\uACE0 \uACB0\uACFC \uC54C\uB824\uC918", "Cw Gemini\uD55C\uD14C \uC774\uAC70 \uD558\uACE0 \uACB0\uACFC \uBCF4\uACE0\uD574" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
+    inputSchema: external_exports3.object({
+      task: external_exports3.string().describe("\uC804\uB2EC\uD560 \uC791\uC5C5 \uB0B4\uC6A9"),
+      agentType: external_exports3.string().optional().describe("\uB300\uC0C1 \uC5D0\uC774\uC804\uD2B8 \uD0C0\uC785 (claude, gemini, codex). \uC0DD\uB7B5 \uC2DC claude"),
+      surfaceId: external_exports3.string().optional().describe("\uB300\uC0C1 \uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC \uC790\uB3D9 \uD0D0\uC0C9)"),
+      timeout: external_exports3.number().optional().describe("\uCD5C\uB300 \uB300\uAE30 \uC2DC\uAC04(\uCD08). \uAE30\uBCF8 50\uCD08")
+    })
+  },
+  async ({ task, agentType, surfaceId, timeout }) => {
+    const agent = agentType ?? "claude";
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agent);
+      if (!surfaceId) {
+        return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. cmux_spawn_agent\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
+      }
+    }
+    try {
+      await client.call("agent.send_task", { surfaceId, task });
+    } catch {
+      await client.call("surface.send_text", { surfaceId, text: task + "\r" });
+    }
+    const maxWait = Math.min(timeout ?? 50, 50);
+    const interval = 5;
+    await sleep(3e3);
+    for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+      await sleep(interval * 1e3);
+      try {
+        await server.sendLoggingMessage({
+          level: "info",
+          data: `\uC528\uC708 \uC791\uC5C5 \uC9C4\uD589\uC911... ${elapsed + interval}\uCD08 \uACBD\uACFC`
+        });
+      } catch {
+      }
+      try {
+        const screen = await client.call("surface.read", { surfaceId });
+        const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
+        if (isAgentIdle(content, agent)) {
+          const cleanResult = stripAnsi(content).trim();
+          const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+          return text({
+            status: "done",
+            agentType: agent,
+            surfaceId,
+            result: lastLines
+          });
+        }
+      } catch {
+      }
+    }
+    const taskId = `task_${++taskSeq}_${Date.now()}`;
+    taskStore.set(taskId, {
+      surfaceId,
+      agentType: agent,
+      task,
+      status: "running",
+      startedAt: Date.now()
+    });
+    return text({
+      status: "running",
+      task_id: taskId,
+      agentType: agent,
+      elapsed_sec: maxWait,
+      instruction: "\u26A0\uFE0F \uC791\uC5C5\uC774 \uC544\uC9C1 \uC9C4\uD589\uC911\uC785\uB2C8\uB2E4. \uBC18\uB4DC\uC2DC cmux_get_result \uB3C4\uAD6C\uB97C task_id\uC640 \uD568\uAED8 \uD638\uCD9C\uD558\uC5EC \uC644\uB8CC\uB97C \uD655\uC778\uD558\uC138\uC694."
+    });
+  }
+);
+server.registerTool(
+  "cmux_get_result",
+  {
+    title: "\uC528\uC708 \uC791\uC5C5 \uACB0\uACFC \uD655\uC778",
+    description: '\uC528\uC708(cmux-win/Cw) \uC9C4\uD589 \uC911\uC778 \uC791\uC5C5\uC758 \uC644\uB8CC \uC5EC\uBD80\uC640 \uACB0\uACFC\uB97C \uD655\uC778\uD569\uB2C8\uB2E4. cmux_send_task_and_wait\uAC00 status="running"\uC744 \uBC18\uD658\uD588\uC744 \uB54C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. status\uAC00 "done"\uC774 \uB420 \uB54C\uAE4C\uC9C0 \uBC18\uBCF5 \uD638\uCD9C\uD558\uC138\uC694. \uC808\uB300 \uC911\uB2E8\uD558\uC9C0 \uB9C8\uC138\uC694.',
+    inputSchema: external_exports3.object({
+      task_id: external_exports3.string().describe("cmux_send_task_and_wait\uC5D0\uC11C \uBC18\uD658\uB41C task_id")
+    })
+  },
+  async ({ task_id }) => {
+    const entry = taskStore.get(task_id);
+    if (!entry) {
+      return text({ status: "error", message: `task_id "${task_id}"\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` });
+    }
+    if (entry.status === "done") {
+      return text({ status: "done", result: entry.result });
+    }
+    try {
+      const screen = await client.call("surface.read", { surfaceId: entry.surfaceId });
+      const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
+      if (isAgentIdle(content, entry.agentType)) {
+        const cleanResult = stripAnsi(content).trim();
+        const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+        entry.status = "done";
+        entry.result = lastLines;
+        return text({
+          status: "done",
+          agentType: entry.agentType,
+          result: lastLines
+        });
+      }
+      const elapsed = Math.round((Date.now() - entry.startedAt) / 1e3);
+      return text({
+        status: "running",
+        task_id,
+        agentType: entry.agentType,
+        elapsed_sec: elapsed,
+        instruction: "\u26A0\uFE0F \uC544\uC9C1 \uC9C4\uD589\uC911\uC785\uB2C8\uB2E4. 10\uCD08 \uD6C4 cmux_get_result\uB97C \uB2E4\uC2DC \uD638\uCD9C\uD558\uC138\uC694. \uC808\uB300 \uC911\uB2E8\uD558\uC9C0 \uB9C8\uC138\uC694."
+      });
+    } catch (e) {
+      entry.status = "error";
+      return text({ status: "error", message: e.message });
+    }
+  }
+);
+server.registerTool(
+  "cmux_test_timeout",
+  {
+    title: "\uC528\uC708 \uD0C0\uC784\uC544\uC6C3 \uD14C\uC2A4\uD2B8",
+    description: "MCP \uB3C4\uAD6C \uD0C0\uC784\uC544\uC6C3 \uB9AC\uC14B \uD14C\uC2A4\uD2B8\uC6A9. \uC9C0\uC815 \uC2DC\uAC04(\uCD08) \uB3D9\uC548 \uB300\uAE30\uD558\uBA70 progress\uB97C \uC804\uC1A1\uD569\uB2C8\uB2E4. 60\uCD08 \uC774\uC0C1 \uC0DD\uC874\uD558\uBA74 progress \uB9AC\uC14B\uC774 \uC791\uB3D9\uD558\uB294 \uAC83\uC785\uB2C8\uB2E4.",
+    inputSchema: external_exports3.object({
+      waitSeconds: external_exports3.number().describe("\uB300\uAE30 \uC2DC\uAC04(\uCD08). \uC608: 70")
+    })
+  },
+  async ({ waitSeconds }) => {
+    const start = Date.now();
+    const rounds = Math.ceil(waitSeconds / 5);
+    for (let i = 0; i < rounds; i++) {
+      await sleep(5e3);
+      const elapsed = Math.round((Date.now() - start) / 1e3);
+      try {
+        await server.sendLoggingMessage({
+          level: "info",
+          data: `\uD0C0\uC784\uC544\uC6C3 \uD14C\uC2A4\uD2B8: ${elapsed}\uCD08 \uACBD\uACFC / ${waitSeconds}\uCD08 \uBAA9\uD45C`
+        });
+      } catch {
+      }
+    }
+    const totalElapsed = Math.round((Date.now() - start) / 1e3);
+    return text({
+      status: "survived",
+      elapsed_sec: totalElapsed,
+      target_sec: waitSeconds,
+      message: `${totalElapsed}\uCD08 \uC0DD\uC874! Progress \uB9AC\uC14B ${totalElapsed > 60 ? "\uC791\uB3D9 \uD655\uC778!" : "\uBBF8\uD655\uC778 (60\uCD08 \uBBF8\uB9CC)"}`
+    });
+  }
+);
+server.registerTool(
   "cmux_approve",
   {
     title: "\uC528\uC708 \uC218\uB3D9 \uC2B9\uC778",
-    description: '\uC528\uC708(cmux-win/Cw)\uC5D0\uC11C \uC2B9\uC778 \uB300\uAE30 \uC911\uC778 \uC5D0\uC774\uC804\uD2B8\uC5D0 Enter\uB97C \uC804\uC1A1\uD558\uC5EC \uC2B9\uC778\uD569\uB2C8\uB2E4. "\uC528\uC708 \uC2B9\uC778\uD574\uC918", "Cw approve", "cmux \uCEE8\uD38C" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
+    description: '\uC528\uC708(cmux-win/Cw)\uC5D0\uC11C \uC2B9\uC778 \uB300\uAE30 \uC911\uC778 \uC5D0\uC774\uC804\uD2B8\uC5D0 Enter\uB97C \uC804\uC1A1\uD558\uC5EC \uC2B9\uC778\uD569\uB2C8\uB2E4. agentType\uC73C\uB85C \uB300\uC0C1 \uC9C0\uC815 \uAC00\uB2A5. "\uC528\uC708 \uC2B9\uC778\uD574\uC918", "\uC528\uC708 Gemini \uC2B9\uC778", "Cw approve" \uB4F1\uC758 \uC694\uCCAD\uC5D0 \uC0AC\uC6A9\uD558\uC138\uC694.',
     inputSchema: external_exports3.object({
-      surfaceId: external_exports3.string().describe("\uC2B9\uC778\uD560 \uC11C\uD53C\uC2A4 ID")
+      agentType: external_exports3.string().optional().describe("\uB300\uC0C1 \uC5D0\uC774\uC804\uD2B8 \uD0C0\uC785 (claude, gemini, codex)"),
+      surfaceId: external_exports3.string().optional().describe("\uC2B9\uC778\uD560 \uC11C\uD53C\uC2A4 ID (\uC0DD\uB7B5 \uC2DC agentType\uC73C\uB85C \uC790\uB3D9 \uD0D0\uC0C9)")
     })
   },
-  async ({ surfaceId }) => {
+  async ({ agentType, surfaceId }) => {
+    if (!surfaceId) {
+      surfaceId = await findAgentSurface(agentType);
+      if (!surfaceId) {
+        return text(`${agentType ?? "\uC9C0\uC815\uB41C"} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      }
+    }
     await client.call("surface.send_text", { surfaceId, text: "\r" });
     return text({ ok: true, surfaceId, approved: true });
   }
 );
-async function findClaudeSurface() {
+async function findAgentSurface(agentType) {
   const tree = await client.call("system.tree");
   for (const ws of tree.workspaces ?? []) {
-    for (const panel of ws.panels ?? []) {
-      for (const surf of panel.surfaces ?? []) {
-        const t = (surf.agent?.type ?? surf.agent?.cli ?? "").toLowerCase();
-        if (t === "claude") return surf.id;
+    for (const agent of ws.agents ?? []) {
+      const t = (agent.agentType ?? "").toLowerCase();
+      if (!agentType || t === agentType.toLowerCase()) {
+        return agent.surfaceId;
       }
     }
   }
