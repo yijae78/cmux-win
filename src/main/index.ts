@@ -587,12 +587,15 @@ app.whenReady().then(async () => {
       for (const cfgPath of configPaths) {
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
         if (!cfg.mcpServers) cfg.mcpServers = {};
-        cfg.mcpServers['cmux-win'] = {
-          command: 'node',
-          args: [mcpDst.replace(/\\/g, '/')],
-        };
-        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-        console.warn(`[cmux-win] MCP server registered → ${cfgPath}`);
+        const newEntry = { command: 'node', args: [mcpDst.replace(/\\/g, '/')] };
+        const existing = cfg.mcpServers['cmux-win'];
+        if (JSON.stringify(existing) !== JSON.stringify(newEntry)) {
+          cfg.mcpServers['cmux-win'] = newEntry;
+          fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+          console.warn(`[cmux-win] MCP server registered → ${cfgPath}`);
+        } else {
+          console.warn(`[cmux-win] MCP config unchanged, skip write → ${cfgPath}`);
+        }
       }
     } catch (mcpErr) {
       console.warn('[cmux-win] MCP auto-register skipped:', (mcpErr as Error).message);
@@ -674,6 +677,12 @@ app.on('before-quit', () => {
   // C3: Stop Telegram bot polling BEFORE quit to prevent process hang
   telegramBot.stop();
   bridgeWatcher.stop();
+
+  // 토큰 파일 삭제 (stale token 방지)
+  try {
+    const tokenPath = path.join(app.getPath('userData'), 'socket-token');
+    if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
+  } catch { /* ignore */ }
 
   try {
     const dir = path.dirname(scrollbackPath);
