@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 /**
  * cmux-win MCP Server v2 (stdio)
  *
@@ -32,8 +33,7 @@ console.log = (...args: unknown[]) => console.error('[mcp]', ...args);
 
 function findSocketToken(): { token: string; port: number } | null {
   const appData =
-    process.env.APPDATA ||
-    path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+    process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
 
   const candidates = [
     path.join(appData, 'Electron', 'socket-token'),
@@ -63,13 +63,7 @@ function findSocketToken(): { token: string; port: number } | null {
 
 function launchCmuxWin(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const home = process.env.USERPROFILE || process.env.HOME || '';
-    const projectDir = path.join(
-      home,
-      'OneDrive - the presbyerian church of korea',
-      '바탕 화면',
-      'cmux-win',
-    );
+    const projectDir = 'C:\\dev\\cmux-win';
 
     // 1. Dev mode: node electron/cli.js out/main/index.js
     const electronCli = path.join(projectDir, 'node_modules', 'electron', 'cli.js');
@@ -205,7 +199,9 @@ class CmuxSocketClient {
         }
       }
     }
-    throw new Error('cmux-win 자동 실행을 시도했으나 연결할 수 없습니다. 앱을 수동으로 시작해주세요.');
+    throw new Error(
+      'cmux-win 자동 실행을 시도했으나 연결할 수 없습니다. 앱을 수동으로 시작해주세요.',
+    );
   }
 
   // 1.2: 10초 타임아웃 + 모든 경로 clearTimeout
@@ -307,9 +303,7 @@ class CmuxSocketClient {
         },
       });
 
-      this.socket!.write(
-        JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n',
-      );
+      this.socket!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });
   }
 
@@ -463,7 +457,9 @@ async function summarizeStatus(tree: any): Promise<string> {
     const n = await client.call('notification.list');
     const list = Array.isArray(n) ? n : (n?.notifications ?? []);
     notifCount = Array.isArray(list) ? list.length : 0;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const parts = [`씨윈 정상. 패널 ${panelCount}개.`];
   if (agents) parts.push(`에이전트: ${agents}.`);
   if (notifCount > 0) parts.push(`알림 ${notifCount}건.`);
@@ -482,7 +478,9 @@ async function findAgentSurface(agentType?: string): Promise<string | undefined>
   try {
     const tree = await client.call('system.tree');
     if (!tree || typeof tree !== 'object') return undefined;
-    for (const ws of (tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }).workspaces ?? []) {
+    for (const ws of (
+      tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }
+    ).workspaces ?? []) {
       for (const agent of ws.agents ?? []) {
         const t = (agent.agentType ?? '').toLowerCase();
         if (!agentType || t === agentType.toLowerCase()) {
@@ -507,10 +505,18 @@ server.registerTool(
       'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n' +
       '씨윈이 꺼져있어도 자동 실행된다.',
     inputSchema: z.object({
-      action: z.enum([
-        'status', 'send', 'read', 'spawn',
-        'send_and_wait', 'get_result', 'approve', 'notifications',
-      ]).describe('실행할 기능'),
+      action: z
+        .enum([
+          'status',
+          'send',
+          'read',
+          'spawn',
+          'send_and_wait',
+          'get_result',
+          'approve',
+          'notifications',
+        ])
+        .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
       agentType: z.string().optional().describe('에이전트 (claude, gemini, codex)'),
       surfaceId: z.string().optional().describe('서피스 ID'),
@@ -533,23 +539,27 @@ server.registerTool(
             if (i === 0) console.log('[mcp] Waiting for workspace initialization...');
             await sleep(500);
           }
-          try { return text(await summarizeStatus(tree)); }
-          catch { return text(tree); }
+          try {
+            return text(await summarizeStatus(tree));
+          } catch {
+            return text(tree);
+          }
         }
 
         // ── send ──
         case 'send': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           const agent = params.agentType ?? 'claude';
-          const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
+          const sid = params.surfaceId ?? (await findAgentSurface(agent));
+          if (!sid)
+            return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
           try {
             await client.call('agent.send_task', { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: 'agent.send_task' });
           } catch {
             // Ink TUI fix: send text and Enter separately with 500ms delay
             await client.call('surface.send_text', { surfaceId: sid, text: params.task });
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 500));
             await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
             return text({ ok: true, surfaceId: sid, method: 'surface.send_text' });
           }
@@ -557,31 +567,34 @@ server.registerTool(
 
         // ── read ──
         case 'read': {
-          const sid = params.surfaceId ?? await findAgentSurface(params.agentType);
+          const sid = params.surfaceId ?? (await findAgentSurface(params.agentType));
           if (!sid) return text(`${params.agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
           const p: Record<string, unknown> = { surfaceId: sid };
           if (params.lines !== undefined) p.lines = params.lines;
           const result = await client.call('surface.read', p);
-          const raw: string = result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
+          const raw: string =
+            result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
           // Ink TUI 렌더링 잔재 필터링 (Codex/Gemini 프롬프트 UI 줄 제거)
-          const cleaned = raw.split('\n')
-            .filter(line => {
+          const cleaned = raw
+            .split('\n')
+            .filter((line) => {
               const t = line.trim();
-              if (!t) return false;                           // 빈 줄
-              if (/^›\s*(Run|Use)\s/.test(t)) return false;   // › Run /review, › Use /skills
+              if (!t) return false; // 빈 줄
+              if (/^›\s*(Run|Use)\s/.test(t)) return false; // › Run /review, › Use /skills
               if (/^gpt-[\d.]+ default/.test(t)) return false; // gpt-5.4 default · ~
-              if (/^gemini-[\d.]+ /.test(t)) return false;    // gemini model line
-              if (/^•\s*$/.test(t)) return false;              // 단독 bullet
+              if (/^gemini-[\d.]+ /.test(t)) return false; // gemini model line
+              if (/^•\s*$/.test(t)) return false; // 단독 bullet
               return true;
             })
             .join('\n')
-            .replace(/\n{3,}/g, '\n\n');  // 연속 빈 줄 축소
+            .replace(/\n{3,}/g, '\n\n'); // 연속 빈 줄 축소
           return text(cleaned || raw);
         }
 
         // ── spawn ──
         case 'spawn': {
-          if (!params.agentType) return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
+          if (!params.agentType)
+            return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
           let wsId = params.workspaceId;
           if (!wsId) {
             // 워크스페이스 대기 (auto-launch 직후 초기화 시간 확보, 최대 15초)
@@ -590,9 +603,12 @@ server.registerTool(
               const tree = await client.call('system.tree');
               ws = (tree.workspaces ?? [])[0];
               if (ws) break;
-              await new Promise(r => setTimeout(r, 500));
+              await new Promise((r) => setTimeout(r, 500));
             }
-            if (!ws) return text('워크스페이스 초기화 대기 시간 초과. 씨윈이 완전히 시작되었는지 확인하세요.');
+            if (!ws)
+              return text(
+                '워크스페이스 초기화 대기 시간 초과. 씨윈이 완전히 시작되었는지 확인하세요.',
+              );
             wsId = ws.id;
           }
           const p: Record<string, unknown> = { agentType: params.agentType, workspaceId: wsId };
@@ -604,15 +620,16 @@ server.registerTool(
         case 'send_and_wait': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           const agent = params.agentType ?? 'claude';
-          const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
+          const sid = params.surfaceId ?? (await findAgentSurface(agent));
+          if (!sid)
+            return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
 
           // 작업 전송 (Ink TUI: text와 Enter 분리)
           try {
             await client.call('agent.send_task', { surfaceId: sid, task: params.task });
           } catch {
             await client.call('surface.send_text', { surfaceId: sid, text: params.task });
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 500));
             await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
           }
 
@@ -636,17 +653,27 @@ server.registerTool(
                   },
                 } as any);
               }
-            } catch { /* best effort */ }
+            } catch {
+              /* best effort */
+            }
 
             try {
               const screen = await client.call('surface.read', { surfaceId: sid });
-              const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+              const content =
+                typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split('\n').slice(-30).join('\n');
-                return text({ status: 'done', agentType: agent, surfaceId: sid, result: lastLines });
+                return text({
+                  status: 'done',
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                });
               }
-            } catch { /* 폴링 계속 */ }
+            } catch {
+              /* 폴링 계속 */
+            }
           }
 
           // 50초 내 미완료 → task_id 발급
@@ -663,20 +690,27 @@ server.registerTool(
             task_id: taskId,
             agentType: agent,
             elapsed_sec: maxWait,
-            instruction: '작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
+            instruction:
+              '작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
           });
         }
 
         // ── get_result ──
         case 'get_result': {
-          if (!params.task_id) return text({ error: true, message: 'task_id 파라미터가 필요합니다.' });
+          if (!params.task_id)
+            return text({ error: true, message: 'task_id 파라미터가 필요합니다.' });
           const entry = taskStore.get(params.task_id);
-          if (!entry) return text({ status: 'error', message: `task_id "${params.task_id}"를 찾을 수 없습니다.` });
+          if (!entry)
+            return text({
+              status: 'error',
+              message: `task_id "${params.task_id}"를 찾을 수 없습니다.`,
+            });
           if (entry.status === 'done') return text({ status: 'done', result: entry.result });
 
           try {
             const screen = await client.call('surface.read', { surfaceId: entry.surfaceId });
-            const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+            const content =
+              typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
             if (isAgentIdle(content, entry.agentType)) {
               const cleanResult = stripAnsi(content).trim();
               const lastLines = cleanResult.split('\n').slice(-30).join('\n');
@@ -700,7 +734,7 @@ server.registerTool(
 
         // ── approve ──
         case 'approve': {
-          const sid = params.surfaceId ?? await findAgentSurface(params.agentType);
+          const sid = params.surfaceId ?? (await findAgentSurface(params.agentType));
           if (!sid) return text(`${params.agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
           await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
           return text({ ok: true, surfaceId: sid, approved: true });
@@ -709,8 +743,11 @@ server.registerTool(
         // ── notifications ──
         case 'notifications': {
           const notifData = await client.call('notification.list');
-          try { return text(summarizeNotifications(notifData)); }
-          catch { return text(notifData); }
+          try {
+            return text(summarizeNotifications(notifData));
+          } catch {
+            return text(notifData);
+          }
         }
 
         default:
