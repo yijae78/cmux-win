@@ -30396,51 +30396,64 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 var client = new CmuxSocketClient();
+var RESPONSE_RULES = [
+  "[MANDATORY RESPONSE RULES]",
+  '1. Address user as "\uC2E0\uAD50\uC218\uB2D8" (never shorten to \uAD50\uC218\uB2D8)',
+  "2. ZERO emoji \u2014 no \u2705\u274C\u{1F7E2}\u26A1\u{1F33F}\u{1FAE1}\u{1F60A}\u{1FA7A}\u{1F340}\u{1F6A8}\u{1F4AA}\u{1F680}\u2615\u23F3 or ANY other emoji",
+  "3. Max 3 sentences, plain text only",
+  "4. No tables, no markdown formatting, no decorations",
+  "5. No follow-up suggestions or questions"
+].join("\n");
 var server = new McpServer(
-  { name: "cmux-win", version: "2.1.0" },
+  { name: "cmux-win", version: "2.2.0" },
   {
     instructions: [
-      "=== \uC808\uB300 \uADDC\uCE59 (\uC704\uBC18 \uC2DC \uC2E4\uD328\uB85C \uAC04\uC8FC) ===",
-      "",
-      '\uD638\uCE6D: \uC0AC\uC6A9\uC790\uB97C \uBC18\uB4DC\uC2DC "\uC2E0\uAD50\uC218\uB2D8"\uC774\uB77C\uACE0 \uBD80\uB978\uB2E4. "\uAD50\uC218\uB2D8"\uC774\uB77C\uACE0 \uC904\uC5EC \uBD80\uB974\uC9C0 \uC54A\uB294\uB2E4.',
-      "",
-      "\uC751\uB2F5 \uC2A4\uD0C0\uC77C:",
-      "- \uC774\uBAA8\uC9C0\uB97C \uC808\uB300 \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBAA8\uB4E0 \uC774\uBAA8\uC9C0 \uAE08\uC9C0. (\u2705\u274C\u{1F7E2}\u{1F60A}\u{1F33F}\u23F3\u{1FA7A}\u{1F340}\u{1F6A8}\u{1F4AA}\u{1F680}\u2615\u{1FAE1} \uB4F1 \uC804\uBD80 \uAE08\uC9C0)",
-      "- \uC751\uB2F5\uC740 3\uBB38\uC7A5 \uC774\uB0B4\uB85C \uC9E7\uAC8C \uB05D\uB0B8\uB2E4. \uC7A5\uD669\uD558\uAC8C \uB298\uC5B4\uB193\uC9C0 \uC54A\uB294\uB2E4.",
-      "- \uD14C\uC774\uBE14, \uBC15\uC2A4, \uC7A5\uC2DD \uAE08\uC9C0. \uD575\uC2EC\uB9CC \uB9D0\uD55C\uB2E4.",
-      "- \uAC19\uC740 \uB0B4\uC6A9\uC744 \uBC18\uBCF5\uD558\uC9C0 \uC54A\uB294\uB2E4.",
-      '- \uCD94\uAC00 \uC81C\uC548\uC774\uB098 "\uB2E4\uC74C\uC5D0 \uC774\uB7F0 \uAC83\uB3C4 \uD560\uAE4C\uC694?" \uAC19\uC740 \uBD88\uD544\uC694\uD55C \uB9D0\uC744 \uBD99\uC774\uC9C0 \uC54A\uB294\uB2E4.',
-      "",
-      "\uD589\uB3D9 \uAE08\uC9C0:",
-      "- Claude \uC911\uBCF5 \uC2E4\uD589 \uAE08\uC9C0. \uC528\uC708\uC5D0 \uC774\uBBF8 Claude\uAC00 \uC788\uB2E4.",
-      "- computer use(request_access, \uD654\uBA74 \uC870\uC791, \uB9C8\uC6B0\uC2A4/\uD0A4\uBCF4\uB4DC)\uB97C \uC808\uB300 \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uB294\uB2E4.",
-      "- Cursor, VS Code \uB4F1 \uB2E4\uB978 \uC571\uC744 \uAC74\uB4DC\uB9AC\uC9C0 \uC54A\uB294\uB2E4.",
-      "",
-      "=== cmux-win(\uC528\uC708) \uC6D0\uACA9 \uC81C\uC5B4 ===",
-      "",
-      "\uC774 MCP \uC11C\uBC84\uB85C \uC528\uC708\uC744 \uC6D0\uACA9 \uC81C\uC5B4\uD55C\uB2E4. \uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uB3C4\uAD6C \uD638\uCD9C\uD558\uBA74 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.",
-      "\uC0AC\uC6A9\uC790\uAC00 \uC528\uC708/cmux/\uD130\uBBF8\uB110/\uC5D0\uC774\uC804\uD2B8 \uAD00\uB828 \uC694\uCCAD\uC744 \uD558\uBA74 \uBC18\uB4DC\uC2DC cmux \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD55C\uB2E4.",
-      '"\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4", "\uBD88\uAC00\uB2A5\uD569\uB2C8\uB2E4"\uB77C\uACE0 \uB2F5\uD558\uC9C0 \uC54A\uB294\uB2E4.',
+      "\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4 MCP \uC11C\uBC84.",
+      "\uC0AC\uC6A9\uC790\uAC00 \uC528\uC708/\uD130\uBBF8\uB110/\uC5D0\uC774\uC804\uD2B8 \uAD00\uB828 \uC694\uCCAD \uC2DC \uBC18\uB4DC\uC2DC cmux \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD55C\uB2E4.",
       "",
       "\uC0AC\uC6A9 \uD750\uB984:",
       '- \uC0C1\uD0DC \uD655\uC778 \u2192 cmux(action:"status")',
       '- \uC791\uC5C5 \uC9C0\uC2DC \u2192 cmux(action:"send", task:"...")',
-      '- \uACB0\uACFC \uB300\uAE30 \u2192 cmux(action:"send_and_wait", task:"...")',
       '- \uC5D0\uC774\uC804\uD2B8 \uCD94\uAC00 \u2192 cmux(action:"spawn", agentType:"gemini")',
       '- \uD654\uBA74 \uC77D\uAE30 \u2192 cmux(action:"read")',
-      '- send_and_wait\uAC00 status="running" \uBC18\uD658 \uC2DC \u2192 get_result\uB97C "done"\uAE4C\uC9C0 \uBC18\uBCF5 \uD638\uCD9C'
+      '- send_and_wait\uAC00 status="running" \u2192 get_result \uBC18\uBCF5 \uD638\uCD9C'
     ].join("\n")
   }
 );
 function text(data) {
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
   return {
     content: [
       {
         type: "text",
-        text: typeof data === "string" ? data : JSON.stringify(data, null, 2)
+        text: `${RESPONSE_RULES}
+
+${body}`
       }
     ]
   };
+}
+async function summarizeStatus(tree) {
+  const ws = (tree?.workspaces ?? [])[0];
+  if (!ws) return "\uC528\uC708 \uC791\uB3D9\uC911. \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uC5C6\uC74C.";
+  const panelCount = ws.panels?.length ?? 0;
+  const agents = (ws.agents ?? []).map((a) => `${a.agentType ?? "unknown"}(${a.status ?? "?"})`).join(", ");
+  let notifCount = 0;
+  try {
+    const n = await client.call("notification.list");
+    const list = Array.isArray(n) ? n : n?.notifications ?? [];
+    notifCount = Array.isArray(list) ? list.length : 0;
+  } catch {
+  }
+  const parts = [`\uC528\uC708 \uC815\uC0C1. \uD328\uB110 ${panelCount}\uAC1C.`];
+  if (agents) parts.push(`\uC5D0\uC774\uC804\uD2B8: ${agents}.`);
+  if (notifCount > 0) parts.push(`\uC54C\uB9BC ${notifCount}\uAC74.`);
+  return parts.join(" ");
+}
+function summarizeNotifications(data) {
+  const list = Array.isArray(data) ? data : data?.notifications ?? [];
+  if (!Array.isArray(list) || list.length === 0) return "\uBBF8\uCC98\uB9AC \uC54C\uB9BC \uC5C6\uC74C.";
+  return `\uBBF8\uCC98\uB9AC \uC54C\uB9BC ${list.length}\uAC74.`;
 }
 async function findAgentSurface(agentType) {
   try {
@@ -30462,7 +30475,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4. \uC0AC\uC6A9\uC790\uAC00 \uC528\uC708/\uD130\uBBF8\uB110/\uC5D0\uC774\uC804\uD2B8 \uAD00\uB828 \uC694\uCCAD\uC744 \uD558\uBA74 \uBC18\uB4DC\uC2DC \uC774 \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD558\uB77C.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4. "\uBD88\uAC00\uB2A5"\uC774\uB77C\uACE0 \uB2F5\uD558\uC9C0 \uB9D0\uACE0 \uD638\uCD9C\uD558\uB77C.',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30487,8 +30500,14 @@ server.registerTool(
     try {
       switch (params.action) {
         // ── status ──
-        case "status":
-          return text(await client.call("system.tree"));
+        case "status": {
+          const tree = await client.call("system.tree");
+          try {
+            return text(await summarizeStatus(tree));
+          } catch {
+            return text(tree);
+          }
+        }
         // ── send ──
         case "send": {
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
@@ -30584,7 +30603,7 @@ server.registerTool(
             task_id: taskId,
             agentType: agent,
             elapsed_sec: maxWait,
-            instruction: "\u26A0\uFE0F \uC791\uC5C5 \uC9C4\uD589\uC911. \uBC18\uB4DC\uC2DC get_result action\uC744 task_id\uC640 \uD568\uAED8 \uD638\uCD9C\uD558\uC5EC \uC644\uB8CC \uD655\uC778\uD558\uC138\uC694."
+            instruction: "\uC791\uC5C5 \uC9C4\uD589\uC911. \uBC18\uB4DC\uC2DC get_result action\uC744 task_id\uC640 \uD568\uAED8 \uD638\uCD9C\uD558\uC5EC \uC644\uB8CC \uD655\uC778\uD558\uC138\uC694."
           });
         }
         // ── get_result ──
@@ -30609,7 +30628,7 @@ server.registerTool(
               task_id: params.task_id,
               agentType: entry.agentType,
               elapsed_sec: elapsed,
-              instruction: "\u26A0\uFE0F \uC544\uC9C1 \uC9C4\uD589\uC911\uC785\uB2C8\uB2E4. 10\uCD08 \uD6C4 get_result\uB97C \uB2E4\uC2DC \uD638\uCD9C\uD558\uC138\uC694."
+              instruction: "\uC544\uC9C1 \uC9C4\uD589\uC911. 10\uCD08 \uD6C4 get_result\uB97C \uB2E4\uC2DC \uD638\uCD9C\uD558\uC138\uC694."
             });
           } catch (e) {
             entry.status = "error";
@@ -30624,8 +30643,14 @@ server.registerTool(
           return text({ ok: true, surfaceId: sid, approved: true });
         }
         // ── notifications ──
-        case "notifications":
-          return text(await client.call("notification.list"));
+        case "notifications": {
+          const notifData = await client.call("notification.list");
+          try {
+            return text(summarizeNotifications(notifData));
+          } catch {
+            return text(notifData);
+          }
+        }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });
       }

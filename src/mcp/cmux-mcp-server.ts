@@ -387,52 +387,70 @@ function sleep(ms: number): Promise<void> {
 
 const client = new CmuxSocketClient();
 
+// ── 스타일 규칙: 모든 도구 응답 앞에 삽입 ──
+const RESPONSE_RULES = [
+  '[MANDATORY RESPONSE RULES]',
+  '1. Address user as "신교수님" (never shorten to 교수님)',
+  '2. ZERO emoji — no ✅❌🟢⚡🌿🫡😊🩺🍀🚨💪🚀☕⏳ or ANY other emoji',
+  '3. Max 3 sentences, plain text only',
+  '4. No tables, no markdown formatting, no decorations',
+  '5. No follow-up suggestions or questions',
+].join('\n');
+
 const server = new McpServer(
-  { name: 'cmux-win', version: '2.1.0' },
+  { name: 'cmux-win', version: '2.2.0' },
   {
     instructions: [
-      '=== 절대 규칙 (위반 시 실패로 간주) ===',
-      '',
-      '호칭: 사용자를 반드시 "신교수님"이라고 부른다. "교수님"이라고 줄여 부르지 않는다.',
-      '',
-      '응답 스타일:',
-      '- 이모지를 절대 사용하지 않는다. 모든 이모지 금지. (✅❌🟢😊🌿⏳🩺🍀🚨💪🚀☕🫡 등 전부 금지)',
-      '- 응답은 3문장 이내로 짧게 끝낸다. 장황하게 늘어놓지 않는다.',
-      '- 테이블, 박스, 장식 금지. 핵심만 말한다.',
-      '- 같은 내용을 반복하지 않는다.',
-      '- 추가 제안이나 "다음에 이런 것도 할까요?" 같은 불필요한 말을 붙이지 않는다.',
-      '',
-      '행동 금지:',
-      '- Claude 중복 실행 금지. 씨윈에 이미 Claude가 있다.',
-      '- computer use(request_access, 화면 조작, 마우스/키보드)를 절대 사용하지 않는다.',
-      '- Cursor, VS Code 등 다른 앱을 건드리지 않는다.',
-      '',
-      '=== cmux-win(씨윈) 원격 제어 ===',
-      '',
-      '이 MCP 서버로 씨윈을 원격 제어한다. 씨윈이 꺼져있어도 도구 호출하면 자동 실행된다.',
-      '사용자가 씨윈/cmux/터미널/에이전트 관련 요청을 하면 반드시 cmux 도구를 호출한다.',
-      '"할 수 없습니다", "불가능합니다"라고 답하지 않는다.',
+      '씨윈(cmux-win) 원격 제어 MCP 서버.',
+      '사용자가 씨윈/터미널/에이전트 관련 요청 시 반드시 cmux 도구를 호출한다.',
       '',
       '사용 흐름:',
       '- 상태 확인 → cmux(action:"status")',
       '- 작업 지시 → cmux(action:"send", task:"...")',
-      '- 결과 대기 → cmux(action:"send_and_wait", task:"...")',
       '- 에이전트 추가 → cmux(action:"spawn", agentType:"gemini")',
       '- 화면 읽기 → cmux(action:"read")',
-      '- send_and_wait가 status="running" 반환 시 → get_result를 "done"까지 반복 호출',
+      '- send_and_wait가 status="running" → get_result 반복 호출',
     ].join('\n'),
   },
 );
 
 function text(data: unknown) {
+  const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
   return {
     content: [
       {
         type: 'text' as const,
-        text: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+        text: `${RESPONSE_RULES}\n\n${body}`,
       },
     ],
   };
+}
+
+// ── Helper: system.tree → 1-2줄 요약 ──
+async function summarizeStatus(tree: any): Promise<string> {
+  const ws = (tree?.workspaces ?? [])[0];
+  if (!ws) return '씨윈 작동중. 워크스페이스 없음.';
+  const panelCount = ws.panels?.length ?? 0;
+  const agents = (ws.agents ?? [])
+    .map((a: any) => `${a.agentType ?? 'unknown'}(${a.status ?? '?'})`)
+    .join(', ');
+  let notifCount = 0;
+  try {
+    const n = await client.call('notification.list');
+    const list = Array.isArray(n) ? n : (n?.notifications ?? []);
+    notifCount = Array.isArray(list) ? list.length : 0;
+  } catch { /* ignore */ }
+  const parts = [`씨윈 정상. 패널 ${panelCount}개.`];
+  if (agents) parts.push(`에이전트: ${agents}.`);
+  if (notifCount > 0) parts.push(`알림 ${notifCount}건.`);
+  return parts.join(' ');
+}
+
+// ── Helper: notification.list → 요약 ──
+function summarizeNotifications(data: any): string {
+  const list = Array.isArray(data) ? data : (data?.notifications ?? []);
+  if (!Array.isArray(list) || list.length === 0) return '미처리 알림 없음.';
+  return `미처리 알림 ${list.length}건.`;
 }
 
 // ── Helper: 에이전트 서피스 찾기 ──
@@ -460,9 +478,10 @@ server.registerTool(
   {
     title: '씨윈 원격 제어',
     description:
-      '씨윈(cmux-win) 원격 제어. 사용자가 씨윈/터미널/에이전트 관련 요청을 하면 반드시 이 도구를 호출하라.\n' +
+      '씨윈(cmux-win) 원격 제어.\n' +
+      '응답규칙: "신교수님" 호칭, 이모지 금지, 3문장 이내, 테이블 금지, 추가 제안 금지.\n' +
       'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n' +
-      '씨윈이 꺼져있어도 자동 실행된다. "불가능"이라고 답하지 말고 호출하라.',
+      '씨윈이 꺼져있어도 자동 실행된다.',
     inputSchema: z.object({
       action: z.enum([
         'status', 'send', 'read', 'spawn',
@@ -481,8 +500,11 @@ server.registerTool(
     try {
       switch (params.action) {
         // ── status ──
-        case 'status':
-          return text(await client.call('system.tree'));
+        case 'status': {
+          const tree = await client.call('system.tree');
+          try { return text(await summarizeStatus(tree)); }
+          catch { return text(tree); }
+        }
 
         // ── send ──
         case 'send': {
@@ -590,7 +612,7 @@ server.registerTool(
             task_id: taskId,
             agentType: agent,
             elapsed_sec: maxWait,
-            instruction: '⚠️ 작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
+            instruction: '작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
           });
         }
 
@@ -617,7 +639,7 @@ server.registerTool(
               task_id: params.task_id,
               agentType: entry.agentType,
               elapsed_sec: elapsed,
-              instruction: '⚠️ 아직 진행중입니다. 10초 후 get_result를 다시 호출하세요.',
+              instruction: '아직 진행중. 10초 후 get_result를 다시 호출하세요.',
             });
           } catch (e: any) {
             entry.status = 'error';
@@ -634,8 +656,11 @@ server.registerTool(
         }
 
         // ── notifications ──
-        case 'notifications':
-          return text(await client.call('notification.list'));
+        case 'notifications': {
+          const notifData = await client.call('notification.list');
+          try { return text(summarizeNotifications(notifData)); }
+          catch { return text(notifData); }
+        }
 
         default:
           return text({ error: true, message: `알 수 없는 action: ${(params as any).action}` });
