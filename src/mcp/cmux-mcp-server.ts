@@ -132,6 +132,7 @@ class CmuxSocketClient {
   >();
   private buffer = '';
   private connectingPromise: Promise<void> | null = null;
+  private launchedThisSession = false; // auto-launch 중복 방지
 
   async ensureConnection(): Promise<void> {
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
@@ -145,7 +146,7 @@ class CmuxSocketClient {
     }
   }
 
-  // 1.3: stale token 감지 + 폴링 내 소켓 정리
+  // 1.4: auto-launch 중복 방지 + 재연결 우선
   private async _doConnect(): Promise<void> {
     this.disconnect();
     let info = findSocketToken();
@@ -156,19 +157,42 @@ class CmuxSocketClient {
         await this.connectAndAuth(info);
         return; // 성공
       } catch {
-        // 실패 → stale token, auto-launch로 진행
-        console.log('[mcp] Stale token detected, attempting auto-launch...');
+        // 실패 → stale token
+        console.log('[mcp] Stale token detected');
         this.disconnect();
       }
-    } else {
-      console.log('[mcp] No token found, attempting auto-launch...');
     }
 
-    // auto-launch
+    // 이미 auto-launch 했으면 재연결만 시도 (최대 20초 대기)
+    if (this.launchedThisSession) {
+      console.log('[mcp] Already launched this session, waiting for reconnect...');
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        info = findSocketToken();
+        if (info) {
+          try {
+            await this.connectAndAuth(info);
+            console.log('[mcp] Reconnected to existing cmux-win!');
+            return;
+          } catch {
+            this.disconnect();
+          }
+        }
+      }
+      throw new Error('cmux-win에 재연결할 수 없습니다. 앱을 수동으로 시작해주세요.');
+    }
+
+    // 첫 auto-launch
+    if (!info) {
+      console.log('[mcp] No token found, attempting auto-launch...');
+    } else {
+      console.log('[mcp] Stale token, attempting auto-launch...');
+    }
+    this.launchedThisSession = true;
     await launchCmuxWin();
 
-    // Wait up to 15s for connection
-    for (let i = 0; i < 30; i++) {
+    // Wait up to 30s for connection (씨윈 초기화 시간 확보)
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
@@ -501,7 +525,14 @@ server.registerTool(
       switch (params.action) {
         // ── status ──
         case 'status': {
-          const tree = await client.call('system.tree');
+          // 워크스페이스 초기화 대기 (auto-launch 직후)
+          let tree: any;
+          for (let i = 0; i < 20; i++) {
+            tree = await client.call('system.tree');
+            if ((tree.workspaces ?? []).length > 0) break;
+            if (i === 0) console.log('[mcp] Waiting for workspace initialization...');
+            await sleep(500);
+          }
           try { return text(await summarizeStatus(tree)); }
           catch { return text(tree); }
         }
@@ -531,7 +562,21 @@ server.registerTool(
           const p: Record<string, unknown> = { surfaceId: sid };
           if (params.lines !== undefined) p.lines = params.lines;
           const result = await client.call('surface.read', p);
-          return text(result.content ?? result);
+          const raw: string = result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
+          // Ink TUI 렌더링 잔재 필터링 (Codex/Gemini 프롬프트 UI 줄 제거)
+          const cleaned = raw.split('\n')
+            .filter(line => {
+              const t = line.trim();
+              if (!t) return false;                           // 빈 줄
+              if (/^›\s*(Run|Use)\s/.test(t)) return false;   // › Run /review, › Use /skills
+              if (/^gpt-[\d.]+ default/.test(t)) return false; // gpt-5.4 default · ~
+              if (/^gemini-[\d.]+ /.test(t)) return false;    // gemini model line
+              if (/^•\s*$/.test(t)) return false;              // 단독 bullet
+              return true;
+            })
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n');  // 연속 빈 줄 축소
+          return text(cleaned || raw);
         }
 
         // ── spawn ──
@@ -539,9 +584,15 @@ server.registerTool(
           if (!params.agentType) return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
           let wsId = params.workspaceId;
           if (!wsId) {
-            const tree = await client.call('system.tree');
-            const ws = (tree.workspaces ?? [])[0];
-            if (!ws) return text('워크스페이스가 없습니다.');
+            // 워크스페이스 대기 (auto-launch 직후 초기화 시간 확보, 최대 15초)
+            let ws: { id: string } | undefined;
+            for (let i = 0; i < 30; i++) {
+              const tree = await client.call('system.tree');
+              ws = (tree.workspaces ?? [])[0];
+              if (ws) break;
+              await new Promise(r => setTimeout(r, 500));
+            }
+            if (!ws) return text('워크스페이스 초기화 대기 시간 초과. 씨윈이 완전히 시작되었는지 확인하세요.');
             wsId = ws.id;
           }
           const p: Record<string, unknown> = { agentType: params.agentType, workspaceId: wsId };
