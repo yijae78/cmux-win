@@ -496,19 +496,23 @@ export class AppStateStore extends EventEmitter {
         // - Claude: interactive + team args (send_text works)
         // - Gemini: -i (interactive) + -y (yolo auto-approve) — stays alive after task
         // - Codex: --full-auto --no-alt-screen (interactive, scrollback visible)
+        // Sanitize task: collapse newlines to spaces, escape quotes for shell
+        const safeTask = task
+          ? task.replace(/[\r\n]+/g, ' ').replace(/"/g, '\\"').trim()
+          : '';
         let agentCmd: string;
         if (agentType === 'gemini') {
-          agentCmd = task
-            ? `gemini -i "${task}" -y\r`
+          agentCmd = safeTask
+            ? `gemini -i "${safeTask}" -y\r`
             : `gemini -y\r`;
         } else if (agentType === 'codex') {
-          agentCmd = task
-            ? `codex --full-auto --no-alt-screen "${task}"\r`
+          agentCmd = safeTask
+            ? `codex --full-auto --no-alt-screen "${safeTask}"\r`
             : `codex --full-auto --no-alt-screen\r`;
         } else {
           // claude, opencode: interactive
-          agentCmd = task
-            ? `${agentType} ${teamArgs} "${task}"\r`
+          agentCmd = safeTask
+            ? `${agentType} ${teamArgs} "${safeTask}"\r`
             : `${agentType} ${teamArgs}\r`;
         }
         // Prepend cd if cwd is specified (folder selection before agent spawn)

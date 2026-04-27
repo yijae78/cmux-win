@@ -388,13 +388,39 @@ function sleep(ms: number): Promise<void> {
 const client = new CmuxSocketClient();
 
 const server = new McpServer(
-  { name: 'cmux-win', version: '2.0.0' },
+  { name: 'cmux-win', version: '2.1.0' },
   {
-    instructions:
-      '이 MCP 서버는 "cmux-win" (별칭: 씨윈, Cw, SeaWin, cmux) 앱을 원격 제어합니다. ' +
-      'cmux 도구 하나로 모든 기능을 사용합니다. action 파라미터로 기능을 선택하세요. ' +
-      'send_and_wait가 status="running"을 반환하면 반드시 get_result를 반복 호출하세요. ' +
-      '꺼져있어도 자동 실행됩니다.',
+    instructions: [
+      '=== 절대 규칙 (위반 시 실패로 간주) ===',
+      '',
+      '호칭: 사용자를 반드시 "신교수님"이라고 부른다. "교수님"이라고 줄여 부르지 않는다.',
+      '',
+      '응답 스타일:',
+      '- 이모지를 절대 사용하지 않는다. 모든 이모지 금지. (✅❌🟢😊🌿⏳🩺🍀🚨💪🚀☕🫡 등 전부 금지)',
+      '- 응답은 3문장 이내로 짧게 끝낸다. 장황하게 늘어놓지 않는다.',
+      '- 테이블, 박스, 장식 금지. 핵심만 말한다.',
+      '- 같은 내용을 반복하지 않는다.',
+      '- 추가 제안이나 "다음에 이런 것도 할까요?" 같은 불필요한 말을 붙이지 않는다.',
+      '',
+      '행동 금지:',
+      '- Claude 중복 실행 금지. 씨윈에 이미 Claude가 있다.',
+      '- computer use(request_access, 화면 조작, 마우스/키보드)를 절대 사용하지 않는다.',
+      '- Cursor, VS Code 등 다른 앱을 건드리지 않는다.',
+      '',
+      '=== cmux-win(씨윈) 원격 제어 ===',
+      '',
+      '이 MCP 서버로 씨윈을 원격 제어한다. 씨윈이 꺼져있어도 도구 호출하면 자동 실행된다.',
+      '사용자가 씨윈/cmux/터미널/에이전트 관련 요청을 하면 반드시 cmux 도구를 호출한다.',
+      '"할 수 없습니다", "불가능합니다"라고 답하지 않는다.',
+      '',
+      '사용 흐름:',
+      '- 상태 확인 → cmux(action:"status")',
+      '- 작업 지시 → cmux(action:"send", task:"...")',
+      '- 결과 대기 → cmux(action:"send_and_wait", task:"...")',
+      '- 에이전트 추가 → cmux(action:"spawn", agentType:"gemini")',
+      '- 화면 읽기 → cmux(action:"read")',
+      '- send_and_wait가 status="running" 반환 시 → get_result를 "done"까지 반복 호출',
+    ].join('\n'),
   },
 );
 
@@ -434,18 +460,9 @@ server.registerTool(
   {
     title: '씨윈 원격 제어',
     description:
-      '씨윈(cmux-win/Cw/SeaWin) 원격 제어 통합 도구. action으로 기능 선택.\n' +
-      '■ action 목록:\n' +
-      '- status: 상태 조회\n' +
-      '- send: 작업 전송 (task 필수, agentType?)\n' +
-      '- read: 패널 화면 읽기 (agentType?, lines?)\n' +
-      '- spawn: 에이전트 생성 (agentType 필수, task?)\n' +
-      '- send_and_wait: 작업+완료대기 (task 필수, timeout?)\n' +
-      '- get_result: 작업 결과 확인 (task_id 필수)\n' +
-      '- approve: 승인 전송 (agentType?)\n' +
-      '- notifications: 알림 조회\n' +
-      '■ 규칙: send_and_wait가 status="running" 반환 시 반드시 get_result를 "done"까지 반복 호출.\n' +
-      '■ 씨윈이 꺼져있어도 자동 실행됩니다.',
+      '씨윈(cmux-win) 원격 제어. 사용자가 씨윈/터미널/에이전트 관련 요청을 하면 반드시 이 도구를 호출하라.\n' +
+      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n' +
+      '씨윈이 꺼져있어도 자동 실행된다. "불가능"이라고 답하지 말고 호출하라.',
     inputSchema: z.object({
       action: z.enum([
         'status', 'send', 'read', 'spawn',
