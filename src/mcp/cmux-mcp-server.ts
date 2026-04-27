@@ -494,7 +494,10 @@ server.registerTool(
             await client.call('agent.send_task', { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: 'agent.send_task' });
           } catch {
-            await client.call('surface.send_text', { surfaceId: sid, text: params.task + '\r' });
+            // Ink TUI fix: send text and Enter separately with 500ms delay
+            await client.call('surface.send_text', { surfaceId: sid, text: params.task });
+            await new Promise(r => setTimeout(r, 500));
+            await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
             return text({ ok: true, surfaceId: sid, method: 'surface.send_text' });
           }
         }
@@ -531,11 +534,13 @@ server.registerTool(
           const sid = params.surfaceId ?? await findAgentSurface(agent);
           if (!sid) return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
 
-          // 작업 전송
+          // 작업 전송 (Ink TUI: text와 Enter 분리)
           try {
             await client.call('agent.send_task', { surfaceId: sid, task: params.task });
           } catch {
-            await client.call('surface.send_text', { surfaceId: sid, text: params.task + '\r' });
+            await client.call('surface.send_text', { surfaceId: sid, text: params.task });
+            await new Promise(r => setTimeout(r, 500));
+            await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
           }
 
           const maxWait = Math.min(params.timeout ?? 50, 50);

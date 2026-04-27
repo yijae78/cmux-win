@@ -127,14 +127,16 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
       const cooldowns = g.__cmuxAutoApproveCooldowns as Map<string, number> | undefined;
       cooldowns?.set(p.surfaceId, Date.now());
 
-      // Send text (without Enter)
+      // Send text (without Enter), then Enter separately after delay.
+      // Ink-based TUIs (Gemini, Codex) treat \r in the same data chunk as
+      // a newline within the input, not as "submit". 500ms delay ensures
+      // the PTY flushes the text before Enter arrives.
       store.dispatch({
         type: 'surface.send_text',
         payload: { surfaceId: p.surfaceId, text: p.task },
       });
 
-      // 100ms delay then Enter (ink TUI needs time to process input)
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 500));
 
       store.dispatch({
         type: 'surface.send_text',
@@ -176,11 +178,12 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
 
     if (agent && agent.status !== 'done' && agent.status !== 'error' && ptyAlive) {
       // Interactive mode: send task text directly (text + delay + Enter)
+      // 500ms delay: Ink TUIs need text and Enter in separate data chunks
       store.dispatch({
         type: 'surface.send_text',
         payload: { surfaceId: p.surfaceId, text: p.task },
       });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 500));
       store.dispatch({
         type: 'surface.send_text',
         payload: { surfaceId: p.surfaceId, text: '\r' },

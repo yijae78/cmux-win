@@ -30499,7 +30499,9 @@ server.registerTool(
             await client.call("agent.send_task", { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: "agent.send_task" });
           } catch {
-            await client.call("surface.send_text", { surfaceId: sid, text: params.task + "\r" });
+            await client.call("surface.send_text", { surfaceId: sid, text: params.task });
+            await new Promise((r) => setTimeout(r, 500));
+            await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
             return text({ ok: true, surfaceId: sid, method: "surface.send_text" });
           }
         }
@@ -30535,7 +30537,9 @@ server.registerTool(
           try {
             await client.call("agent.send_task", { surfaceId: sid, task: params.task });
           } catch {
-            await client.call("surface.send_text", { surfaceId: sid, text: params.task + "\r" });
+            await client.call("surface.send_text", { surfaceId: sid, text: params.task });
+            await new Promise((r) => setTimeout(r, 500));
+            await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
           }
           const maxWait = Math.min(params.timeout ?? 50, 50);
           const interval = 5;

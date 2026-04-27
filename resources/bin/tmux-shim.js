@@ -188,16 +188,21 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
 
         case 'split-window': {
           const direction = args.includes('-h') ? 'horizontal' : args.includes('-v') ? 'vertical' : 'horizontal';
-          // F1: surface 자동 선택 (env 없을 때)
+          // F1: surface 자동 선택 (env 없을 때), with -t support
+          const swTarget = getTarget();
           let surfaceId = process.env.CMUX_SURFACE_ID || null;
+          if (!surfaceId && swTarget) {
+            const swPanel = await resolvePane(swTarget);
+            if (swPanel) surfaceId = swPanel.activeSurfaceId;
+          }
           if (!surfaceId) {
             const swAutoResult = await rpcCall('panel.list', {});
             const swAutoPanels = swAutoResult?.panels || [];
             if (swAutoPanels.length === 1) {
               surfaceId = swAutoPanels[0].activeSurfaceId;
             } else if (swAutoPanels.length > 1) {
-              process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
-              process.exit(1);
+              // No target specified and multiple panels — use first panel as default
+              surfaceId = swAutoPanels[0].activeSurfaceId;
             } else {
               process.stderr.write('No panels found\n');
               process.exit(1);
@@ -333,7 +338,18 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
             }
           }
           if (surfaceId) {
-            await rpcCall('surface.send_text', { surfaceId, text });
+            // FIX: Ink-based TUIs (Gemini, Codex) treat \r in the same chunk as
+            // a newline within the input, not as "submit". Split text and trailing
+            // \r into separate sends with a 500ms delay so the TUI processes them
+            // as distinct events — text input first, then Enter to submit.
+            if (text.length > 1 && text.endsWith('\r')) {
+              const body = text.slice(0, -1);
+              await rpcCall('surface.send_text', { surfaceId, text: body });
+              await new Promise(r => setTimeout(r, 500));
+              await rpcCall('surface.send_text', { surfaceId, text: '\r' });
+            } else {
+              await rpcCall('surface.send_text', { surfaceId, text });
+            }
           }
           break;
         }
