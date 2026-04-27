@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+#!C:/Program Files/Git/usr/bin/env node
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -30150,13 +30151,7 @@ function findSocketToken() {
 }
 function launchCmuxWin() {
   return new Promise((resolve, reject) => {
-    const home = process.env.USERPROFILE || process.env.HOME || "";
-    const projectDir = path.join(
-      home,
-      "OneDrive - the presbyerian church of korea",
-      "\uBC14\uD0D5 \uD654\uBA74",
-      "cmux-win"
-    );
+    const projectDir = "C:\\dev\\cmux-win";
     const electronCli = path.join(projectDir, "node_modules", "electron", "cli.js");
     const mainJs = path.join(projectDir, "out", "main", "index.js");
     if (fs.existsSync(electronCli) && fs.existsSync(mainJs)) {
@@ -30205,6 +30200,8 @@ var CmuxSocketClient = class {
   pending = /* @__PURE__ */ new Map();
   buffer = "";
   connectingPromise = null;
+  launchedThisSession = false;
+  // auto-launch 중복 방지
   async ensureConnection() {
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
     if (this.connectingPromise) return this.connectingPromise;
@@ -30215,7 +30212,7 @@ var CmuxSocketClient = class {
       this.connectingPromise = null;
     }
   }
-  // 1.3: stale token 감지 + 폴링 내 소켓 정리
+  // 1.4: auto-launch 중복 방지 + 재연결 우선
   async _doConnect() {
     this.disconnect();
     let info = findSocketToken();
@@ -30224,14 +30221,35 @@ var CmuxSocketClient = class {
         await this.connectAndAuth(info);
         return;
       } catch {
-        console.log("[mcp] Stale token detected, attempting auto-launch...");
+        console.log("[mcp] Stale token detected");
         this.disconnect();
       }
-    } else {
-      console.log("[mcp] No token found, attempting auto-launch...");
     }
+    if (this.launchedThisSession) {
+      console.log("[mcp] Already launched this session, waiting for reconnect...");
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        info = findSocketToken();
+        if (info) {
+          try {
+            await this.connectAndAuth(info);
+            console.log("[mcp] Reconnected to existing cmux-win!");
+            return;
+          } catch {
+            this.disconnect();
+          }
+        }
+      }
+      throw new Error("cmux-win\uC5D0 \uC7AC\uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694.");
+    }
+    if (!info) {
+      console.log("[mcp] No token found, attempting auto-launch...");
+    } else {
+      console.log("[mcp] Stale token, attempting auto-launch...");
+    }
+    this.launchedThisSession = true;
     await launchCmuxWin();
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
@@ -30244,7 +30262,9 @@ var CmuxSocketClient = class {
         }
       }
     }
-    throw new Error("cmux-win \uC790\uB3D9 \uC2E4\uD589\uC744 \uC2DC\uB3C4\uD588\uC73C\uB098 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694.");
+    throw new Error(
+      "cmux-win \uC790\uB3D9 \uC2E4\uD589\uC744 \uC2DC\uB3C4\uD588\uC73C\uB098 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694."
+    );
   }
   // 1.2: 10초 타임아웃 + 모든 경로 clearTimeout
   connectAndAuth(info) {
@@ -30332,9 +30352,7 @@ var CmuxSocketClient = class {
           reject(e);
         }
       });
-      this.socket.write(
-        JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"
-      );
+      this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
     });
   }
   disconnect() {
@@ -30501,7 +30519,13 @@ server.registerTool(
       switch (params.action) {
         // ── status ──
         case "status": {
-          const tree = await client.call("system.tree");
+          let tree;
+          for (let i = 0; i < 20; i++) {
+            tree = await client.call("system.tree");
+            if ((tree.workspaces ?? []).length > 0) break;
+            if (i === 0) console.log("[mcp] Waiting for workspace initialization...");
+            await sleep(500);
+          }
           try {
             return text(await summarizeStatus(tree));
           } catch {
@@ -30513,7 +30537,8 @@ server.registerTool(
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const agent = params.agentType ?? "claude";
           const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
+          if (!sid)
+            return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
           try {
             await client.call("agent.send_task", { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: "agent.send_task" });
@@ -30531,16 +30556,35 @@ server.registerTool(
           const p = { surfaceId: sid };
           if (params.lines !== void 0) p.lines = params.lines;
           const result = await client.call("surface.read", p);
-          return text(result.content ?? result);
+          const raw = result.content ?? (typeof result === "string" ? result : JSON.stringify(result));
+          const cleaned = raw.split("\n").filter((line) => {
+            const t = line.trim();
+            if (!t) return false;
+            if (/^›\s*(Run|Use)\s/.test(t)) return false;
+            if (/^gpt-[\d.]+ default/.test(t)) return false;
+            if (/^gemini-[\d.]+ /.test(t)) return false;
+            if (/^•\s*$/.test(t)) return false;
+            return true;
+          }).join("\n").replace(/\n{3,}/g, "\n\n");
+          return text(cleaned || raw);
         }
         // ── spawn ──
         case "spawn": {
-          if (!params.agentType) return text({ error: true, message: "agentType \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.agentType)
+            return text({ error: true, message: "agentType \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           let wsId = params.workspaceId;
           if (!wsId) {
-            const tree = await client.call("system.tree");
-            const ws = (tree.workspaces ?? [])[0];
-            if (!ws) return text("\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+            let ws;
+            for (let i = 0; i < 30; i++) {
+              const tree = await client.call("system.tree");
+              ws = (tree.workspaces ?? [])[0];
+              if (ws) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
+            if (!ws)
+              return text(
+                "\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uCD08\uAE30\uD654 \uB300\uAE30 \uC2DC\uAC04 \uCD08\uACFC. \uC528\uC708\uC774 \uC644\uC804\uD788 \uC2DC\uC791\uB418\uC5C8\uB294\uC9C0 \uD655\uC778\uD558\uC138\uC694."
+              );
             wsId = ws.id;
           }
           const p = { agentType: params.agentType, workspaceId: wsId };
@@ -30552,7 +30596,8 @@ server.registerTool(
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const agent = params.agentType ?? "claude";
           const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
+          if (!sid)
+            return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
           try {
             await client.call("agent.send_task", { surfaceId: sid, task: params.task });
           } catch {
@@ -30585,7 +30630,12 @@ server.registerTool(
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split("\n").slice(-30).join("\n");
-                return text({ status: "done", agentType: agent, surfaceId: sid, result: lastLines });
+                return text({
+                  status: "done",
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines
+                });
               }
             } catch {
             }
@@ -30608,9 +30658,14 @@ server.registerTool(
         }
         // ── get_result ──
         case "get_result": {
-          if (!params.task_id) return text({ error: true, message: "task_id \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.task_id)
+            return text({ error: true, message: "task_id \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const entry = taskStore.get(params.task_id);
-          if (!entry) return text({ status: "error", message: `task_id "${params.task_id}"\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` });
+          if (!entry)
+            return text({
+              status: "error",
+              message: `task_id "${params.task_id}"\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`
+            });
           if (entry.status === "done") return text({ status: "done", result: entry.result });
           try {
             const screen = await client.call("surface.read", { surfaceId: entry.surfaceId });

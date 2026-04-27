@@ -37,19 +37,19 @@
 ## Phase 0: 환경 정비
 
 ### 0.1 MCP auto-launch 경로 수정
-- **상태**: [ ] 미완
+- **상태**: [x] 완료 (c6eda3c)
 - **내용**: src/mcp/cmux-mcp-server.ts의 launchCmuxWin() projectDir을 C:\dev\cmux-win으로 변경
 - **성공 조건**: 빌드 성공
 - **시간**: 2분
 
 ### 0.2 Bridge inbox 정리
-- **상태**: [ ] 미완
+- **상태**: [x] 완료
 - **내용**: ~/cmux-bridge/inbox/*.json 삭제
 - **성공 조건**: inbox 빈 폴더
 - **시간**: 1분
 
 ### 0.3 Symlink 생성
-- **상태**: [ ] 미완
+- **상태**: [x] 완료 (PowerShell junction)
 - **내용**: 3개 외부 프로젝트에 공백 없는 경로 확보
   - C:\projects\sermon → My-Sermon-Editor
   - C:\projects\globalnews → GlobalNews-Crawling-AgenticWorkflow
