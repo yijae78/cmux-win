@@ -163,7 +163,7 @@
 - **시간**: 2분
 
 ### 4.1 Bridge direct → Gemini
-- **상태**: [ ] 미완
+- **상태**: [△] 부분성공 — task 전달됨, Gemini 응답함, 그러나 liveBuffer 폴링 버그로 output 미수집 (Ink TUI 호환 이슈)
 - **내용**: task.json (target: Gemini paneIndex, mode: direct, 간단 질문)
 - **성공 조건**: outbox에 result.json (status: completed)
 - **실패 시**: paneIndex 확인, timeout 조정
@@ -171,19 +171,19 @@
 - **프롬프트 규칙**: 응답 끝에 "===BRIDGE_DONE===" 출력 지시 포함
 
 ### 4.2 Bridge leader → Gemini
-- **상태**: [ ] 미완
+- **상태**: [△] 건너뜀 — 4.1과 동일한 liveBuffer 버그 (수정 후 재시도 필요)
 - **내용**: task.json (mode: leader, "Sermon 폴더 구조 파악") + 마커 지시
 - **성공 조건**: result.json에 유의미한 분석 결과
 - **시간**: 15분
 
 ### 4.3 Sermon 프로젝트 분석
-- **상태**: [ ] 미완
+- **상태**: [x] 완료 (Gemini가 6개 설교 폴더 정확히 보고)
 - **내용**: Gemini에게 symlink 경로(C:\projects\sermon)로 분석 지시
 - **성공 조건**: capture에 실제 설교 제목/파일 목록
 - **시간**: 15분
 
 ### 4.4 [GATE] 교차 검증
-- **상태**: [ ] 미완
+- **상태**: [x] 통과 (Gemini 보고 6개 = 실제 6개, 100% 일치)
 - **내용**: Gemini 보고 vs ls sermons/ 실제 결과 비교
 - **성공 조건**: 일치율 80% 이상
 - **실패 시**: 프롬프트 구체화
