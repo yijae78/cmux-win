@@ -163,7 +163,7 @@
 - **시간**: 2분
 
 ### 4.1 Bridge direct → Gemini
-- **상태**: [△] 부분성공 — task 전달됨, Gemini 응답함, 그러나 liveBuffer 폴링 버그로 output 미수집 (Ink TUI 호환 이슈)
+- **상태**: [x] 완료 (재시도 2026-04-28, 7*8=56 정답, 8초)
 - **내용**: task.json (target: Gemini paneIndex, mode: direct, 간단 질문)
 - **성공 조건**: outbox에 result.json (status: completed)
 - **실패 시**: paneIndex 확인, timeout 조정
@@ -171,7 +171,7 @@
 - **프롬프트 규칙**: 응답 끝에 "===BRIDGE_DONE===" 출력 지시 포함
 
 ### 4.2 Bridge leader → Gemini
-- **상태**: [△] 건너뜀 — 4.1과 동일한 liveBuffer 버그 (수정 후 재시도 필요)
+- **상태**: [x] 완료 (재시도 2026-04-28, Sermon 6개 폴더 분석, 19초)
 - **내용**: task.json (mode: leader, "Sermon 폴더 구조 파악") + 마커 지시
 - **성공 조건**: result.json에 유의미한 분석 결과
 - **시간**: 15분
@@ -234,14 +234,15 @@
 | 1 기초연결 | 4 | 4 | 0 | 0 | |
 | 2 소켓API | 3 | 3 | 0 | 0 | avg <1ms |
 | 3 다중AI협업 | 3 | 3 | 0 | 0 | 동시전송 성공 |
-| 4 Bridge+외부 | 5 | 3 | 2 | 0 | Bridge liveBuffer 버그 |
+| 4 Bridge+외부 | 5 | 5 | 0 | 0 | 4.1,4.2 재��도 성공 (2026-04-28) |
 | 5 풀오케스트레이션 | 6 | 6 | 0 | 0 | workflow.run 3/3 |
-| **합계** | **27** | **25** | **2** | **0** | **93% 완전성공** |
+| **합계** | **27** | **27** | **0** | **0** | **100% 완전성공** |
 
-### 발견된 버그 (수정 대상)
-- **Bridge liveBuffer 폴링**: Gemini Ink TUI가 버퍼를 re-render하여 Bridge가 새 데이터를 감지 못함
-  - 영향: 4.1, 4.2
-  - 해결 방향: surface.read 소켓 API를 폴링에 사용하거나, Ink TUI 프레임 diff 감지 로직 추가
+### 수정된 버그 (2026-04-28)
+- **Bridge liveBuffer 폴링**: 3가지 수정으로 해결
+  1. `stripAnsiEscapes` 공유 유틸 추출 (CSI+OSC+DCS+charset+C0 전부)
+  2. text/Enter ��리 전송 (500ms 간격, Ink TUI 호환)
+  3. tail-50 마커 감지 (baseline/rolling 문제 회피)
 - **내용**: 전 단계 결과 집계 + 시스템 상태 확인
 - **성공 조건**: 전체 PASS + heartbeat 정상 + 패널 정리 완료
 - **시간**: 5분

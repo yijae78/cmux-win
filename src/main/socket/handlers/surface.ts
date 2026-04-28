@@ -1,24 +1,6 @@
 import { JsonRpcRouter } from '../router';
 import type { AppStateStore } from '../../sot/store';
-
-// BUG-D + F4-FIX: strip ANSI/CSI and OSC escape sequences from raw PTY output.
-// M8: Comprehensive ANSI stripping — CSI, OSC, DCS, charset, misc escapes, C0 controls
-// eslint-disable-next-line no-control-regex
-const CSI_RE = /\x1B\[[0-9;?]*[a-zA-Z]/g;
-// eslint-disable-next-line no-control-regex
-const OSC_RE = /\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g;
-// eslint-disable-next-line no-control-regex
-const DCS_RE = /\x1BP[^\x1B]*\x1B\\/g;
-// eslint-disable-next-line no-control-regex
-const CHARSET_RE = /\x1B[()][0-9A-B]/g;
-// eslint-disable-next-line no-control-regex
-const MISC_ESC_RE = /\x1B[>=<N~}{F|7-8]/g;
-// eslint-disable-next-line no-control-regex
-const C0_RE = /[\x00-\x08\x0B-\x0C\x0E-\x1F]/g;
-function stripAnsiEscapes(s: string): string {
-  return s.replace(OSC_RE, '').replace(DCS_RE, '').replace(CSI_RE, '')
-    .replace(CHARSET_RE, '').replace(MISC_ESC_RE, '').replace(C0_RE, '');
-}
+import { stripAnsiEscapes } from '../../../shared/ansi-utils';
 
 export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateStore): void {
   router.register('surface.list', () => {
@@ -93,9 +75,7 @@ export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateSt
     // Live buffer has real-time raw PTY output; scrollbackStore is renderer-processed
     // (clean text, no ANSI escapes). Prefer live buffer for freshness.
     const liveRaw = liveBuffers?.get(p.surfaceId);
-    const content = liveRaw
-      ? stripAnsiEscapes(liveRaw)
-      : (scrollbackStore?.get(p.surfaceId) ?? '');
+    const content = liveRaw ? stripAnsiEscapes(liveRaw) : (scrollbackStore?.get(p.surfaceId) ?? '');
 
     if (p.lines && p.lines > 0) {
       const allLines = content.split('\n');
