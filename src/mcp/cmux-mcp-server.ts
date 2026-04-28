@@ -518,7 +518,7 @@ server.registerTool(
     description:
       '씨윈(cmux-win) 원격 제어.\n' +
       '응답규칙: "신교수님" 호칭, 이모지 금지, 3문장 이내, 테이블 금지, 추가 제안 금지.\n' +
-      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser\n' +
+      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n' +
       '씨윈이 꺼져있어도 자동 실행된다.',
     inputSchema: z.object({
       action: z
@@ -532,6 +532,7 @@ server.registerTool(
           'approve',
           'notifications',
           'open_browser',
+          'move_window',
         ])
         .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
@@ -540,6 +541,10 @@ server.registerTool(
       lines: z.number().optional().describe('읽을 줄 수 (read)'),
       timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본120)'),
       url: z.string().optional().describe('URL (open_browser)'),
+      x: z.number().optional().describe('창 X 좌표 (move_window)'),
+      y: z.number().optional().describe('창 Y 좌표 (move_window)'),
+      width: z.number().optional().describe('창 너비 (move_window)'),
+      height: z.number().optional().describe('창 높이 (move_window)'),
       task_id: z.string().optional().describe('작업 ID (get_result)'),
       workspaceId: z.string().optional().describe('워크스페이스 ID (spawn)'),
     }),
@@ -798,6 +803,17 @@ server.registerTool(
             surfaceId: (result as any)?.surfaceId,
             paneIndex: (result as any)?.paneIndex,
           });
+        }
+
+        // ── move_window ──
+        case 'move_window': {
+          if (params.x === undefined || params.y === undefined)
+            return text({ error: true, message: 'x, y 파라미터가 필요합니다.' });
+          const moveParams: Record<string, unknown> = { x: params.x, y: params.y };
+          if (params.width !== undefined) moveParams.width = params.width;
+          if (params.height !== undefined) moveParams.height = params.height;
+          const result = await client.call('window.move', moveParams);
+          return text({ ok: true, bounds: (result as any)?.bounds });
         }
 
         default:

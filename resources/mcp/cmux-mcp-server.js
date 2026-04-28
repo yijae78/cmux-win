@@ -30504,7 +30504,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30515,7 +30515,8 @@ server.registerTool(
         "get_result",
         "approve",
         "notifications",
-        "open_browser"
+        "open_browser",
+        "move_window"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
       agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, gemini, codex)"),
@@ -30523,6 +30524,10 @@ server.registerTool(
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (read)"),
       timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF8120)"),
       url: external_exports3.string().optional().describe("URL (open_browser)"),
+      x: external_exports3.number().optional().describe("\uCC3D X \uC88C\uD45C (move_window)"),
+      y: external_exports3.number().optional().describe("\uCC3D Y \uC88C\uD45C (move_window)"),
+      width: external_exports3.number().optional().describe("\uCC3D \uB108\uBE44 (move_window)"),
+      height: external_exports3.number().optional().describe("\uCC3D \uB192\uC774 (move_window)"),
       task_id: external_exports3.string().optional().describe("\uC791\uC5C5 ID (get_result)"),
       workspaceId: external_exports3.string().optional().describe("\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 ID (spawn)")
     })
@@ -30728,7 +30733,11 @@ server.registerTool(
           const tree = await client.call("system.tree");
           const ws = (tree?.workspaces ?? [])[0];
           const panel = ws?.panels?.[0];
-          if (!panel) return text({ error: true, message: "\uC528\uC708\uC5D0 \uD328\uB110\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. status\uB85C \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694." });
+          if (!panel)
+            return text({
+              error: true,
+              message: "\uC528\uC708\uC5D0 \uD328\uB110\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. status\uB85C \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694."
+            });
           const result = await client.call("panel.split", {
             panelId: panel.id,
             direction: "horizontal",
@@ -30742,6 +30751,16 @@ server.registerTool(
             surfaceId: result?.surfaceId,
             paneIndex: result?.paneIndex
           });
+        }
+        // ── move_window ──
+        case "move_window": {
+          if (params.x === void 0 || params.y === void 0)
+            return text({ error: true, message: "x, y \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          const moveParams = { x: params.x, y: params.y };
+          if (params.width !== void 0) moveParams.width = params.width;
+          if (params.height !== void 0) moveParams.height = params.height;
+          const result = await client.call("window.move", moveParams);
+          return text({ ok: true, bounds: result?.bounds });
         }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });
