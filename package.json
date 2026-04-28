@@ -13,6 +13,7 @@
     "test:e2e": "electron-vite build && npx playwright test",
     "bench": "vitest bench",
     "package": "electron-vite build && electron-builder",
+    "build:mcp": "esbuild src/mcp/cmux-mcp-server.ts --bundle --platform=node --target=node18 --format=cjs --banner:js=\"#!/usr/bin/env node\" --outfile=resources/mcp/cmux-mcp-server.js",
     "prepare": "husky"
   },
   "lint-staged": {

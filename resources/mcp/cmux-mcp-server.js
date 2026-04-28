@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-#!C:/Program Files/Git/usr/bin/env node
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -30168,11 +30167,13 @@ function launchCmuxWin() {
         console.log(`[mcp] Launched PID: ${child.pid}`);
       } catch (err) {
         console.log(`[mcp] Dev launch failed: ${err}`);
+        reject(new Error(`cmux-win dev launch \uC2E4\uD328: ${err}`));
+        return;
       }
       resolve();
       return;
     }
-    const appData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const appData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Local");
     const installedExe = path.join(appData, "cmux-win", "cmux-win.exe");
     if (fs.existsSync(installedExe)) {
       console.log(`[mcp] Launching installed: ${installedExe}`);
@@ -30334,8 +30335,13 @@ var CmuxSocketClient = class {
       });
     });
   }
-  async call(method, params = {}) {
+  async call(method, params = {}, _retry = false) {
     await this.ensureConnection();
+    if (!this.socket || this.socket.destroyed) {
+      if (_retry) throw new Error("cmux-win \uC7AC\uC5F0\uACB0 \uC2E4\uD328");
+      this.disconnect();
+      return this.call(method, params, true);
+    }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -30352,7 +30358,12 @@ var CmuxSocketClient = class {
           reject(e);
         }
       });
-      this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      const ok = this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      if (!ok) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(new Error(`\uC18C\uCF13 \uC4F0\uAE30 \uC2E4\uD328 (backpressure): ${method}`));
+      }
     });
   }
   disconnect() {
@@ -30373,7 +30384,7 @@ function stripAnsi(str) {
 var DEFAULT_IDLE_PATTERNS = {
   gemini: ["Type your message", "Enter your prompt", "What can I help"],
   codex: ["What would you like", "Enter a prompt"],
-  claude: ["\u276F ", "> "]
+  claude: ["\u276F ", "\u276F", "> "]
 };
 function loadIdlePatterns() {
   const configPath = path.join(
@@ -30455,7 +30466,7 @@ async function summarizeStatus(tree) {
   const ws = (tree?.workspaces ?? [])[0];
   if (!ws) return "\uC528\uC708 \uC791\uB3D9\uC911. \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uC5C6\uC74C.";
   const panelCount = ws.panels?.length ?? 0;
-  const agents = (ws.agents ?? []).map((a) => `${a.agentType ?? "unknown"}(${a.status ?? "?"})`).join(", ");
+  const agents = (ws.agents ?? []).map((a) => `${a.agentType ?? "unknown"}(${a.status ?? "?"},${a.surfaceId ?? ""})`).join(", ");
   let notifCount = 0;
   try {
     const n = await client.call("notification.list");
@@ -30493,7 +30504,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30503,13 +30514,15 @@ server.registerTool(
         "send_and_wait",
         "get_result",
         "approve",
-        "notifications"
+        "notifications",
+        "open_browser"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
       agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, gemini, codex)"),
       surfaceId: external_exports3.string().optional().describe("\uC11C\uD53C\uC2A4 ID"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (read)"),
-      timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF850)"),
+      timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF8120)"),
+      url: external_exports3.string().optional().describe("URL (open_browser)"),
       task_id: external_exports3.string().optional().describe("\uC791\uC5C5 ID (get_result)"),
       workspaceId: external_exports3.string().optional().describe("\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 ID (spawn)")
     })
@@ -30525,6 +30538,9 @@ server.registerTool(
             if ((tree.workspaces ?? []).length > 0) break;
             if (i === 0) console.log("[mcp] Waiting for workspace initialization...");
             await sleep(500);
+          }
+          if (!tree || (tree.workspaces ?? []).length === 0) {
+            return text("\uC528\uC708\uC774 \uC544\uC9C1 \uCD08\uAE30\uD654 \uC911\uC785\uB2C8\uB2E4. 10\uCD08 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.");
           }
           try {
             return text(await summarizeStatus(tree));
@@ -30561,8 +30577,8 @@ server.registerTool(
             const t = line.trim();
             if (!t) return false;
             if (/^›\s*(Run|Use)\s/.test(t)) return false;
-            if (/^gpt-[\d.]+ default/.test(t)) return false;
-            if (/^gemini-[\d.]+ /.test(t)) return false;
+            if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false;
+            if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false;
             if (/^•\s*$/.test(t)) return false;
             return true;
           }).join("\n").replace(/\n{3,}/g, "\n\n");
@@ -30605,7 +30621,7 @@ server.registerTool(
             await new Promise((r) => setTimeout(r, 500));
             await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
           }
-          const maxWait = Math.min(params.timeout ?? 50, 50);
+          const maxWait = Math.min(params.timeout ?? 120, 300);
           const interval = 5;
           await sleep(3e3);
           for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
@@ -30705,6 +30721,27 @@ server.registerTool(
           } catch {
             return text(notifData);
           }
+        }
+        // ── open_browser ──
+        case "open_browser": {
+          if (!params.url) return text({ error: true, message: "url \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          const tree = await client.call("system.tree");
+          const ws = (tree?.workspaces ?? [])[0];
+          const panel = ws?.panels?.[0];
+          if (!panel) return text({ error: true, message: "\uC528\uC708\uC5D0 \uD328\uB110\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. status\uB85C \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694." });
+          const result = await client.call("panel.split", {
+            panelId: panel.id,
+            direction: "horizontal",
+            newPanelType: "browser",
+            url: params.url
+          });
+          return text({
+            ok: true,
+            url: params.url,
+            panelId: result?.panelId,
+            surfaceId: result?.surfaceId,
+            paneIndex: result?.paneIndex
+          });
         }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });

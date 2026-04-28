@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+// shebang is injected by esbuild banner (see package.json build:mcp)
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 /**
  * cmux-win MCP Server v2 (stdio)
@@ -83,13 +83,16 @@ function launchCmuxWin(): Promise<void> {
         console.log(`[mcp] Launched PID: ${child.pid}`);
       } catch (err) {
         console.log(`[mcp] Dev launch failed: ${err}`);
+        reject(new Error(`cmux-win dev launch 실패: ${err}`));
+        return;
       }
       resolve();
       return;
     }
 
     // 2. Installed: cmux-win.exe in AppData
-    const appData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const appData =
+      process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
     const installedExe = path.join(appData, 'cmux-win', 'cmux-win.exe');
     if (fs.existsSync(installedExe)) {
       console.log(`[mcp] Launching installed: ${installedExe}`);
@@ -282,8 +285,15 @@ class CmuxSocketClient {
     });
   }
 
-  async call(method: string, params: Record<string, unknown> = {}): Promise<any> {
+  async call(method: string, params: Record<string, unknown> = {}, _retry = false): Promise<any> {
     await this.ensureConnection();
+
+    // socket이 끊어진 상태면 1회 재연결 시도
+    if (!this.socket || this.socket.destroyed) {
+      if (_retry) throw new Error('cmux-win 재연결 실패');
+      this.disconnect();
+      return this.call(method, params, true);
+    }
 
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
@@ -303,7 +313,13 @@ class CmuxSocketClient {
         },
       });
 
-      this.socket!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+      const ok = this.socket!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+      if (!ok) {
+        // backpressure — socket buffer full
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(new Error(`소켓 쓰기 실패 (backpressure): ${method}`));
+      }
     });
   }
 
@@ -337,7 +353,7 @@ function stripAnsi(str: string): string {
 const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
   gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
   codex: ['What would you like', 'Enter a prompt'],
-  claude: ['❯ ', '> '],
+  claude: ['❯ ', '❯', '> '],
 };
 
 function loadIdlePatterns(): Record<string, string[]> {
@@ -450,7 +466,7 @@ async function summarizeStatus(tree: any): Promise<string> {
   if (!ws) return '씨윈 작동중. 워크스페이스 없음.';
   const panelCount = ws.panels?.length ?? 0;
   const agents = (ws.agents ?? [])
-    .map((a: any) => `${a.agentType ?? 'unknown'}(${a.status ?? '?'})`)
+    .map((a: any) => `${a.agentType ?? 'unknown'}(${a.status ?? '?'},${a.surfaceId ?? ''})`)
     .join(', ');
   let notifCount = 0;
   try {
@@ -502,7 +518,7 @@ server.registerTool(
     description:
       '씨윈(cmux-win) 원격 제어.\n' +
       '응답규칙: "신교수님" 호칭, 이모지 금지, 3문장 이내, 테이블 금지, 추가 제안 금지.\n' +
-      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n' +
+      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser\n' +
       '씨윈이 꺼져있어도 자동 실행된다.',
     inputSchema: z.object({
       action: z
@@ -515,13 +531,15 @@ server.registerTool(
           'get_result',
           'approve',
           'notifications',
+          'open_browser',
         ])
         .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
       agentType: z.string().optional().describe('에이전트 (claude, gemini, codex)'),
       surfaceId: z.string().optional().describe('서피스 ID'),
       lines: z.number().optional().describe('읽을 줄 수 (read)'),
-      timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본50)'),
+      timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본120)'),
+      url: z.string().optional().describe('URL (open_browser)'),
       task_id: z.string().optional().describe('작업 ID (get_result)'),
       workspaceId: z.string().optional().describe('워크스페이스 ID (spawn)'),
     }),
@@ -538,6 +556,9 @@ server.registerTool(
             if ((tree.workspaces ?? []).length > 0) break;
             if (i === 0) console.log('[mcp] Waiting for workspace initialization...');
             await sleep(500);
+          }
+          if (!tree || (tree.workspaces ?? []).length === 0) {
+            return text('씨윈이 아직 초기화 중입니다. 10초 후 다시 시도하세요.');
           }
           try {
             return text(await summarizeStatus(tree));
@@ -581,8 +602,8 @@ server.registerTool(
               const t = line.trim();
               if (!t) return false; // 빈 줄
               if (/^›\s*(Run|Use)\s/.test(t)) return false; // › Run /review, › Use /skills
-              if (/^gpt-[\d.]+ default/.test(t)) return false; // gpt-5.4 default · ~
-              if (/^gemini-[\d.]+ /.test(t)) return false; // gemini model line
+              if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false; // gpt-5.4 default · ~
+              if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false; // gemini model line
               if (/^•\s*$/.test(t)) return false; // 단독 bullet
               return true;
             })
@@ -633,7 +654,7 @@ server.registerTool(
             await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
           }
 
-          const maxWait = Math.min(params.timeout ?? 50, 50);
+          const maxWait = Math.min(params.timeout ?? 120, 300);
           const interval = 5;
           await sleep(3000);
 
@@ -748,6 +769,35 @@ server.registerTool(
           } catch {
             return text(notifData);
           }
+        }
+
+        // ── open_browser ──
+        case 'open_browser': {
+          if (!params.url) return text({ error: true, message: 'url 파라미터가 필요합니다.' });
+
+          // system.tree에서 첫 번째 패널의 panelId를 가져옴
+          const tree = await client.call('system.tree');
+          const ws = (tree?.workspaces ?? [])[0];
+          const panel = ws?.panels?.[0];
+          if (!panel)
+            return text({
+              error: true,
+              message: '씨윈에 패널이 없습니다. status로 먼저 확인하세요.',
+            });
+
+          const result = await client.call('panel.split', {
+            panelId: panel.id,
+            direction: 'horizontal',
+            newPanelType: 'browser',
+            url: params.url,
+          });
+          return text({
+            ok: true,
+            url: params.url,
+            panelId: (result as any)?.panelId,
+            surfaceId: (result as any)?.surfaceId,
+            paneIndex: (result as any)?.paneIndex,
+          });
         }
 
         default:
