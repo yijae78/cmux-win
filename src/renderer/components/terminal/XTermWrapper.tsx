@@ -20,14 +20,21 @@ import { parseOsc133P, parseOsc7 } from '../../../shared/osc-parser';
 function detectCliFromOutput(data: string): { name: string; icon: string } | null {
   // Strip ANSI escape sequences before keyword check — cursor positioning
   // (e.g. \x1b[2;15H) breaks up words like "Claude" into individual characters
-  const lower = data.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').toLowerCase();
+  const lower = data
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '')
+    .toLowerCase();
 
   let baseName = '';
   let icon = '';
 
-  if (lower.includes('claude') &&
-      (lower.includes('code') || lower.includes('baked') ||
-       lower.includes('musing') || lower.includes('\u256D'))) {
+  if (
+    lower.includes('claude') &&
+    (lower.includes('code') ||
+      lower.includes('baked') ||
+      lower.includes('musing') ||
+      lower.includes('\u256D'))
+  ) {
     baseName = 'Claude';
     icon = '\uD83E\uDDE0';
     // Model name from PTY banner: "Opus 4.6 (1M context)" / "Sonnet 4.6 with high effort"
@@ -210,11 +217,29 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
     // L5: Ctrl+Click link detection — open URLs and file paths
     terminal.registerLinkProvider({
-      provideLinks(lineNumber: number, callback: (links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> | undefined) => void) {
+      provideLinks(
+        lineNumber: number,
+        callback: (
+          links:
+            | Array<{
+                range: { start: { x: number; y: number }; end: { x: number; y: number } };
+                text: string;
+                activate: (e: MouseEvent, text: string) => void;
+              }>
+            | undefined,
+        ) => void,
+      ) {
         const line = terminal.buffer.active.getLine(lineNumber - 1);
-        if (!line) { callback(undefined); return; }
+        if (!line) {
+          callback(undefined);
+          return;
+        }
         const text = line.translateToString(true);
-        const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> = [];
+        const links: Array<{
+          range: { start: { x: number; y: number }; end: { x: number; y: number } };
+          text: string;
+          activate: (e: MouseEvent, text: string) => void;
+        }> = [];
 
         // URL pattern
         const urlRe = /https?:\/\/[^\s)\]>'"]+/g;
@@ -222,9 +247,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         while ((m = urlRe.exec(text)) !== null) {
           const sx = m.index;
           links.push({
-            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+            range: {
+              start: { x: sx + 1, y: lineNumber },
+              end: { x: sx + m[0].length, y: lineNumber },
+            },
             text: m[0],
-            activate(_e, t) { window.cmuxWin?.openExternal?.(t); },
+            activate(_e, t) {
+              window.cmuxWin?.openExternal?.(t);
+            },
           });
         }
 
@@ -234,9 +264,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           if (text.slice(m.index).match(/^https?:\/\//)) continue; // skip URLs
           const sx = m.index;
           links.push({
-            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+            range: {
+              start: { x: sx + 1, y: lineNumber },
+              end: { x: sx + m[0].length, y: lineNumber },
+            },
             text: m[0],
-            activate(_e, t) { window.cmuxWin?.openPath?.(t); },
+            activate(_e, t) {
+              window.cmuxWin?.openPath?.(t);
+            },
           });
         }
 
@@ -249,6 +284,12 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       const webglAddon = new WebglAddon();
       webglAddon.onContextLoss(() => {
         webglAddon.dispose();
+        // Re-fit after fallback to canvas renderer so text sizes correctly
+        requestAnimationFrame(() => {
+          if (fitAddonRef.current && terminalRef.current) {
+            fitAddonRef.current.fit();
+          }
+        });
       });
       terminal.loadAddon(webglAddon);
     } catch {
@@ -295,7 +336,9 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         const MODEL_BUF_SIZE = 300;
         const checkModelFromStream = (sid: string, rawData: string) => {
           if (!cliDetected || !detectedCliName?.includes('Claude')) return;
-          const stripped = rawData.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+          const stripped = rawData
+            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+            .replace(/\x1b\][^\x07]*\x07/g, '');
           modelRollingBuf = (modelRollingBuf + stripped).slice(-MODEL_BUF_SIZE);
           const lower = modelRollingBuf.toLowerCase();
           const opusIdx = lower.lastIndexOf('opus 4.');
@@ -559,20 +602,26 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       onTitleChange?.(title);
     });
 
-    // L3: Single debounced ResizeObserver — 200ms covers both immediate and final sizing
+    // L3: Single debounced ResizeObserver — fit + delayed re-fit for layout settle
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeTimer2: ReturnType<typeof setTimeout> | null = null;
     const doFit = () => {
       if (!disposed && fitAddonRef.current && terminalRef.current) {
         try {
           fitAddonRef.current.fit();
           const t = terminalRef.current;
           window.ptyBridge?.resize(surfaceId, t.cols, t.rows);
-        } catch { /* terminal may be disposed */ }
+        } catch {
+          /* terminal may be disposed */
+        }
       }
     };
     const resizeObserver = new ResizeObserver(() => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(doFit, 200);
+      if (resizeTimer2) clearTimeout(resizeTimer2);
+      resizeTimer = setTimeout(doFit, 100);
+      // Second fit after layout fully settles (fixes stale size in multi-panel resize)
+      resizeTimer2 = setTimeout(doFit, 400);
     });
     resizeObserver.observe(container);
 
@@ -582,6 +631,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       disposed = true;
       resizeObserver.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (resizeTimer2) clearTimeout(resizeTimer2);
       titleDisposable.dispose();
       clearTimeout(scrollbackTimer);
       if (scrollbackIntervalRef.current) clearInterval(scrollbackIntervalRef.current);
@@ -615,14 +665,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const schedule = (fn: () => void, ms: number) => {
-      const id = setTimeout(() => { if (!cancelled) fn(); }, ms);
+      const id = setTimeout(() => {
+        if (!cancelled) fn();
+      }, ms);
       timers.push(id);
     };
 
     // Adaptive shell init delay: PowerShell is slow (~2-3s), others are fast
-    const isPowerShell = shell
-      ? /powershell|pwsh/i.test(shell)
-      : true; // default to conservative if unknown
+    const isPowerShell = shell ? /powershell|pwsh/i.test(shell) : true; // default to conservative if unknown
     const shellInitDelay = isPowerShell ? 1500 : 500;
 
     // Split on __DELAY__ marker for sequential command execution (e.g., cd + claude)
@@ -640,17 +690,23 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         // Write subsequent parts with additional delays (1s each)
         for (let i = 1; i < commandParts.length; i++) {
           const part = commandParts[i];
-          schedule(() => {
-            window.ptyBridge?.write(surfaceId, part);
-          }, shellInitDelay + i * 1500);
+          schedule(
+            () => {
+              window.ptyBridge?.write(surfaceId, part);
+            },
+            shellInitDelay + i * 1500,
+          );
         }
         // Clear pendingCommand after all parts are sent
-        schedule(() => {
-          void dispatchRef.current?.({
-            type: 'surface.update_meta',
-            payload: { surfaceId, pendingCommand: null },
-          });
-        }, shellInitDelay + commandParts.length * 1500);
+        schedule(
+          () => {
+            void dispatchRef.current?.({
+              type: 'surface.update_meta',
+              payload: { surfaceId, pendingCommand: null },
+            });
+          },
+          shellInitDelay + commandParts.length * 1500,
+        );
       } else if (++attempts < maxAttempts) {
         schedule(tryWrite, 300);
       }
