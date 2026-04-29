@@ -777,11 +777,24 @@ server.registerTool(
             return text({ error: true, message: 'PTY가 준비되지 않아 작업을 전달할 수 없습니다.' });
           }
 
+          // BUG-E fix: 작업 전송 직후 버퍼 길이를 기록하여 stale idle pattern 오판 방지.
+          // 이전 세션의 "Type your message" 등이 남아있으면 즉시 idle로 오판하는 문제.
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call('surface.read', { surfaceId: sid });
+            const baseContent = typeof baseline === 'string' ? baseline : (baseline?.content ?? '');
+            baselineLen = baseContent.length;
+          } catch {
+            /* baseline 실패 — 0으로 시작 */
+          }
+
           const maxWait = Math.min(params.timeout ?? 120, 300);
           const interval = 3; // #13: 폴링 간격 5초→3초
-          await sleep(3000);
+          // BUG-E fix: 초기 대기를 10초로 늘려 에이전트가 작업을 시작할 시간 확보
+          const initialWait = 10;
+          await sleep(initialWait * 1000);
 
-          for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += interval) {
             await sleep(interval * 1000);
 
             // Progress notification (타임아웃 리셋 시도)
@@ -842,6 +855,12 @@ server.registerTool(
               const screen = await client.call('surface.read', { surfaceId: sid });
               const content =
                 typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+
+              // BUG-E fix: 버퍼에 새 콘텐츠가 충분히 추가되었을 때만 idle 체크.
+              // 새 콘텐츠가 200자 미만이면 아직 에이전트가 작업을 시작하지 않은 것.
+              const newContentLen = content.length - baselineLen;
+              if (newContentLen < 200) continue;
+
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split('\n').slice(-30).join('\n');

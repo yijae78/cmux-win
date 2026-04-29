@@ -30732,10 +30732,18 @@ server.registerTool(
           if (!taskSent) {
             return text({ error: true, message: "PTY\uAC00 \uC900\uBE44\uB418\uC9C0 \uC54A\uC544 \uC791\uC5C5\uC744 \uC804\uB2EC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
           }
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call("surface.read", { surfaceId: sid });
+            const baseContent = typeof baseline === "string" ? baseline : baseline?.content ?? "";
+            baselineLen = baseContent.length;
+          } catch {
+          }
           const maxWait = Math.min(params.timeout ?? 120, 300);
           const interval = 3;
-          await sleep(3e3);
-          for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+          const initialWait = 10;
+          await sleep(initialWait * 1e3);
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += interval) {
             await sleep(interval * 1e3);
             try {
               const progressToken = extra._meta?.progressToken;
@@ -30783,6 +30791,8 @@ server.registerTool(
             try {
               const screen = await client.call("surface.read", { surfaceId: sid });
               const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
+              const newContentLen = content.length - baselineLen;
+              if (newContentLen < 200) continue;
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split("\n").slice(-30).join("\n");
