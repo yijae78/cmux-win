@@ -154,6 +154,8 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
+  const pendingCommandRef = useRef(pendingCommand);
+  pendingCommandRef.current = pendingCommand;
   const scrollbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
@@ -408,6 +410,33 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
             }
           });
           if (dataDisposer) ptyListenerDisposersRef.current.push(dataDisposer);
+
+          // Execute pendingCommand on reattach (e.g. layout rebuild caused unmount/remount)
+          if (pendingCommandRef.current && !disposed) {
+            const isPSh = shell ? /powershell|pwsh/i.test(shell) : true;
+            const delay = isPSh ? 1500 : 500;
+            const parts = pendingCommandRef.current.split('__DELAY__');
+            for (let ci = 0; ci < parts.length; ci++) {
+              const part = parts[ci];
+              setTimeout(
+                () => {
+                  if (!disposed) window.ptyBridge?.write(surfaceId, part);
+                },
+                delay + ci * 1500,
+              );
+            }
+            setTimeout(
+              () => {
+                if (!disposed) {
+                  void dispatchRef.current?.({
+                    type: 'surface.update_meta',
+                    payload: { surfaceId, pendingCommand: null },
+                  });
+                }
+              },
+              delay + parts.length * 1500,
+            );
+          }
         } else {
           // Restore scrollback from file before spawning new PTY
           if (window.cmuxScrollback) {
@@ -473,7 +502,34 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           });
           if (exitDisposer) ptyListenerDisposersRef.current.push(exitDisposer);
 
-          // F20: pendingCommand는 별도 useEffect(R4)에서 처리
+          // F20: Execute pendingCommand right after PTY is ready (async-safe)
+          // The separate useEffect(R4) handles subsequent pendingCommand changes,
+          // but initial spawn needs inline execution to avoid race conditions.
+          if (pendingCommandRef.current && !disposed) {
+            const isPSh = shell ? /powershell|pwsh/i.test(shell) : true;
+            const delay = isPSh ? 1500 : 500;
+            const parts = pendingCommandRef.current.split('__DELAY__');
+            for (let ci = 0; ci < parts.length; ci++) {
+              const part = parts[ci];
+              setTimeout(
+                () => {
+                  if (!disposed) window.ptyBridge?.write(surfaceId, part);
+                },
+                delay + ci * 1500,
+              );
+            }
+            setTimeout(
+              () => {
+                if (!disposed) {
+                  void dispatchRef.current?.({
+                    type: 'surface.update_meta',
+                    payload: { surfaceId, pendingCommand: null },
+                  });
+                }
+              },
+              delay + parts.length * 1500,
+            );
+          }
         }
 
         // Wire data: terminal → PTY (surfaceId-based)
