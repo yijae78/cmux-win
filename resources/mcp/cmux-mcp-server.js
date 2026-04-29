@@ -30433,8 +30433,23 @@ function stripAnsi(str) {
   return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
 var DEFAULT_IDLE_PATTERNS = {
-  gemini: ["Type your message", "Type your", "Enter your prompt", "What can I help", "@path/to/file"],
-  codex: ["What would you like", "Enter a prompt", "Use /skills to", "gpt-5.4", "PS C:\\", "PS>", "$ ", "\u203A"],
+  gemini: [
+    "Type your message",
+    "Type your",
+    "Enter your prompt",
+    "What can I help",
+    "@path/to/file"
+  ],
+  codex: [
+    "What would you like",
+    "Enter a prompt",
+    "Use /skills to",
+    "gpt-5.4",
+    "PS C:\\",
+    "PS>",
+    "$ ",
+    "\u203A"
+  ],
   claude: ["\u276F ", "\u276F", "> "]
 };
 function loadIdlePatterns() {
