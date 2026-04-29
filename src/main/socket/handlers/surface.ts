@@ -48,10 +48,19 @@ export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateSt
     return { ok: true };
   });
 
+  // #4: PTY 없으면 에러 반환 (거짓 성공 방지)
   router.register('surface.send_text', (params) => {
     const p = params as { surfaceId: string; text: string };
     if (!p?.surfaceId) throw new Error('surfaceId is required');
     if (p.text === undefined || p.text === null) throw new Error('text is required');
+
+    // Check PTY existence before dispatch to prevent silent failure
+    const g = globalThis as Record<string, unknown>;
+    const liveBuffers = g.__cmuxLiveBuffers as Map<string, string> | undefined;
+    if (!liveBuffers?.has(p.surfaceId)) {
+      throw new Error('Surface has no active PTY — text not delivered');
+    }
+
     const result = store.dispatch({
       type: 'surface.send_text',
       payload: { surfaceId: p.surfaceId, text: p.text },

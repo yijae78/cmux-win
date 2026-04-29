@@ -76,6 +76,9 @@ export class SocketApiServer {
    * R2: First message must authenticate (unless auth mode is allow-all).
    */
   private handleConnection(socket: net.Socket): void {
+    // #2: TCP keepalive — 30초마다 probe, 죽은 연결 빠르게 감지
+    socket.setKeepAlive(true, 30_000);
+
     let buffer = '';
     let authenticated = false;
     const socketRef = socket; // stable ref for WeakSet
@@ -108,13 +111,19 @@ export class SocketApiServer {
                 if (parsed.method === 'auth.handshake') {
                   if (!socket.destroyed) {
                     socket.write(
-                      JSON.stringify({ jsonrpc: '2.0', id: parsed.id ?? null, result: { ok: true } }) + '\n',
+                      JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: parsed.id ?? null,
+                        result: { ok: true },
+                      }) + '\n',
                     );
                   }
                   newlineIdx = buffer.indexOf('\n');
                   continue;
                 }
-              } catch { /* not JSON or not handshake — proceed as normal RPC */ }
+              } catch {
+                /* not JSON or not handshake — proceed as normal RPC */
+              }
               // Auth passed and it's a normal RPC — fall through to router
             } else {
               // Auth failed — reject and disconnect
@@ -125,11 +134,16 @@ export class SocketApiServer {
                     JSON.stringify({
                       jsonrpc: '2.0',
                       id: parsed.id ?? null,
-                      error: { code: -32600, message: authResult.reason || 'Authentication required' },
+                      error: {
+                        code: -32600,
+                        message: authResult.reason || 'Authentication required',
+                      },
                     }) + '\n',
                   );
                 }
-              } catch { /* ignore parse errors */ }
+              } catch {
+                /* ignore parse errors */
+              }
               socket.destroy();
               return;
             }
@@ -152,18 +166,18 @@ export class SocketApiServer {
               }
             }
           } catch {
-              // C4: JSON parse failure must block — never pass unparseable data to router
-              methodAllowed = false;
-              if (!socket.destroyed) {
-                socket.write(
-                  JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: null,
-                    error: { code: -32700, message: 'Parse error' },
-                  }) + '\n',
-                );
-              }
+            // C4: JSON parse failure must block — never pass unparseable data to router
+            methodAllowed = false;
+            if (!socket.destroyed) {
+              socket.write(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: null,
+                  error: { code: -32700, message: 'Parse error' },
+                }) + '\n',
+              );
             }
+          }
 
           if (methodAllowed) {
             this.router

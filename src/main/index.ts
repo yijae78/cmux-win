@@ -41,7 +41,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import type { AppState } from '../shared/types';
-import { DEFAULT_SOCKET_PORT, DEFAULT_SETTINGS, SESSION_SAVE_DEBOUNCE_MS } from '../shared/constants';
+import {
+  DEFAULT_SOCKET_PORT,
+  DEFAULT_SETTINGS,
+  SESSION_SAVE_DEBOUNCE_MS,
+} from '../shared/constants';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { AppStateStore } from './sot/store';
 import { loadPersistedState, migrateState } from './sot/migrations/index';
@@ -54,6 +58,7 @@ import { registerIpcHandlers } from './ipc/handlers';
 import { WindowManager } from './window/window-manager';
 import { JsonRpcRouter } from './socket/router';
 import { SocketApiServer } from './socket/server';
+import type { AuthMode } from './socket/auth';
 import { registerSystemHandlers } from './socket/handlers/system';
 import { registerWindowHandlers } from './socket/handlers/window';
 import { registerWorkspaceHandlers } from './socket/handlers/workspace';
@@ -192,32 +197,42 @@ let appTray: Tray | null = null;
 // Module-level Telegram bot service (initialized in app.whenReady)
 const telegramBot = new TelegramBotService(store);
 
-store.on('side-effect', (effect: { type: string; surfaceId?: string; text?: string; title?: string; body?: string; workspaceId?: string }) => {
-  if (effect.type === 'pty-write' && effect.surfaceId && effect.text !== undefined) {
-    writeToPty(effect.surfaceId, effect.text);
-  }
-
-  // Task 32: Show native Windows toast on notification.create and update tray badge
-  if (effect.type === 'notification-created') {
-    const title = (effect.title as string) || 'cmux-win';
-    const body = (effect.body as string) || '';
-    showToast(title, body);
-
-    // Update tray title with unread badge count
-    if (appTray) {
-      const unread = computeUnreadCount(store.getState().notifications);
-      appTray.setToolTip(formatTrayTitle(unread));
+store.on(
+  'side-effect',
+  (effect: {
+    type: string;
+    surfaceId?: string;
+    text?: string;
+    title?: string;
+    body?: string;
+    workspaceId?: string;
+  }) => {
+    if (effect.type === 'pty-write' && effect.surfaceId && effect.text !== undefined) {
+      writeToPty(effect.surfaceId, effect.text);
     }
 
-    // H1: Forward to Telegram (fire-and-forget with .catch)
-    telegramBot
-      .sendNotification(title, body, {
-        workspaceId: effect.workspaceId as string | undefined,
-        surfaceId: effect.surfaceId as string | undefined,
-      })
-      .catch((err: Error) => console.warn('[telegram] send failed:', err.message));
-  }
-});
+    // Task 32: Show native Windows toast on notification.create and update tray badge
+    if (effect.type === 'notification-created') {
+      const title = (effect.title as string) || 'cmux-win';
+      const body = (effect.body as string) || '';
+      showToast(title, body);
+
+      // Update tray title with unread badge count
+      if (appTray) {
+        const unread = computeUnreadCount(store.getState().notifications);
+        appTray.setToolTip(formatTrayTitle(unread));
+      }
+
+      // H1: Forward to Telegram (fire-and-forget with .catch)
+      telegramBot
+        .sendNotification(title, body, {
+          workspaceId: effect.workspaceId as string | undefined,
+          surfaceId: effect.surfaceId as string | undefined,
+        })
+        .catch((err: Error) => console.warn('[telegram] send failed:', err.message));
+    }
+  },
+);
 
 // F7: Track PTY exits → mark agents as done/error
 ptyEvents.on('pty-exit', (surfaceId: string, exitInfo: { exitCode: number }) => {
@@ -256,7 +271,7 @@ registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 registerWorkflowHandlers(router, store);
 
-const socketServer = new SocketApiServer(router, store.getState().settings.socket.mode as any);
+const socketServer = new SocketApiServer(router, store.getState().settings.socket.mode as AuthMode);
 
 // Module-level so window-all-closed can access it
 let historyDb: HistoryDb | null = null;
@@ -428,7 +443,9 @@ app.whenReady().then(async () => {
         fileWatchers.delete(filePath);
       });
       fileWatchers.set(filePath, watcher);
-    } catch { /* file may not exist yet */ }
+    } catch {
+      /* file may not exist yet */
+    }
   });
   ipcMain.on(IPC_CHANNELS.FILE_UNWATCH, (_event, filePath: string) => {
     const watcher = fileWatchers.get(filePath);
@@ -504,7 +521,15 @@ app.whenReady().then(async () => {
     const safeBinDir = path.join(os.homedir(), '.cmux-win', 'bin');
     try {
       if (!fs.existsSync(safeBinDir)) fs.mkdirSync(safeBinDir, { recursive: true });
-      for (const f of ['tmux.cmd', 'tmux-shim.js', 'claude.cmd', 'claude-wrapper.js', 'claude-wrapper-lib.js', 'cmux.cmd', 'cmux-cli.js']) {
+      for (const f of [
+        'tmux.cmd',
+        'tmux-shim.js',
+        'claude.cmd',
+        'claude-wrapper.js',
+        'claude-wrapper-lib.js',
+        'cmux.cmd',
+        'cmux-cli.js',
+      ]) {
         const src = path.join(srcBinDir, f);
         const dst = path.join(safeBinDir, f);
         if (fs.existsSync(src)) fs.copyFileSync(src, dst);
@@ -517,7 +542,8 @@ app.whenReady().then(async () => {
           const stat = fs.statSync(src);
           if (stat.isDirectory()) {
             if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-            for (const f of fs.readdirSync(src)) copyRecursive(path.join(src, f), path.join(dst, f));
+            for (const f of fs.readdirSync(src))
+              copyRecursive(path.join(src, f), path.join(dst, f));
           } else {
             fs.copyFileSync(src, dst);
           }
@@ -527,18 +553,26 @@ app.whenReady().then(async () => {
         console.error('[cmux-win] Failed to copy shell-integration files:', err);
       }
       // Create bash-compatible tmux shim (Claude Code uses bash, not cmd)
-      const bashShimContent = '#!/usr/bin/env node\nconst path = require("path");\nrequire(path.join(__dirname, "tmux-shim.js"));\n';
+      const bashShimContent =
+        '#!/usr/bin/env node\nconst path = require("path");\nrequire(path.join(__dirname, "tmux-shim.js"));\n';
       const bashShim = path.join(safeBinDir, 'tmux');
       fs.writeFileSync(bashShim, bashShimContent);
-      try { fs.chmodSync(bashShim, 0o755); } catch {}
+      try {
+        fs.chmodSync(bashShim, 0o755);
+      } catch {}
 
       // Also install shim to ~/bin/ (Claude Code's Bash tool looks here first)
       const userBinDir = path.join(os.homedir(), 'bin');
       try {
         if (!fs.existsSync(userBinDir)) fs.mkdirSync(userBinDir, { recursive: true });
         fs.writeFileSync(path.join(userBinDir, 'tmux'), bashShimContent);
-        fs.copyFileSync(path.join(safeBinDir, 'tmux-shim.js'), path.join(userBinDir, 'tmux-shim.js'));
-        try { fs.chmodSync(path.join(userBinDir, 'tmux'), 0o755); } catch {}
+        fs.copyFileSync(
+          path.join(safeBinDir, 'tmux-shim.js'),
+          path.join(userBinDir, 'tmux-shim.js'),
+        );
+        try {
+          fs.chmodSync(path.join(userBinDir, 'tmux'), 0o755);
+        } catch {}
       } catch (err) {
         console.error('[cmux-win] Failed to copy shims to ~/bin/:', err);
       }
@@ -558,9 +592,11 @@ app.whenReady().then(async () => {
     console.warn(`[cmux-win] Socket API listening on port ${actualPort}`);
     console.warn(`[cmux-win] Bin dir: ${safeBinDir}`);
 
-    // Write token to file so external tools (CLI, debug) can authenticate
+    // #8: Write token atomically (.tmp → rename) to prevent race condition reads
     const tokenPath = path.join(app.getPath('userData'), 'socket-token');
-    fs.writeFileSync(tokenPath, `${process.env.CMUX_SOCKET_TOKEN}\n${actualPort}`);
+    const tokenTmp = tokenPath + '.tmp';
+    fs.writeFileSync(tokenTmp, `${process.env.CMUX_SOCKET_TOKEN}\n${actualPort}`);
+    fs.renameSync(tokenTmp, tokenPath);
 
     // ── MCP server: copy bundle + register in Claude Desktop config ──
     try {
@@ -579,10 +615,20 @@ app.whenReady().then(async () => {
       try {
         for (const d of fs.readdirSync(path.join(local, 'Packages'))) {
           if (!d.startsWith('Claude_')) continue;
-          const p = path.join(local, 'Packages', d, 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json');
+          const p = path.join(
+            local,
+            'Packages',
+            d,
+            'LocalCache',
+            'Roaming',
+            'Claude',
+            'claude_desktop_config.json',
+          );
           if (fs.existsSync(p)) configPaths.push(p);
         }
-      } catch { /* Packages dir may not exist */ }
+      } catch {
+        /* Packages dir may not exist */
+      }
 
       for (const cfgPath of configPaths) {
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
@@ -682,7 +728,9 @@ app.on('before-quit', () => {
   try {
     const tokenPath = path.join(app.getPath('userData'), 'socket-token');
     if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   try {
     const dir = path.dirname(scrollbackPath);

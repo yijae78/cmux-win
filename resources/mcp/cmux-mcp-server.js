@@ -30203,7 +30203,13 @@ var CmuxSocketClient = class {
   connectingPromise = null;
   launchedThisSession = false;
   // auto-launch 중복 방지
+  lastSuccessfulCallAt = 0;
+  // #7: 마지막 성공 호출 시각
   async ensureConnection() {
+    if (this.launchedThisSession && this.lastSuccessfulCallAt > 0 && Date.now() - this.lastSuccessfulCallAt > 5 * 60 * 1e3) {
+      console.log("[mcp] 5\uBD84\uAC04 \uC131\uACF5 \uD638\uCD9C \uC5C6\uC74C \u2014 launchedThisSession \uB9AC\uC14B");
+      this.launchedThisSession = false;
+    }
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
     if (this.connectingPromise) return this.connectingPromise;
     this.connectingPromise = this._doConnect();
@@ -30213,28 +30219,30 @@ var CmuxSocketClient = class {
       this.connectingPromise = null;
     }
   }
-  // 1.4: auto-launch 중복 방지 + 재연결 우선
+  // #12, #15: auto-launch 중복 방지 + 프로세스 탐지 + 로깅 강화
   async _doConnect() {
     this.disconnect();
     let info = findSocketToken();
     if (info) {
       try {
+        console.log(`[mcp] \uD1A0\uD070 \uBC1C\uACAC (port:${info.port}), \uC5F0\uACB0 \uC2DC\uB3C4...`);
         await this.connectAndAuth(info);
+        console.log("[mcp] \uC5F0\uACB0+\uC778\uC99D \uC131\uACF5");
         return;
-      } catch {
-        console.log("[mcp] Stale token detected");
+      } catch (e) {
+        console.log(`[mcp] \uC5F0\uACB0 \uC2E4\uD328 (stale token): ${e.message}`);
         this.disconnect();
       }
     }
     if (this.launchedThisSession) {
-      console.log("[mcp] Already launched this session, waiting for reconnect...");
+      console.log("[mcp] \uC774\uBBF8 auto-launch \uC644\uB8CC, \uC7AC\uC5F0\uACB0 \uB300\uAE30 (\uCD5C\uB300 20\uCD08)...");
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 500));
         info = findSocketToken();
         if (info) {
           try {
             await this.connectAndAuth(info);
-            console.log("[mcp] Reconnected to existing cmux-win!");
+            console.log("[mcp] \uC7AC\uC5F0\uACB0 \uC131\uACF5!");
             return;
           } catch {
             this.disconnect();
@@ -30243,20 +30251,42 @@ var CmuxSocketClient = class {
       }
       throw new Error("cmux-win\uC5D0 \uC7AC\uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694.");
     }
-    if (!info) {
-      console.log("[mcp] No token found, attempting auto-launch...");
-    } else {
-      console.log("[mcp] Stale token, attempting auto-launch...");
+    try {
+      const { execSync } = await import("node:child_process");
+      const taskResult = execSync('tasklist /fi "imagename eq cmux-win*" /fo csv /nh', {
+        encoding: "utf-8",
+        timeout: 5e3
+      }).trim();
+      if (taskResult && !taskResult.includes("No tasks") && taskResult.includes("cmux-win")) {
+        console.log("[mcp] cmux-win \uD504\uB85C\uC138\uC2A4 \uBC1C\uACAC, auto-launch \uAC74\uB108\uB700 \u2014 \uC18C\uCF13 \uC11C\uBC84 \uB300\uAE30");
+        this.launchedThisSession = true;
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          info = findSocketToken();
+          if (info) {
+            try {
+              await this.connectAndAuth(info);
+              console.log("[mcp] \uAE30\uC874 \uD504\uB85C\uC138\uC2A4\uC5D0 \uC5F0\uACB0 \uC131\uACF5!");
+              return;
+            } catch {
+              this.disconnect();
+            }
+          }
+        }
+        throw new Error("cmux-win \uD504\uB85C\uC138\uC2A4\uB294 \uC788\uC9C0\uB9CC \uC18C\uCF13 \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      }
+    } catch {
     }
+    console.log(`[mcp] ${info ? "Stale token" : "\uD1A0\uD070 \uC5C6\uC74C"}, auto-launch \uC2DC\uB3C4...`);
     this.launchedThisSession = true;
     await launchCmuxWin();
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
         try {
           await this.connectAndAuth(info);
-          console.log("[mcp] cmux-win launched successfully, connected!");
+          console.log(`[mcp] auto-launch \uC131\uACF5, \uC5F0\uACB0 \uC644\uB8CC (${Math.round(i * 0.5)}\uCD08)`);
           return;
         } catch {
           this.disconnect();
@@ -30274,6 +30304,7 @@ var CmuxSocketClient = class {
       this.socket = sock;
       this.buffer = "";
       this.authenticated = false;
+      sock.setKeepAlive(true, 3e4);
       const authTimeout = setTimeout(() => {
         sock.destroy();
         reject(new Error("cmux-win \uC778\uC99D \uD0C0\uC784\uC544\uC6C3 (10\uCD08)"));
@@ -30302,15 +30333,18 @@ var CmuxSocketClient = class {
       sock.on("error", (err) => {
         clearTimeout(authTimeout);
         this.authenticated = false;
+        console.log(`[mcp] \uC18C\uCF13 \uC5D0\uB7EC: ${err.message}`);
         reject(new Error(`cmux-win \uC5F0\uACB0 \uC2E4\uD328: ${err.message}`));
       });
       sock.on("close", () => {
         clearTimeout(authTimeout);
+        const wasPending = this.pending.size;
         this.authenticated = false;
         for (const [, p] of this.pending) {
           p.reject(new Error("cmux-win \uC5F0\uACB0\uC774 \uB04A\uC5B4\uC84C\uC2B5\uB2C8\uB2E4"));
         }
         this.pending.clear();
+        console.log(`[mcp] \uC18C\uCF13 close (pending ${wasPending}\uAC74 reject)`);
       });
       sock.connect(info.port, "127.0.0.1", () => {
         const id = this.nextId++;
@@ -30335,36 +30369,49 @@ var CmuxSocketClient = class {
       });
     });
   }
-  async call(method, params = {}, _retry = false) {
-    await this.ensureConnection();
-    if (!this.socket || this.socket.destroyed) {
-      if (_retry) throw new Error("cmux-win \uC7AC\uC5F0\uACB0 \uC2E4\uD328");
-      this.disconnect();
-      return this.call(method, params, true);
-    }
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`\uC694\uCCAD \uC2DC\uAC04 \uCD08\uACFC (15s): ${method}`));
-      }, 15e3);
-      this.pending.set(id, {
-        resolve: (v) => {
+  // #5: 3회 재시도 + 지수 백오프, ensureConnection 실패도 커버
+  // #10: 타임아웃 15초→30초
+  async call(method, params = {}, _retryCount = 0) {
+    try {
+      await this.ensureConnection();
+      if (!this.socket || this.socket.destroyed) {
+        throw new Error("\uC18C\uCF13 \uB04A\uC5B4\uC9D0");
+      }
+      const id = this.nextId++;
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`\uC694\uCCAD \uC2DC\uAC04 \uCD08\uACFC (30s): ${method}`));
+        }, 3e4);
+        this.pending.set(id, {
+          resolve: (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          reject: (e) => {
+            clearTimeout(timer);
+            reject(e);
+          }
+        });
+        const ok = this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+        if (!ok) {
+          this.pending.delete(id);
           clearTimeout(timer);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
+          reject(new Error(`\uC18C\uCF13 \uC4F0\uAE30 \uC2E4\uD328 (backpressure): ${method}`));
         }
       });
-      const ok = this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-      if (!ok) {
-        this.pending.delete(id);
-        clearTimeout(timer);
-        reject(new Error(`\uC18C\uCF13 \uC4F0\uAE30 \uC2E4\uD328 (backpressure): ${method}`));
+      this.lastSuccessfulCallAt = Date.now();
+      return result;
+    } catch (err) {
+      if (_retryCount < 2) {
+        const delay = 1e3 * (_retryCount + 1);
+        console.log(`[mcp] call(${method}) \uC2E4\uD328, ${delay}ms \uD6C4 \uC7AC\uC2DC\uB3C4 (${_retryCount + 1}/3): ${err.message}`);
+        this.disconnect();
+        await sleep(delay);
+        return this.call(method, params, _retryCount + 1);
       }
-    });
+      throw err;
+    }
   }
   disconnect() {
     if (this.socket) {
@@ -30383,7 +30430,7 @@ function stripAnsi(str) {
 }
 var DEFAULT_IDLE_PATTERNS = {
   gemini: ["Type your message", "Enter your prompt", "What can I help"],
-  codex: ["What would you like", "Enter a prompt"],
+  codex: ["What would you like", "Enter a prompt", "PS C:\\", "PS>", "$ "],
   claude: ["\u276F ", "\u276F", "> "]
 };
 function loadIdlePatterns() {
@@ -30488,14 +30535,16 @@ async function findAgentSurface(agentType) {
   try {
     const tree = await client.call("system.tree");
     if (!tree || typeof tree !== "object") return void 0;
+    let lastMatch;
     for (const ws of tree.workspaces ?? []) {
       for (const agent of ws.agents ?? []) {
         const t = (agent.agentType ?? "").toLowerCase();
         if (!agentType || t === agentType.toLowerCase()) {
-          return agent.surfaceId;
+          lastMatch = agent.surfaceId;
         }
       }
     }
+    return lastMatch;
   } catch {
   }
   return void 0;
@@ -30589,7 +30638,7 @@ server.registerTool(
           }).join("\n").replace(/\n{3,}/g, "\n\n");
           return text(cleaned || raw);
         }
-        // ── spawn ──
+        // ── spawn ── (#3: CLI idle 대기 후 반환)
         case "spawn": {
           if (!params.agentType)
             return text({ error: true, message: "agentType \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
@@ -30608,26 +30657,61 @@ server.registerTool(
               );
             wsId = ws.id;
           }
-          const p = { agentType: params.agentType, workspaceId: wsId };
-          if (params.task) p.task = params.task;
-          return text(await client.call("agent.spawn", p));
+          const spawnParams = { agentType: params.agentType, workspaceId: wsId };
+          if (params.task) spawnParams.task = params.task;
+          const spawnResult = await client.call("agent.spawn", spawnParams);
+          const spawnSid = spawnResult?.surfaceId;
+          if (spawnSid && params.agentType) {
+            console.log(`[mcp] spawn(${params.agentType}) \u2014 CLI idle \uB300\uAE30 \uC2DC\uC791`);
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              await sleep(1e3);
+              try {
+                const screen = await client.call("surface.read", { surfaceId: spawnSid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
+                if (content.length > 0 && isAgentIdle(content, params.agentType)) {
+                  ready = true;
+                  console.log(`[mcp] spawn(${params.agentType}) \u2014 idle \uAC10\uC9C0 (${i + 1}\uCD08)`);
+                  break;
+                }
+              } catch {
+              }
+            }
+            return text({ ...spawnResult, ready });
+          }
+          return text(spawnResult);
         }
-        // ── send_and_wait ──
+        // ── send_and_wait ── (#6, #13, #14, #16 적용)
         case "send_and_wait": {
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const agent = params.agentType ?? "claude";
           const sid = params.surfaceId ?? await findAgentSurface(agent);
           if (!sid)
             return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
-          try {
-            await client.call("agent.send_task", { surfaceId: sid, task: params.task });
-          } catch {
-            await client.call("surface.send_text", { surfaceId: sid, text: params.task });
-            await new Promise((r) => setTimeout(r, 500));
-            await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
+          let taskSent = false;
+          for (let sendAttempt = 0; sendAttempt < 3; sendAttempt++) {
+            try {
+              await client.call("agent.send_task", { surfaceId: sid, task: params.task });
+              taskSent = true;
+              break;
+            } catch {
+              try {
+                await client.call("surface.send_text", { surfaceId: sid, text: params.task });
+                await sleep(500);
+                await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
+                taskSent = true;
+                break;
+              } catch {
+                console.log(`[mcp] send_and_wait: PTY \uC5C6\uC74C, ${sendAttempt + 1}/3 \uC7AC\uC2DC\uB3C4`);
+                await sleep(2e3);
+              }
+            }
+          }
+          if (!taskSent) {
+            return text({ error: true, message: "PTY\uAC00 \uC900\uBE44\uB418\uC9C0 \uC54A\uC544 \uC791\uC5C5\uC744 \uC804\uB2EC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
           }
           const maxWait = Math.min(params.timeout ?? 120, 300);
-          const interval = 5;
+          const interval = 3;
           await sleep(3e3);
           for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
             await sleep(interval * 1e3);
@@ -30646,16 +30730,47 @@ server.registerTool(
             } catch {
             }
             try {
-              const screen = await client.call("surface.read", { surfaceId: sid });
-              const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
-              if (isAgentIdle(content, agent)) {
+              const health = await client.call("surface.health", { surfaceId: sid });
+              if (health && !health.hasPty) {
+                const screen = await client.call("surface.read", { surfaceId: sid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split("\n").slice(-30).join("\n");
                 return text({
                   status: "done",
                   agentType: agent,
                   surfaceId: sid,
+                  note: "CLI\uAC00 \uC885\uB8CC\uB418\uC5B4 \uB9C8\uC9C0\uB9C9 \uCD9C\uB825\uC744 \uBC18\uD658\uD569\uB2C8\uB2E4.",
                   result: lastLines
+                });
+              }
+              if (health?.agent && (health.agent.status === "done" || health.agent.status === "error")) {
+                const screen = await client.call("surface.read", { surfaceId: sid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+                return text({
+                  status: health.agent.status,
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines
+                });
+              }
+            } catch {
+            }
+            try {
+              const screen = await client.call("surface.read", { surfaceId: sid });
+              const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
+              if (isAgentIdle(content, agent)) {
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+                const nonEmpty = lastLines.split("\n").filter((l) => l.trim()).length;
+                return text({
+                  status: "done",
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                  ...nonEmpty <= 2 ? { warning: "\uACB0\uACFC\uAC00 \uBE44\uC5B4\uC788\uC74C \u2014 \uC791\uC5C5 \uC804\uB2EC \uC2E4\uD328 \uAC00\uB2A5\uC131" } : {}
                 });
               }
             } catch {

@@ -130,8 +130,19 @@ class CmuxSocketClient {
   private buffer = '';
   private connectingPromise: Promise<void> | null = null;
   private launchedThisSession = false; // auto-launch 중복 방지
+  private lastSuccessfulCallAt = 0; // #7: 마지막 성공 호출 시각
 
   async ensureConnection(): Promise<void> {
+    // #7: 5분 이상 성공 호출 없으면 launchedThisSession 리셋 (재크래시 대응)
+    if (
+      this.launchedThisSession &&
+      this.lastSuccessfulCallAt > 0 &&
+      Date.now() - this.lastSuccessfulCallAt > 5 * 60 * 1000
+    ) {
+      console.log('[mcp] 5분간 성공 호출 없음 — launchedThisSession 리셋');
+      this.launchedThisSession = false;
+    }
+
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
     if (this.connectingPromise) return this.connectingPromise;
 
@@ -143,7 +154,7 @@ class CmuxSocketClient {
     }
   }
 
-  // 1.4: auto-launch 중복 방지 + 재연결 우선
+  // #12, #15: auto-launch 중복 방지 + 프로세스 탐지 + 로깅 강화
   private async _doConnect(): Promise<void> {
     this.disconnect();
     let info = findSocketToken();
@@ -151,25 +162,26 @@ class CmuxSocketClient {
     if (info) {
       // 토큰 있음 → 먼저 연결 시도
       try {
+        console.log(`[mcp] 토큰 발견 (port:${info.port}), 연결 시도...`);
         await this.connectAndAuth(info);
-        return; // 성공
-      } catch {
-        // 실패 → stale token
-        console.log('[mcp] Stale token detected');
+        console.log('[mcp] 연결+인증 성공');
+        return;
+      } catch (e) {
+        console.log(`[mcp] 연결 실패 (stale token): ${(e as Error).message}`);
         this.disconnect();
       }
     }
 
     // 이미 auto-launch 했으면 재연결만 시도 (최대 20초 대기)
     if (this.launchedThisSession) {
-      console.log('[mcp] Already launched this session, waiting for reconnect...');
+      console.log('[mcp] 이미 auto-launch 완료, 재연결 대기 (최대 20초)...');
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 500));
         info = findSocketToken();
         if (info) {
           try {
             await this.connectAndAuth(info);
-            console.log('[mcp] Reconnected to existing cmux-win!');
+            console.log('[mcp] 재연결 성공!');
             return;
           } catch {
             this.disconnect();
@@ -179,26 +191,51 @@ class CmuxSocketClient {
       throw new Error('cmux-win에 재연결할 수 없습니다. 앱을 수동으로 시작해주세요.');
     }
 
-    // 첫 auto-launch
-    if (!info) {
-      console.log('[mcp] No token found, attempting auto-launch...');
-    } else {
-      console.log('[mcp] Stale token, attempting auto-launch...');
+    // #12: auto-launch 전 기존 프로세스 탐지 (이중 실행 방지)
+    try {
+      const { execSync } = await import('node:child_process');
+      const taskResult = execSync('tasklist /fi "imagename eq cmux-win*" /fo csv /nh', {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      if (taskResult && !taskResult.includes('No tasks') && taskResult.includes('cmux-win')) {
+        console.log('[mcp] cmux-win 프로세스 발견, auto-launch 건너뜀 — 소켓 서버 대기');
+        this.launchedThisSession = true; // 재실행 방지
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          info = findSocketToken();
+          if (info) {
+            try {
+              await this.connectAndAuth(info);
+              console.log('[mcp] 기존 프로세스에 연결 성공!');
+              return;
+            } catch {
+              this.disconnect();
+            }
+          }
+        }
+        throw new Error('cmux-win 프로세스는 있지만 소켓 서버에 연결할 수 없습니다.');
+      }
+    } catch {
+      // tasklist 실패 — 무시하고 auto-launch 진행
     }
+
+    // 첫 auto-launch
+    console.log(`[mcp] ${info ? 'Stale token' : '토큰 없음'}, auto-launch 시도...`);
     this.launchedThisSession = true;
     await launchCmuxWin();
 
-    // Wait up to 30s for connection (씨윈 초기화 시간 확보)
-    for (let i = 0; i < 60; i++) {
+    // Wait up to 45s for connection (#E4: 30초→45초 확대)
+    for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
         try {
           await this.connectAndAuth(info);
-          console.log('[mcp] cmux-win launched successfully, connected!');
+          console.log(`[mcp] auto-launch 성공, 연결 완료 (${Math.round(i * 0.5)}초)`);
           return;
         } catch {
-          this.disconnect(); // 폴링 내 실패 소켓 정리
+          this.disconnect();
         }
       }
     }
@@ -214,6 +251,9 @@ class CmuxSocketClient {
       this.socket = sock;
       this.buffer = '';
       this.authenticated = false;
+
+      // #1: TCP keepalive — 30초마다 probe, 죽은 연결 빠르게 감지
+      sock.setKeepAlive(true, 30_000);
 
       const authTimeout = setTimeout(() => {
         sock.destroy();
@@ -246,16 +286,19 @@ class CmuxSocketClient {
       sock.on('error', (err) => {
         clearTimeout(authTimeout);
         this.authenticated = false;
+        console.log(`[mcp] 소켓 에러: ${err.message}`); // #15
         reject(new Error(`cmux-win 연결 실패: ${err.message}`));
       });
 
       sock.on('close', () => {
         clearTimeout(authTimeout);
+        const wasPending = this.pending.size;
         this.authenticated = false;
         for (const [, p] of this.pending) {
           p.reject(new Error('cmux-win 연결이 끊어졌습니다'));
         }
         this.pending.clear();
+        console.log(`[mcp] 소켓 close (pending ${wasPending}건 reject)`); // #15
       });
 
       sock.connect(info.port, '127.0.0.1', () => {
@@ -285,42 +328,58 @@ class CmuxSocketClient {
     });
   }
 
-  async call(method: string, params: Record<string, unknown> = {}, _retry = false): Promise<any> {
-    await this.ensureConnection();
+  // #5: 3회 재시도 + 지수 백오프, ensureConnection 실패도 커버
+  // #10: 타임아웃 15초→30초
+  async call(method: string, params: Record<string, unknown> = {}, _retryCount = 0): Promise<any> {
+    try {
+      await this.ensureConnection();
 
-    // socket이 끊어진 상태면 1회 재연결 시도
-    if (!this.socket || this.socket.destroyed) {
-      if (_retry) throw new Error('cmux-win 재연결 실패');
-      this.disconnect();
-      return this.call(method, params, true);
-    }
+      if (!this.socket || this.socket.destroyed) {
+        throw new Error('소켓 끊어짐');
+      }
 
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`요청 시간 초과 (15s): ${method}`));
-      }, 15_000);
+      const id = this.nextId++;
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`요청 시간 초과 (30s): ${method}`));
+        }, 30_000);
 
-      this.pending.set(id, {
-        resolve: (v) => {
+        this.pending.set(id, {
+          resolve: (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          reject: (e) => {
+            clearTimeout(timer);
+            reject(e);
+          },
+        });
+
+        const ok = this.socket!.write(
+          JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n',
+        );
+        if (!ok) {
+          this.pending.delete(id);
           clearTimeout(timer);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
+          reject(new Error(`소켓 쓰기 실패 (backpressure): ${method}`));
+        }
       });
 
-      const ok = this.socket!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
-      if (!ok) {
-        // backpressure — socket buffer full
-        this.pending.delete(id);
-        clearTimeout(timer);
-        reject(new Error(`소켓 쓰기 실패 (backpressure): ${method}`));
+      this.lastSuccessfulCallAt = Date.now();
+      return result;
+    } catch (err) {
+      if (_retryCount < 2) {
+        const delay = 1000 * (_retryCount + 1); // 1s, 2s
+        console.log(
+          `[mcp] call(${method}) 실패, ${delay}ms 후 재시도 (${_retryCount + 1}/3): ${(err as Error).message}`,
+        );
+        this.disconnect();
+        await sleep(delay);
+        return this.call(method, params, _retryCount + 1);
       }
-    });
+      throw err;
+    }
   }
 
   disconnect(): void {
@@ -350,9 +409,10 @@ function stripAnsi(str: string): string {
     .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
 }
 
+// #9: Codex idle 패턴에 셸 프롬프트 추가 (--full-auto 종료 후 감지)
 const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
   gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
-  codex: ['What would you like', 'Enter a prompt'],
+  codex: ['What would you like', 'Enter a prompt', 'PS C:\\', 'PS>', '$ '],
   claude: ['❯ ', '❯', '> '],
 };
 
@@ -489,21 +549,23 @@ function summarizeNotifications(data: any): string {
   return `미처리 알림 ${list.length}건.`;
 }
 
-// ── Helper: 에이전트 서피스 찾기 ──
+// #11: 마지막 에이전트(가장 최근 spawn) 우선 반환
 async function findAgentSurface(agentType?: string): Promise<string | undefined> {
   try {
     const tree = await client.call('system.tree');
     if (!tree || typeof tree !== 'object') return undefined;
+    let lastMatch: string | undefined;
     for (const ws of (
       tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }
     ).workspaces ?? []) {
       for (const agent of ws.agents ?? []) {
         const t = (agent.agentType ?? '').toLowerCase();
         if (!agentType || t === agentType.toLowerCase()) {
-          return agent.surfaceId;
+          lastMatch = agent.surfaceId;
         }
       }
     }
+    return lastMatch;
   } catch {
     // connection failure or malformed response
   }
@@ -617,13 +679,12 @@ server.registerTool(
           return text(cleaned || raw);
         }
 
-        // ── spawn ──
+        // ── spawn ── (#3: CLI idle 대기 후 반환)
         case 'spawn': {
           if (!params.agentType)
             return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
           let wsId = params.workspaceId;
           if (!wsId) {
-            // 워크스페이스 대기 (auto-launch 직후 초기화 시간 확보, 최대 15초)
             let ws: { id: string } | undefined;
             for (let i = 0; i < 30; i++) {
               const tree = await client.call('system.tree');
@@ -637,12 +698,38 @@ server.registerTool(
               );
             wsId = ws.id;
           }
-          const p: Record<string, unknown> = { agentType: params.agentType, workspaceId: wsId };
-          if (params.task) p.task = params.task;
-          return text(await client.call('agent.spawn', p));
+          const spawnParams: Record<string, unknown> = {
+            agentType: params.agentType,
+            workspaceId: wsId,
+          };
+          if (params.task) spawnParams.task = params.task;
+          const spawnResult = await client.call('agent.spawn', spawnParams);
+          const spawnSid = (spawnResult as any)?.surfaceId;
+
+          // #3: CLI 초기화 대기 — PTY 생성 + idle 프롬프트 확인 (최대 30초)
+          if (spawnSid && params.agentType) {
+            console.log(`[mcp] spawn(${params.agentType}) — CLI idle 대기 시작`);
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              await sleep(1000);
+              try {
+                const screen = await client.call('surface.read', { surfaceId: spawnSid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                if (content.length > 0 && isAgentIdle(content, params.agentType)) {
+                  ready = true;
+                  console.log(`[mcp] spawn(${params.agentType}) — idle 감지 (${i + 1}초)`);
+                  break;
+                }
+              } catch {
+                /* PTY 아직 없음 — 계속 대기 */
+              }
+            }
+            return text({ ...(spawnResult as object), ready });
+          }
+          return text(spawnResult);
         }
 
-        // ── send_and_wait ──
+        // ── send_and_wait ── (#6, #13, #14, #16 적용)
         case 'send_and_wait': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           const agent = params.agentType ?? 'claude';
@@ -650,17 +737,33 @@ server.registerTool(
           if (!sid)
             return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
 
-          // 작업 전송 (Ink TUI: text와 Enter 분리)
-          try {
-            await client.call('agent.send_task', { surfaceId: sid, task: params.task });
-          } catch {
-            await client.call('surface.send_text', { surfaceId: sid, text: params.task });
-            await new Promise((r) => setTimeout(r, 500));
-            await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
+          // #14: 작업 전송 — PTY 없으면 최대 3회 재시도 (spawn 직후 PTY 생성 대기)
+          let taskSent = false;
+          for (let sendAttempt = 0; sendAttempt < 3; sendAttempt++) {
+            try {
+              await client.call('agent.send_task', { surfaceId: sid, task: params.task });
+              taskSent = true;
+              break;
+            } catch {
+              try {
+                await client.call('surface.send_text', { surfaceId: sid, text: params.task });
+                await sleep(500);
+                await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
+                taskSent = true;
+                break;
+              } catch {
+                // PTY 아직 없음 — 2초 대기 후 재시도
+                console.log(`[mcp] send_and_wait: PTY 없음, ${sendAttempt + 1}/3 재시도`);
+                await sleep(2000);
+              }
+            }
+          }
+          if (!taskSent) {
+            return text({ error: true, message: 'PTY가 준비되지 않아 작업을 전달할 수 없습니다.' });
           }
 
           const maxWait = Math.min(params.timeout ?? 120, 300);
-          const interval = 5;
+          const interval = 3; // #13: 폴링 간격 5초→3초
           await sleep(3000);
 
           for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
@@ -683,6 +786,43 @@ server.registerTool(
               /* best effort */
             }
 
+            // #6: 에이전트 상태 체크 (CLI 종료/크래시 감지)
+            try {
+              const health = await client.call('surface.health', { surfaceId: sid });
+              if (health && !health.hasPty) {
+                // CLI 종료됨 — 마지막 스크롤백으로 결과 반환
+                const screen = await client.call('surface.read', { surfaceId: sid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+                return text({
+                  status: 'done',
+                  agentType: agent,
+                  surfaceId: sid,
+                  note: 'CLI가 종료되어 마지막 출력을 반환합니다.',
+                  result: lastLines,
+                });
+              }
+              // 에이전트 상태가 done/error면 즉시 반환
+              if (
+                health?.agent &&
+                (health.agent.status === 'done' || health.agent.status === 'error')
+              ) {
+                const screen = await client.call('surface.read', { surfaceId: sid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+                return text({
+                  status: health.agent.status,
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                });
+              }
+            } catch {
+              /* health 체크 실패 — 폴링 계속 */
+            }
+
             try {
               const screen = await client.call('surface.read', { surfaceId: sid });
               const content =
@@ -690,11 +830,14 @@ server.registerTool(
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+                // #16: 빈 결과 감지
+                const nonEmpty = lastLines.split('\n').filter((l) => l.trim()).length;
                 return text({
                   status: 'done',
                   agentType: agent,
                   surfaceId: sid,
                   result: lastLines,
+                  ...(nonEmpty <= 2 ? { warning: '결과가 비어있음 — 작업 전달 실패 가능성' } : {}),
                 });
               }
             } catch {
