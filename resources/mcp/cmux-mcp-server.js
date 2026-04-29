@@ -30393,7 +30393,9 @@ var CmuxSocketClient = class {
             reject(e);
           }
         });
-        const ok = this.socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+        const ok = this.socket.write(
+          JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"
+        );
         if (!ok) {
           this.pending.delete(id);
           clearTimeout(timer);
@@ -30405,7 +30407,9 @@ var CmuxSocketClient = class {
     } catch (err) {
       if (_retryCount < 2) {
         const delay = 1e3 * (_retryCount + 1);
-        console.log(`[mcp] call(${method}) \uC2E4\uD328, ${delay}ms \uD6C4 \uC7AC\uC2DC\uB3C4 (${_retryCount + 1}/3): ${err.message}`);
+        console.log(
+          `[mcp] call(${method}) \uC2E4\uD328, ${delay}ms \uD6C4 \uC7AC\uC2DC\uB3C4 (${_retryCount + 1}/3): ${err.message}`
+        );
         this.disconnect();
         await sleep(delay);
         return this.call(method, params, _retryCount + 1);
@@ -30429,8 +30433,8 @@ function stripAnsi(str) {
   return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
 var DEFAULT_IDLE_PATTERNS = {
-  gemini: ["Type your message", "Enter your prompt", "What can I help"],
-  codex: ["What would you like", "Enter a prompt", "PS C:\\", "PS>", "$ "],
+  gemini: ["Type your message", "Type your", "Enter your prompt", "What can I help", "@path/to/file"],
+  codex: ["What would you like", "Enter a prompt", "Use /skills to", "gpt-5.4", "PS C:\\", "PS>", "$ ", "\u203A"],
   claude: ["\u276F ", "\u276F", "> "]
 };
 function loadIdlePatterns() {
@@ -30451,7 +30455,7 @@ var IDLE_PATTERNS = loadIdlePatterns();
 function isAgentIdle(screenText, agentType) {
   const clean = stripAnsi(screenText);
   const lines = clean.split("\n").filter((l) => l.trim().length > 0);
-  const tail = lines.slice(-3).join("\n");
+  const tail = lines.slice(-8).join("\n");
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
@@ -30657,7 +30661,10 @@ server.registerTool(
               );
             wsId = ws.id;
           }
-          const spawnParams = { agentType: params.agentType, workspaceId: wsId };
+          const spawnParams = {
+            agentType: params.agentType,
+            workspaceId: wsId
+          };
           if (params.task) spawnParams.task = params.task;
           const spawnResult = await client.call("agent.spawn", spawnParams);
           const spawnSid = spawnResult?.surfaceId;

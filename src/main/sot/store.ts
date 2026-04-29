@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { produce } from 'immer';
 import { ActionSchema, type Action } from '../../shared/actions';
-import type { AppState, PanelLayoutTree } from '../../shared/types';
+import type { AppState, PanelLayoutTree, SurfaceState } from '../../shared/types';
 import { STATE_HISTORY_MAX } from '../../shared/constants';
 import { createDefaultState } from './create-default-state';
 import crypto from 'node:crypto';
@@ -261,7 +261,8 @@ export class AppStateStore extends EventEmitter {
           const firstPanel = draft.panels.find((p) => p.workspaceId === ws.id);
           if (firstPanel) {
             draft.focus.activePanelId = firstPanel.id;
-            draft.focus.activeSurfaceId = firstPanel.activeSurfaceId || firstPanel.surfaceIds[0] || null;
+            draft.focus.activeSurfaceId =
+              firstPanel.activeSurfaceId || firstPanel.surfaceIds[0] || null;
           }
         }
         break;
@@ -306,7 +307,7 @@ export class AppStateStore extends EventEmitter {
           isZoomed: false,
           paneIndex: this.nextPaneIndex(draft),
         });
-        const surface: Record<string, unknown> = {
+        const surface: SurfaceState = {
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: newPanelType,
@@ -320,7 +321,7 @@ export class AppStateStore extends EventEmitter {
           surface.markdown = { filePath: action.payload.filePath };
           surface.title = action.payload.filePath.split(/[\\/]/).pop() || 'Markdown';
         }
-        draft.surfaces.push(surface as any);
+        draft.surfaces.push(surface);
         // F11: After adding the new panel, rebuild the entire workspace layout
         // as a balanced equal-size tree. Without this, nested binary splits
         // cause panels to shrink exponentially (50% → 25% → 12.5%...).
@@ -360,7 +361,9 @@ export class AppStateStore extends EventEmitter {
         if (sourcePanelId === targetPanelId) break;
         // Find the workspace containing both panels
         const ws = draft.workspaces.find(
-          (w) => findLeaf(w.panelLayout, sourcePanelId) !== null && findLeaf(w.panelLayout, targetPanelId) !== null,
+          (w) =>
+            findLeaf(w.panelLayout, sourcePanelId) !== null &&
+            findLeaf(w.panelLayout, targetPanelId) !== null,
         );
         if (!ws) break;
         // Step 1: Remove source panel from layout tree (promote its sibling)
@@ -375,8 +378,14 @@ export class AppStateStore extends EventEmitter {
           direction: splitDirection,
           ratio: 0.5,
           children: sourceFirst
-            ? [{ type: 'leaf', panelId: sourcePanelId }, { type: 'leaf', panelId: targetPanelId }]
-            : [{ type: 'leaf', panelId: targetPanelId }, { type: 'leaf', panelId: sourcePanelId }],
+            ? [
+                { type: 'leaf', panelId: sourcePanelId },
+                { type: 'leaf', panelId: targetPanelId },
+              ]
+            : [
+                { type: 'leaf', panelId: targetPanelId },
+                { type: 'leaf', panelId: sourcePanelId },
+              ],
         };
         ws.panelLayout = replaceLeaf(layoutAfterRemove, targetPanelId, newSplit);
         break;
@@ -419,8 +428,8 @@ export class AppStateStore extends EventEmitter {
         draft.surfaces.splice(si, 1);
 
         // Clean up orphan agents whose surface no longer exists
-        draft.agents = draft.agents.filter(
-          (a) => draft.surfaces.some((sf) => sf.id === a.surfaceId),
+        draft.agents = draft.agents.filter((a) =>
+          draft.surfaces.some((sf) => sf.id === a.surfaceId),
         );
         break;
       }
@@ -468,8 +477,10 @@ export class AppStateStore extends EventEmitter {
 
         // L2: Agent icon map for tab display
         const agentIcons: Record<string, string> = {
-          claude: '\uD83E\uDDE0', gemini: '\uD83D\uDC8E',
-          codex: '\uD83E\uDD16', opencode: '\uD83D\uDD27',
+          claude: '\uD83E\uDDE0',
+          gemini: '\uD83D\uDC8E',
+          codex: '\uD83E\uDD16',
+          opencode: '\uD83D\uDD27',
         };
         const agentIcon = agentIcons[agentType] || '\u26A1';
         const agentDisplayName = agentType.charAt(0).toUpperCase() + agentType.slice(1);
@@ -498,13 +509,14 @@ export class AppStateStore extends EventEmitter {
         // - Codex: --full-auto --no-alt-screen (interactive, scrollback visible)
         // Sanitize task: collapse newlines to spaces, escape quotes for shell
         const safeTask = task
-          ? task.replace(/[\r\n]+/g, ' ').replace(/"/g, '\\"').trim()
+          ? task
+              .replace(/[\r\n]+/g, ' ')
+              .replace(/"/g, '\\"')
+              .trim()
           : '';
         let agentCmd: string;
         if (agentType === 'gemini') {
-          agentCmd = safeTask
-            ? `gemini -i "${safeTask}" -y\r`
-            : `gemini -y\r`;
+          agentCmd = safeTask ? `gemini -i "${safeTask}" -y\r` : `gemini -y\r`;
         } else if (agentType === 'codex') {
           agentCmd = safeTask
             ? `codex --full-auto --no-alt-screen "${safeTask}"\r`
@@ -517,25 +529,22 @@ export class AppStateStore extends EventEmitter {
         }
         // Prepend cd if cwd is specified (folder selection before agent spawn)
         // Use __DELAY__ marker so XTermWrapper can split and delay between commands
-        const cmd = cwd
-          ? `cd "${cwd.replace(/\\/g, '/')}"\r__DELAY__${agentCmd}`
-          : agentCmd;
+        const cmd = cwd ? `cd "${cwd.replace(/\\/g, '/')}"\r__DELAY__${agentCmd}` : agentCmd;
 
         draft.surfaces.push({
           id: newSurfaceId,
           panelId: newPanelId,
           surfaceType: 'terminal',
-          title: cwd ? `${agentIcon} ${agentDisplayName} · ${cwd.split(/[\\/]/).pop()}` : `${agentIcon} ${agentDisplayName}`,
+          title: cwd
+            ? `${agentIcon} ${agentDisplayName} · ${cwd.split(/[\\/]/).pop()}`
+            : `${agentIcon} ${agentDisplayName}`,
           pendingCommand: cmd,
         });
 
-        // panelLayout에 split 추가
-        ws.panelLayout = {
-          type: 'split',
-          direction: 'horizontal',
-          ratio: 0.5,
-          children: [ws.panelLayout, { type: 'leaf', panelId: newPanelId }],
-        };
+        // F11: agent.spawn도 균등분할 — 계단식 축소 방지
+        const spawnLeafIds = collectLeafIds(ws.panelLayout);
+        spawnLeafIds.push(newPanelId);
+        ws.panelLayout = rebuildEqualLayout(spawnLeafIds, 'horizontal');
 
         // agents[] 등록
         draft.agents.push({

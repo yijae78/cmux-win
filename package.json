@@ -13,7 +13,7 @@
     "test:e2e": "electron-vite build && npx playwright test",
     "bench": "vitest bench",
     "package": "electron-vite build && electron-builder",
-    "build:mcp": "esbuild src/mcp/cmux-mcp-server.ts --bundle --platform=node --target=node18 --format=cjs --banner:js=\"#!/usr/bin/env node\" --outfile=resources/mcp/cmux-mcp-server.js",
+    "build:mcp": "esbuild src/mcp/cmux-mcp-server.ts --bundle --platform=node --target=node18 --format=cjs --banner:js=\"#!/usr/bin/env node\" --outfile=resources/mcp/cmux-mcp-server.js && node -e \"const fs=require('fs'),os=require('os'),p=require('path');const d=p.join(os.homedir(),'.cmux-win','mcp');fs.mkdirSync(d,{recursive:true});fs.copyFileSync('resources/mcp/cmux-mcp-server.js',p.join(d,'cmux-mcp-server.js'));console.log('[build:mcp] deployed to ~/.cmux-win/mcp/')\"",
     "prepare": "husky"
   },
   "lint-staged": {

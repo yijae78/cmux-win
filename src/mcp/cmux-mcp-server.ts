@@ -411,8 +411,23 @@ function stripAnsi(str: string): string {
 
 // #9: Codex idle 패턴에 셸 프롬프트 추가 (--full-auto 종료 후 감지)
 const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
-  gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
-  codex: ['What would you like', 'Enter a prompt', 'PS C:\\', 'PS>', '$ '],
+  gemini: [
+    'Type your message',
+    'Type your',
+    'Enter your prompt',
+    'What can I help',
+    '@path/to/file',
+  ],
+  codex: [
+    'What would you like',
+    'Enter a prompt',
+    'Use /skills to',
+    'gpt-5.4',
+    'PS C:\\',
+    'PS>',
+    '$ ',
+    '›',
+  ],
   claude: ['❯ ', '❯', '> '],
 };
 
@@ -437,7 +452,7 @@ const IDLE_PATTERNS = loadIdlePatterns();
 function isAgentIdle(screenText: string, agentType: string): boolean {
   const clean = stripAnsi(screenText);
   const lines = clean.split('\n').filter((l) => l.trim().length > 0);
-  const tail = lines.slice(-3).join('\n');
+  const tail = lines.slice(-8).join('\n');
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
