@@ -16,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { AppStateStore } from './sot/store';
+import { stripAnsiEscapes } from '../shared/ansi-utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,8 +41,7 @@ interface BridgeResult {
 
 interface ActivePoller {
   timer: NodeJS.Timeout;
-  accumulatedOutput: string;
-  lastBufferLength: number;
+  lastRawLength: number;
   lastNewOutputTime: number;
 }
 
@@ -173,17 +173,34 @@ export class BridgeWatcher {
         prompt;
     }
 
-    // Dispatch surface.send_text — triggers side-effect → writeToPty
-    // Verified: store.ts:101 emits 'side-effect' → index.ts:194 calls writeToPty()
-    // No renderer broadcast (state unchanged)
+    // FIX: Ink TUI (Gemini, Codex) needs text and Enter sent separately.
+    // Sending text+\r together causes \r to be treated as newline, not submit.
+    // Same fix as tmux-shim.js:345 — 500ms delay between text and Enter.
     this.store.dispatch({
       type: 'surface.send_text',
-      payload: { surfaceId, text: prompt + '\r' },
+      payload: { surfaceId, text: prompt },
     });
 
     console.warn(`[bridge] Task ${task.id} → panel %${task.target_panel} (${task.mode})`);
 
-    this.startPolling(task.id, surfaceId, startedAt, task.timeout_sec, lockPath, task.target_panel);
+    setTimeout(() => {
+      this.store.dispatch({
+        type: 'surface.send_text',
+        payload: { surfaceId, text: '\r' },
+      });
+      // Wait 3s after Enter for prompt echo to settle in liveBuffer,
+      // so the baseline snapshot excludes the prompt text from marker detection.
+      setTimeout(() => {
+        this.startPolling(
+          task.id,
+          surfaceId,
+          startedAt,
+          task.timeout_sec,
+          lockPath,
+          task.target_panel,
+        );
+      }, 3000);
+    }, 500);
   }
 
   // ── Result polling (polled-diff pattern — buffer overflow safe) ─────
@@ -198,44 +215,35 @@ export class BridgeWatcher {
   ): void {
     const pollMs = this.store.getState().settings.bridge.pollIntervalSec * 1000;
     const deadline = Date.now() + timeoutSec * 1000;
-    const liveBuffers = (globalThis as Record<string, unknown>)
-      .__cmuxLiveBuffers as Map<string, string> | undefined;
+    const liveBuffers = (globalThis as Record<string, unknown>).__cmuxLiveBuffers as
+      | Map<string, string>
+      | undefined;
 
     const poller: ActivePoller = {
       timer: null as unknown as NodeJS.Timeout,
-      accumulatedOutput: '',
-      lastBufferLength: (liveBuffers?.get(surfaceId) ?? '').length,
+      lastRawLength: (liveBuffers?.get(surfaceId) ?? '').length,
       lastNewOutputTime: Date.now(),
     };
 
     poller.timer = setInterval(() => {
       const buf = liveBuffers?.get(surfaceId) ?? '';
 
-      // Buffer overflow detection: if current length < last recorded,
-      // the buffer was truncated (MAX_LIVE_BUFFER=100KB) — reset baseline
-      if (buf.length < poller.lastBufferLength) {
-        poller.lastBufferLength = 0;
-      }
-
-      // Extract only new data since last poll
-      const newPart = buf.slice(poller.lastBufferLength);
-      poller.lastBufferLength = buf.length;
-
-      if (newPart.length > 0) {
-        poller.accumulatedOutput += newPart;
+      // Track raw buffer growth for idle detection
+      if (buf.length !== poller.lastRawLength) {
         poller.lastNewOutputTime = Date.now();
+        poller.lastRawLength = buf.length;
       }
 
-      // Strip ANSI escape sequences for clean text analysis
-      const clean = poller.accumulatedOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+      // Strip ANSI, check LAST 50 lines for markers.
+      // This avoids baseline/rolling issues — the last lines represent
+      // the current Ink TUI screen state after response completion.
+      const clean = stripAnsiEscapes(buf);
+      const tail = clean.split('\n').slice(-50).join('\n');
 
-      // Termination: (marker + 3s idle) OR timeout
-      // Double condition prevents false positives from mid-output "DONE" text
       const hasMarker =
-        clean.includes('===BRIDGE_DONE===') ||
-        clean.includes('===END===') ||
-        clean.includes('작업완료') ||
-        clean.includes('DONE');
+        tail.includes('===BRIDGE_DONE===') ||
+        tail.includes('===END===') ||
+        tail.includes('작업완료');
       const isIdle = Date.now() - poller.lastNewOutputTime > 3000;
       const isTimeout = Date.now() > deadline;
 
@@ -243,10 +251,13 @@ export class BridgeWatcher {
         clearInterval(poller.timer);
         this.activePollers.delete(taskId);
 
+        // Output: last 200 lines of clean content
+        const trimmedOutput = clean.split('\n').slice(-200).join('\n').trim();
+
         this.writeResult({
           id: taskId,
           status: isTimeout ? 'timeout' : 'completed',
-          output: clean,
+          output: trimmedOutput,
           started_at: startedAt,
           ended_at: new Date().toISOString(),
           panel: panelIndex,
@@ -304,7 +315,10 @@ export class BridgeWatcher {
       })),
     };
     try {
-      fs.writeFileSync(path.join(this.basePath, 'heartbeat.json'), JSON.stringify(heartbeat, null, 2));
+      fs.writeFileSync(
+        path.join(this.basePath, 'heartbeat.json'),
+        JSON.stringify(heartbeat, null, 2),
+      );
     } catch {}
   }
 }

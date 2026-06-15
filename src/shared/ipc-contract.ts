@@ -187,6 +187,26 @@ export const IpcContract = {
     input: z.object({ filePath: z.string() }),
     output: z.union([z.object({ content: z.string() }), z.object({ error: z.string() })]),
   },
+  [IPC_CHANNELS.FILE_LIST_DIR]: {
+    input: z.object({ dirPath: z.string() }),
+    output: z.array(z.object({ name: z.string(), isDirectory: z.boolean() })),
+  },
+  [IPC_CHANNELS.FILE_WATCH]: {
+    input: z.object({ dirPath: z.string() }),
+    output: z.void(),
+  },
+  [IPC_CHANNELS.FILE_UNWATCH]: {
+    input: z.object({ dirPath: z.string() }),
+    output: z.void(),
+  },
+  [IPC_CHANNELS.FILE_CHANGED]: {
+    input: z.object({ dirPath: z.string(), event: z.string(), filename: z.string().optional() }),
+    output: z.void(),
+  },
+  [IPC_CHANNELS.DIALOG_OPEN_FOLDER]: {
+    input: z.void(),
+    output: z.string().nullable(),
+  },
 } as const;
 
 export type IpcContractType = typeof IpcContract;

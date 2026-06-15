@@ -21,7 +21,9 @@ import { getShellIntegrationArgs } from '../../shared/shell-integration-utils';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
 // M2: Auto-approve patterns — loaded from external config, fallback to built-in defaults
-interface ApproveRule { includes: string[] }
+interface ApproveRule {
+  includes: string[];
+}
 type ApprovePatterns = Record<string, ApproveRule[]>;
 
 const DEFAULT_APPROVE_PATTERNS: ApprovePatterns = {
@@ -30,12 +32,8 @@ const DEFAULT_APPROVE_PATTERNS: ApprovePatterns = {
     { includes: ['Esc to cancel', '1. Yes'] },
     { includes: ['requires approval', 'Yes'] },
   ],
-  gemini: [
-    { includes: ['Apply this change'] },
-  ],
-  codex: [
-    { includes: ['Press enter to confirm'] },
-  ],
+  gemini: [{ includes: ['Apply this change'] }],
+  codex: [{ includes: ['Press enter to confirm'] }],
 };
 
 function loadApprovePatterns(): ApprovePatterns {
@@ -68,7 +66,6 @@ const liveBuffers = new Map<string, string>();
 // Detects patterns like "[1] http://..." or "Sources:" blocks and removes them.
 // Similar to how Cursor hides citation metadata from the display.
 // ---------------------------------------------------------------------------
-const sourceLineBuffer = new Map<string, string>(); // partial line accumulator
 
 function filterSources(_surfaceId: string, data: string): string {
   // Pass through all data immediately — no buffering.
@@ -110,9 +107,14 @@ export function registerPtyHandlers(): void {
         paneIndex?: number;
       },
     ) => {
-      const mergedEnv = buildPtyEnv(surfaceId, options?.workspaceId, {
-        ...process.env,
-      } as Record<string, string>, options?.paneIndex);
+      const mergedEnv = buildPtyEnv(
+        surfaceId,
+        options?.workspaceId,
+        {
+          ...process.env,
+        } as Record<string, string>,
+        options?.paneIndex,
+      );
 
       // Shell integration
       const integrationDir = path.join(
@@ -132,7 +134,8 @@ export function registerPtyHandlers(): void {
       // Auto-approve: track last approval time to prevent spam
       // Exposed via globalThis so agent.send_task can refresh cooldown (risk ⑩)
       const g10 = globalThis as Record<string, unknown>;
-      const autoApproveCooldowns = (g10.__cmuxAutoApproveCooldowns as Map<string, number>) || new Map<string, number>();
+      const autoApproveCooldowns =
+        (g10.__cmuxAutoApproveCooldowns as Map<string, number>) || new Map<string, number>();
       g10.__cmuxAutoApproveCooldowns = autoApproveCooldowns;
 
       bridge.onData(ptyId, (data) => {
@@ -148,7 +151,8 @@ export function registerPtyHandlers(): void {
         const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
         const now = Date.now();
         const lastApproval = autoApproveCooldowns.get(surfaceId) ?? 0;
-        if (now - lastApproval > 1000) { // 1s cooldown (was 3s — too slow for rapid approvals)
+        if (now - lastApproval > 1000) {
+          // 1s cooldown (was 3s — too slow for rapid approvals)
           // M2: check all approve patterns from config (external or default)
           let needsApproval = false;
           for (const rules of Object.values(approvePatterns)) {
@@ -232,10 +236,15 @@ export function registerPtyHandlers(): void {
 /**
  * Write data directly to a PTY by surfaceId.
  * Used by the pty-write side-effect handler in main/index.ts.
+ * #4: Returns false when PTY does not exist (no more silent failure).
  */
-export function writeToPty(surfaceId: string, data: string): void {
+export function writeToPty(surfaceId: string, data: string): boolean {
   const ptyId = surfacePtyMap.get(surfaceId);
-  if (ptyId) bridge.write(ptyId, data);
+  if (ptyId) {
+    bridge.write(ptyId, data);
+    return true;
+  }
+  return false;
 }
 
 /**

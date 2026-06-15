@@ -1,4 +1,5 @@
-#!/usr/bin/env node
+// shebang is injected by esbuild banner (see package.json build:mcp)
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 /**
  * cmux-win MCP Server v2 (stdio)
  *
@@ -32,8 +33,7 @@ console.log = (...args: unknown[]) => console.error('[mcp]', ...args);
 
 function findSocketToken(): { token: string; port: number } | null {
   const appData =
-    process.env.APPDATA ||
-    path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+    process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
 
   const candidates = [
     path.join(appData, 'Electron', 'socket-token'),
@@ -63,13 +63,7 @@ function findSocketToken(): { token: string; port: number } | null {
 
 function launchCmuxWin(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const home = process.env.USERPROFILE || process.env.HOME || '';
-    const projectDir = path.join(
-      home,
-      'OneDrive - the presbyerian church of korea',
-      '바탕 화면',
-      'cmux-win',
-    );
+    const projectDir = 'C:\\dev\\cmux-win';
 
     // 1. Dev mode: node electron/cli.js out/main/index.js
     const electronCli = path.join(projectDir, 'node_modules', 'electron', 'cli.js');
@@ -89,13 +83,16 @@ function launchCmuxWin(): Promise<void> {
         console.log(`[mcp] Launched PID: ${child.pid}`);
       } catch (err) {
         console.log(`[mcp] Dev launch failed: ${err}`);
+        reject(new Error(`cmux-win dev launch 실패: ${err}`));
+        return;
       }
       resolve();
       return;
     }
 
     // 2. Installed: cmux-win.exe in AppData
-    const appData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const appData =
+      process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
     const installedExe = path.join(appData, 'cmux-win', 'cmux-win.exe');
     if (fs.existsSync(installedExe)) {
       console.log(`[mcp] Launching installed: ${installedExe}`);
@@ -133,8 +130,19 @@ class CmuxSocketClient {
   private buffer = '';
   private connectingPromise: Promise<void> | null = null;
   private launchedThisSession = false; // auto-launch 중복 방지
+  private lastSuccessfulCallAt = 0; // #7: 마지막 성공 호출 시각
 
   async ensureConnection(): Promise<void> {
+    // #7: 5분 이상 성공 호출 없으면 launchedThisSession 리셋 (재크래시 대응)
+    if (
+      this.launchedThisSession &&
+      this.lastSuccessfulCallAt > 0 &&
+      Date.now() - this.lastSuccessfulCallAt > 5 * 60 * 1000
+    ) {
+      console.log('[mcp] 5분간 성공 호출 없음 — launchedThisSession 리셋');
+      this.launchedThisSession = false;
+    }
+
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
     if (this.connectingPromise) return this.connectingPromise;
 
@@ -146,7 +154,7 @@ class CmuxSocketClient {
     }
   }
 
-  // 1.4: auto-launch 중복 방지 + 재연결 우선
+  // #12, #15: auto-launch 중복 방지 + 프로세스 탐지 + 로깅 강화
   private async _doConnect(): Promise<void> {
     this.disconnect();
     let info = findSocketToken();
@@ -154,25 +162,26 @@ class CmuxSocketClient {
     if (info) {
       // 토큰 있음 → 먼저 연결 시도
       try {
+        console.log(`[mcp] 토큰 발견 (port:${info.port}), 연결 시도...`);
         await this.connectAndAuth(info);
-        return; // 성공
-      } catch {
-        // 실패 → stale token
-        console.log('[mcp] Stale token detected');
+        console.log('[mcp] 연결+인증 성공');
+        return;
+      } catch (e) {
+        console.log(`[mcp] 연결 실패 (stale token): ${(e as Error).message}`);
         this.disconnect();
       }
     }
 
     // 이미 auto-launch 했으면 재연결만 시도 (최대 20초 대기)
     if (this.launchedThisSession) {
-      console.log('[mcp] Already launched this session, waiting for reconnect...');
+      console.log('[mcp] 이미 auto-launch 완료, 재연결 대기 (최대 20초)...');
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 500));
         info = findSocketToken();
         if (info) {
           try {
             await this.connectAndAuth(info);
-            console.log('[mcp] Reconnected to existing cmux-win!');
+            console.log('[mcp] 재연결 성공!');
             return;
           } catch {
             this.disconnect();
@@ -182,30 +191,57 @@ class CmuxSocketClient {
       throw new Error('cmux-win에 재연결할 수 없습니다. 앱을 수동으로 시작해주세요.');
     }
 
-    // 첫 auto-launch
-    if (!info) {
-      console.log('[mcp] No token found, attempting auto-launch...');
-    } else {
-      console.log('[mcp] Stale token, attempting auto-launch...');
+    // #12: auto-launch 전 기존 프로세스 탐지 (이중 실행 방지)
+    try {
+      const { execSync } = await import('node:child_process');
+      const taskResult = execSync('tasklist /fi "imagename eq cmux-win*" /fo csv /nh', {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      if (taskResult && !taskResult.includes('No tasks') && taskResult.includes('cmux-win')) {
+        console.log('[mcp] cmux-win 프로세스 발견, auto-launch 건너뜀 — 소켓 서버 대기');
+        this.launchedThisSession = true; // 재실행 방지
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          info = findSocketToken();
+          if (info) {
+            try {
+              await this.connectAndAuth(info);
+              console.log('[mcp] 기존 프로세스에 연결 성공!');
+              return;
+            } catch {
+              this.disconnect();
+            }
+          }
+        }
+        throw new Error('cmux-win 프로세스는 있지만 소켓 서버에 연결할 수 없습니다.');
+      }
+    } catch {
+      // tasklist 실패 — 무시하고 auto-launch 진행
     }
+
+    // 첫 auto-launch
+    console.log(`[mcp] ${info ? 'Stale token' : '토큰 없음'}, auto-launch 시도...`);
     this.launchedThisSession = true;
     await launchCmuxWin();
 
-    // Wait up to 30s for connection (씨윈 초기화 시간 확보)
-    for (let i = 0; i < 60; i++) {
+    // Wait up to 45s for connection (#E4: 30초→45초 확대)
+    for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
         try {
           await this.connectAndAuth(info);
-          console.log('[mcp] cmux-win launched successfully, connected!');
+          console.log(`[mcp] auto-launch 성공, 연결 완료 (${Math.round(i * 0.5)}초)`);
           return;
         } catch {
-          this.disconnect(); // 폴링 내 실패 소켓 정리
+          this.disconnect();
         }
       }
     }
-    throw new Error('cmux-win 자동 실행을 시도했으나 연결할 수 없습니다. 앱을 수동으로 시작해주세요.');
+    throw new Error(
+      'cmux-win 자동 실행을 시도했으나 연결할 수 없습니다. 앱을 수동으로 시작해주세요.',
+    );
   }
 
   // 1.2: 10초 타임아웃 + 모든 경로 clearTimeout
@@ -215,6 +251,9 @@ class CmuxSocketClient {
       this.socket = sock;
       this.buffer = '';
       this.authenticated = false;
+
+      // #1: TCP keepalive — 30초마다 probe, 죽은 연결 빠르게 감지
+      sock.setKeepAlive(true, 30_000);
 
       const authTimeout = setTimeout(() => {
         sock.destroy();
@@ -247,16 +286,19 @@ class CmuxSocketClient {
       sock.on('error', (err) => {
         clearTimeout(authTimeout);
         this.authenticated = false;
+        console.log(`[mcp] 소켓 에러: ${err.message}`); // #15
         reject(new Error(`cmux-win 연결 실패: ${err.message}`));
       });
 
       sock.on('close', () => {
         clearTimeout(authTimeout);
+        const wasPending = this.pending.size;
         this.authenticated = false;
         for (const [, p] of this.pending) {
           p.reject(new Error('cmux-win 연결이 끊어졌습니다'));
         }
         this.pending.clear();
+        console.log(`[mcp] 소켓 close (pending ${wasPending}건 reject)`); // #15
       });
 
       sock.connect(info.port, '127.0.0.1', () => {
@@ -286,31 +328,58 @@ class CmuxSocketClient {
     });
   }
 
-  async call(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    await this.ensureConnection();
+  // #5: 3회 재시도 + 지수 백오프, ensureConnection 실패도 커버
+  // #10: 타임아웃 15초→30초
+  async call(method: string, params: Record<string, unknown> = {}, _retryCount = 0): Promise<any> {
+    try {
+      await this.ensureConnection();
 
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`요청 시간 초과 (15s): ${method}`));
-      }, 15_000);
+      if (!this.socket || this.socket.destroyed) {
+        throw new Error('소켓 끊어짐');
+      }
 
-      this.pending.set(id, {
-        resolve: (v) => {
+      const id = this.nextId++;
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`요청 시간 초과 (30s): ${method}`));
+        }, 30_000);
+
+        this.pending.set(id, {
+          resolve: (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          reject: (e) => {
+            clearTimeout(timer);
+            reject(e);
+          },
+        });
+
+        const ok = this.socket!.write(
+          JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n',
+        );
+        if (!ok) {
+          this.pending.delete(id);
           clearTimeout(timer);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
+          reject(new Error(`소켓 쓰기 실패 (backpressure): ${method}`));
+        }
       });
 
-      this.socket!.write(
-        JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n',
-      );
-    });
+      this.lastSuccessfulCallAt = Date.now();
+      return result;
+    } catch (err) {
+      if (_retryCount < 2) {
+        const delay = 1000 * (_retryCount + 1); // 1s, 2s
+        console.log(
+          `[mcp] call(${method}) 실패, ${delay}ms 후 재시도 (${_retryCount + 1}/3): ${(err as Error).message}`,
+        );
+        this.disconnect();
+        await sleep(delay);
+        return this.call(method, params, _retryCount + 1);
+      }
+      throw err;
+    }
   }
 
   disconnect(): void {
@@ -340,10 +409,26 @@ function stripAnsi(str: string): string {
     .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
 }
 
+// #9: Codex idle 패턴에 셸 프롬프트 추가 (--full-auto 종료 후 감지)
 const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
-  gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
-  codex: ['What would you like', 'Enter a prompt'],
-  claude: ['❯ ', '> '],
+  gemini: [
+    'Type your message',
+    'Type your',
+    'Enter your prompt',
+    'What can I help',
+    '@path/to/file',
+  ],
+  codex: [
+    'What would you like',
+    'Enter a prompt',
+    'Use /skills to',
+    'gpt-5.4',
+    'PS C:\\',
+    'PS>',
+    '$ ',
+    '›',
+  ],
+  claude: ['❯ ', '❯', '> '],
 };
 
 function loadIdlePatterns(): Record<string, string[]> {
@@ -367,7 +452,7 @@ const IDLE_PATTERNS = loadIdlePatterns();
 function isAgentIdle(screenText: string, agentType: string): boolean {
   const clean = stripAnsi(screenText);
   const lines = clean.split('\n').filter((l) => l.trim().length > 0);
-  const tail = lines.slice(-3).join('\n');
+  const tail = lines.slice(-8).join('\n');
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
@@ -456,14 +541,16 @@ async function summarizeStatus(tree: any): Promise<string> {
   if (!ws) return '씨윈 작동중. 워크스페이스 없음.';
   const panelCount = ws.panels?.length ?? 0;
   const agents = (ws.agents ?? [])
-    .map((a: any) => `${a.agentType ?? 'unknown'}(${a.status ?? '?'})`)
+    .map((a: any) => `${a.agentType ?? 'unknown'}(${a.status ?? '?'},${a.surfaceId ?? ''})`)
     .join(', ');
   let notifCount = 0;
   try {
     const n = await client.call('notification.list');
     const list = Array.isArray(n) ? n : (n?.notifications ?? []);
     notifCount = Array.isArray(list) ? list.length : 0;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const parts = [`씨윈 정상. 패널 ${panelCount}개.`];
   if (agents) parts.push(`에이전트: ${agents}.`);
   if (notifCount > 0) parts.push(`알림 ${notifCount}건.`);
@@ -477,19 +564,23 @@ function summarizeNotifications(data: any): string {
   return `미처리 알림 ${list.length}건.`;
 }
 
-// ── Helper: 에이전트 서피스 찾기 ──
+// #11: 마지막 에이전트(가장 최근 spawn) 우선 반환
 async function findAgentSurface(agentType?: string): Promise<string | undefined> {
   try {
     const tree = await client.call('system.tree');
     if (!tree || typeof tree !== 'object') return undefined;
-    for (const ws of (tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }).workspaces ?? []) {
+    let lastMatch: string | undefined;
+    for (const ws of (
+      tree as { workspaces?: { agents?: { agentType?: string; surfaceId?: string }[] }[] }
+    ).workspaces ?? []) {
       for (const agent of ws.agents ?? []) {
         const t = (agent.agentType ?? '').toLowerCase();
         if (!agentType || t === agentType.toLowerCase()) {
-          return agent.surfaceId;
+          lastMatch = agent.surfaceId;
         }
       }
     }
+    return lastMatch;
   } catch {
     // connection failure or malformed response
   }
@@ -504,18 +595,33 @@ server.registerTool(
     description:
       '씨윈(cmux-win) 원격 제어.\n' +
       '응답규칙: "신교수님" 호칭, 이모지 금지, 3문장 이내, 테이블 금지, 추가 제안 금지.\n' +
-      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n' +
+      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n' +
       '씨윈이 꺼져있어도 자동 실행된다.',
     inputSchema: z.object({
-      action: z.enum([
-        'status', 'send', 'read', 'spawn',
-        'send_and_wait', 'get_result', 'approve', 'notifications',
-      ]).describe('실행할 기능'),
+      action: z
+        .enum([
+          'status',
+          'send',
+          'read',
+          'spawn',
+          'send_and_wait',
+          'get_result',
+          'approve',
+          'notifications',
+          'open_browser',
+          'move_window',
+        ])
+        .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
       agentType: z.string().optional().describe('에이전트 (claude, gemini, codex)'),
       surfaceId: z.string().optional().describe('서피스 ID'),
       lines: z.number().optional().describe('읽을 줄 수 (read)'),
-      timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본50)'),
+      timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본120)'),
+      url: z.string().optional().describe('URL (open_browser)'),
+      x: z.number().optional().describe('창 X 좌표 (move_window)'),
+      y: z.number().optional().describe('창 Y 좌표 (move_window)'),
+      width: z.number().optional().describe('창 너비 (move_window)'),
+      height: z.number().optional().describe('창 높이 (move_window)'),
       task_id: z.string().optional().describe('작업 ID (get_result)'),
       workspaceId: z.string().optional().describe('워크스페이스 ID (spawn)'),
     }),
@@ -533,23 +639,30 @@ server.registerTool(
             if (i === 0) console.log('[mcp] Waiting for workspace initialization...');
             await sleep(500);
           }
-          try { return text(await summarizeStatus(tree)); }
-          catch { return text(tree); }
+          if (!tree || (tree.workspaces ?? []).length === 0) {
+            return text('씨윈이 아직 초기화 중입니다. 10초 후 다시 시도하세요.');
+          }
+          try {
+            return text(await summarizeStatus(tree));
+          } catch {
+            return text(tree);
+          }
         }
 
         // ── send ──
         case 'send': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           const agent = params.agentType ?? 'claude';
-          const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
+          const sid = params.surfaceId ?? (await findAgentSurface(agent));
+          if (!sid)
+            return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
           try {
             await client.call('agent.send_task', { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: 'agent.send_task' });
           } catch {
             // Ink TUI fix: send text and Enter separately with 500ms delay
             await client.call('surface.send_text', { surfaceId: sid, text: params.task });
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 500));
             await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
             return text({ ok: true, surfaceId: sid, method: 'surface.send_text' });
           }
@@ -557,70 +670,131 @@ server.registerTool(
 
         // ── read ──
         case 'read': {
-          const sid = params.surfaceId ?? await findAgentSurface(params.agentType);
+          const sid = params.surfaceId ?? (await findAgentSurface(params.agentType));
           if (!sid) return text(`${params.agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
           const p: Record<string, unknown> = { surfaceId: sid };
           if (params.lines !== undefined) p.lines = params.lines;
           const result = await client.call('surface.read', p);
-          const raw: string = result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
+          const raw: string =
+            result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
           // Ink TUI 렌더링 잔재 필터링 (Codex/Gemini 프롬프트 UI 줄 제거)
-          const cleaned = raw.split('\n')
-            .filter(line => {
+          const cleaned = raw
+            .split('\n')
+            .filter((line) => {
               const t = line.trim();
-              if (!t) return false;                           // 빈 줄
-              if (/^›\s*(Run|Use)\s/.test(t)) return false;   // › Run /review, › Use /skills
-              if (/^gpt-[\d.]+ default/.test(t)) return false; // gpt-5.4 default · ~
-              if (/^gemini-[\d.]+ /.test(t)) return false;    // gemini model line
-              if (/^•\s*$/.test(t)) return false;              // 단독 bullet
+              if (!t) return false; // 빈 줄
+              if (/^›\s*(Run|Use)\s/.test(t)) return false; // › Run /review, › Use /skills
+              if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false; // gpt-5.4 default · ~
+              if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false; // gemini model line
+              if (/^•\s*$/.test(t)) return false; // 단독 bullet
               return true;
             })
             .join('\n')
-            .replace(/\n{3,}/g, '\n\n');  // 연속 빈 줄 축소
+            .replace(/\n{3,}/g, '\n\n'); // 연속 빈 줄 축소
           return text(cleaned || raw);
         }
 
-        // ── spawn ──
+        // ── spawn ── (#3: CLI idle 대기 후 반환)
         case 'spawn': {
-          if (!params.agentType) return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
+          if (!params.agentType)
+            return text({ error: true, message: 'agentType 파라미터가 필요합니다.' });
           let wsId = params.workspaceId;
           if (!wsId) {
-            // 워크스페이스 대기 (auto-launch 직후 초기화 시간 확보, 최대 15초)
             let ws: { id: string } | undefined;
             for (let i = 0; i < 30; i++) {
               const tree = await client.call('system.tree');
               ws = (tree.workspaces ?? [])[0];
               if (ws) break;
-              await new Promise(r => setTimeout(r, 500));
+              await new Promise((r) => setTimeout(r, 500));
             }
-            if (!ws) return text('워크스페이스 초기화 대기 시간 초과. 씨윈이 완전히 시작되었는지 확인하세요.');
+            if (!ws)
+              return text(
+                '워크스페이스 초기화 대기 시간 초과. 씨윈이 완전히 시작되었는지 확인하세요.',
+              );
             wsId = ws.id;
           }
-          const p: Record<string, unknown> = { agentType: params.agentType, workspaceId: wsId };
-          if (params.task) p.task = params.task;
-          return text(await client.call('agent.spawn', p));
+          const spawnParams: Record<string, unknown> = {
+            agentType: params.agentType,
+            workspaceId: wsId,
+          };
+          if (params.task) spawnParams.task = params.task;
+          const spawnResult = await client.call('agent.spawn', spawnParams);
+          const spawnSid = (spawnResult as any)?.surfaceId;
+
+          // #3: CLI 초기화 대기 — PTY 생성 + idle 프롬프트 확인 (최대 30초)
+          if (spawnSid && params.agentType) {
+            console.log(`[mcp] spawn(${params.agentType}) — CLI idle 대기 시작`);
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              await sleep(1000);
+              try {
+                const screen = await client.call('surface.read', { surfaceId: spawnSid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                if (content.length > 0 && isAgentIdle(content, params.agentType)) {
+                  ready = true;
+                  console.log(`[mcp] spawn(${params.agentType}) — idle 감지 (${i + 1}초)`);
+                  break;
+                }
+              } catch {
+                /* PTY 아직 없음 — 계속 대기 */
+              }
+            }
+            return text({ ...(spawnResult as object), ready });
+          }
+          return text(spawnResult);
         }
 
-        // ── send_and_wait ──
+        // ── send_and_wait ── (#6, #13, #14, #16 적용)
         case 'send_and_wait': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           const agent = params.agentType ?? 'claude';
-          const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
+          const sid = params.surfaceId ?? (await findAgentSurface(agent));
+          if (!sid)
+            return text(`${agent} 에이전트를 찾을 수 없습니다. spawn action으로 먼저 생성하세요.`);
 
-          // 작업 전송 (Ink TUI: text와 Enter 분리)
-          try {
-            await client.call('agent.send_task', { surfaceId: sid, task: params.task });
-          } catch {
-            await client.call('surface.send_text', { surfaceId: sid, text: params.task });
-            await new Promise(r => setTimeout(r, 500));
-            await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
+          // #14: 작업 전송 — PTY 없으면 최대 3회 재시도 (spawn 직후 PTY 생성 대기)
+          let taskSent = false;
+          for (let sendAttempt = 0; sendAttempt < 3; sendAttempt++) {
+            try {
+              await client.call('agent.send_task', { surfaceId: sid, task: params.task });
+              taskSent = true;
+              break;
+            } catch {
+              try {
+                await client.call('surface.send_text', { surfaceId: sid, text: params.task });
+                await sleep(500);
+                await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
+                taskSent = true;
+                break;
+              } catch {
+                // PTY 아직 없음 — 2초 대기 후 재시도
+                console.log(`[mcp] send_and_wait: PTY 없음, ${sendAttempt + 1}/3 재시도`);
+                await sleep(2000);
+              }
+            }
+          }
+          if (!taskSent) {
+            return text({ error: true, message: 'PTY가 준비되지 않아 작업을 전달할 수 없습니다.' });
           }
 
-          const maxWait = Math.min(params.timeout ?? 50, 50);
-          const interval = 5;
-          await sleep(3000);
+          // BUG-E fix: 작업 전송 직후 버퍼 길이를 기록하여 stale idle pattern 오판 방지.
+          // 이전 세션의 "Type your message" 등이 남아있으면 즉시 idle로 오판하는 문제.
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call('surface.read', { surfaceId: sid });
+            const baseContent = typeof baseline === 'string' ? baseline : (baseline?.content ?? '');
+            baselineLen = baseContent.length;
+          } catch {
+            /* baseline 실패 — 0으로 시작 */
+          }
 
-          for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+          const maxWait = Math.min(params.timeout ?? 120, 300);
+          const interval = 3; // #13: 폴링 간격 5초→3초
+          // BUG-E fix: 초기 대기를 10초로 늘려 에이전트가 작업을 시작할 시간 확보
+          const initialWait = 10;
+          await sleep(initialWait * 1000);
+
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += interval) {
             await sleep(interval * 1000);
 
             // Progress notification (타임아웃 리셋 시도)
@@ -636,17 +810,73 @@ server.registerTool(
                   },
                 } as any);
               }
-            } catch { /* best effort */ }
+            } catch {
+              /* best effort */
+            }
+
+            // #6: 에이전트 상태 체크 (CLI 종료/크래시 감지)
+            try {
+              const health = await client.call('surface.health', { surfaceId: sid });
+              if (health && !health.hasPty) {
+                // CLI 종료됨 — 마지막 스크롤백으로 결과 반환
+                const screen = await client.call('surface.read', { surfaceId: sid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+                return text({
+                  status: 'done',
+                  agentType: agent,
+                  surfaceId: sid,
+                  note: 'CLI가 종료되어 마지막 출력을 반환합니다.',
+                  result: lastLines,
+                });
+              }
+              // 에이전트 상태가 done/error면 즉시 반환
+              if (
+                health?.agent &&
+                (health.agent.status === 'done' || health.agent.status === 'error')
+              ) {
+                const screen = await client.call('surface.read', { surfaceId: sid });
+                const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split('\n').slice(-30).join('\n');
+                return text({
+                  status: health.agent.status,
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                });
+              }
+            } catch {
+              /* health 체크 실패 — 폴링 계속 */
+            }
 
             try {
               const screen = await client.call('surface.read', { surfaceId: sid });
-              const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+              const content =
+                typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+
+              // BUG-E fix: 버퍼에 새 콘텐츠가 충분히 추가되었을 때만 idle 체크.
+              // 새 콘텐츠가 200자 미만이면 아직 에이전트가 작업을 시작하지 않은 것.
+              const newContentLen = content.length - baselineLen;
+              if (newContentLen < 200) continue;
+
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split('\n').slice(-30).join('\n');
-                return text({ status: 'done', agentType: agent, surfaceId: sid, result: lastLines });
+                // #16: 빈 결과 감지
+                const nonEmpty = lastLines.split('\n').filter((l) => l.trim()).length;
+                return text({
+                  status: 'done',
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                  ...(nonEmpty <= 2 ? { warning: '결과가 비어있음 — 작업 전달 실패 가능성' } : {}),
+                });
               }
-            } catch { /* 폴링 계속 */ }
+            } catch {
+              /* 폴링 계속 */
+            }
           }
 
           // 50초 내 미완료 → task_id 발급
@@ -663,20 +893,27 @@ server.registerTool(
             task_id: taskId,
             agentType: agent,
             elapsed_sec: maxWait,
-            instruction: '작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
+            instruction:
+              '작업 진행중. 반드시 get_result action을 task_id와 함께 호출하여 완료 확인하세요.',
           });
         }
 
         // ── get_result ──
         case 'get_result': {
-          if (!params.task_id) return text({ error: true, message: 'task_id 파라미터가 필요합니다.' });
+          if (!params.task_id)
+            return text({ error: true, message: 'task_id 파라미터가 필요합니다.' });
           const entry = taskStore.get(params.task_id);
-          if (!entry) return text({ status: 'error', message: `task_id "${params.task_id}"를 찾을 수 없습니다.` });
+          if (!entry)
+            return text({
+              status: 'error',
+              message: `task_id "${params.task_id}"를 찾을 수 없습니다.`,
+            });
           if (entry.status === 'done') return text({ status: 'done', result: entry.result });
 
           try {
             const screen = await client.call('surface.read', { surfaceId: entry.surfaceId });
-            const content = typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
+            const content =
+              typeof screen === 'string' ? screen : (screen.content ?? JSON.stringify(screen));
             if (isAgentIdle(content, entry.agentType)) {
               const cleanResult = stripAnsi(content).trim();
               const lastLines = cleanResult.split('\n').slice(-30).join('\n');
@@ -700,7 +937,7 @@ server.registerTool(
 
         // ── approve ──
         case 'approve': {
-          const sid = params.surfaceId ?? await findAgentSurface(params.agentType);
+          const sid = params.surfaceId ?? (await findAgentSurface(params.agentType));
           if (!sid) return text(`${params.agentType ?? '지정된'} 에이전트를 찾을 수 없습니다.`);
           await client.call('surface.send_text', { surfaceId: sid, text: '\r' });
           return text({ ok: true, surfaceId: sid, approved: true });
@@ -709,8 +946,51 @@ server.registerTool(
         // ── notifications ──
         case 'notifications': {
           const notifData = await client.call('notification.list');
-          try { return text(summarizeNotifications(notifData)); }
-          catch { return text(notifData); }
+          try {
+            return text(summarizeNotifications(notifData));
+          } catch {
+            return text(notifData);
+          }
+        }
+
+        // ── open_browser ──
+        case 'open_browser': {
+          if (!params.url) return text({ error: true, message: 'url 파라미터가 필요합니다.' });
+
+          // system.tree에서 첫 번째 패널의 panelId를 가져옴
+          const tree = await client.call('system.tree');
+          const ws = (tree?.workspaces ?? [])[0];
+          const panel = ws?.panels?.[0];
+          if (!panel)
+            return text({
+              error: true,
+              message: '씨윈에 패널이 없습니다. status로 먼저 확인하세요.',
+            });
+
+          const result = await client.call('panel.split', {
+            panelId: panel.id,
+            direction: 'horizontal',
+            newPanelType: 'browser',
+            url: params.url,
+          });
+          return text({
+            ok: true,
+            url: params.url,
+            panelId: (result as any)?.panelId,
+            surfaceId: (result as any)?.surfaceId,
+            paneIndex: (result as any)?.paneIndex,
+          });
+        }
+
+        // ── move_window ──
+        case 'move_window': {
+          if (params.x === undefined || params.y === undefined)
+            return text({ error: true, message: 'x, y 파라미터가 필요합니다.' });
+          const moveParams: Record<string, unknown> = { x: params.x, y: params.y };
+          if (params.width !== undefined) moveParams.width = params.width;
+          if (params.height !== undefined) moveParams.height = params.height;
+          const result = await client.call('window.move', moveParams);
+          return text({ ok: true, bounds: (result as any)?.bounds });
         }
 
         default:

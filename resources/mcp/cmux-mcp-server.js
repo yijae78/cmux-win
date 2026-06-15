@@ -30150,13 +30150,7 @@ function findSocketToken() {
 }
 function launchCmuxWin() {
   return new Promise((resolve, reject) => {
-    const home = process.env.USERPROFILE || process.env.HOME || "";
-    const projectDir = path.join(
-      home,
-      "OneDrive - the presbyerian church of korea",
-      "\uBC14\uD0D5 \uD654\uBA74",
-      "cmux-win"
-    );
+    const projectDir = "C:\\dev\\cmux-win";
     const electronCli = path.join(projectDir, "node_modules", "electron", "cli.js");
     const mainJs = path.join(projectDir, "out", "main", "index.js");
     if (fs.existsSync(electronCli) && fs.existsSync(mainJs)) {
@@ -30173,11 +30167,13 @@ function launchCmuxWin() {
         console.log(`[mcp] Launched PID: ${child.pid}`);
       } catch (err) {
         console.log(`[mcp] Dev launch failed: ${err}`);
+        reject(new Error(`cmux-win dev launch \uC2E4\uD328: ${err}`));
+        return;
       }
       resolve();
       return;
     }
-    const appData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const appData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Local");
     const installedExe = path.join(appData, "cmux-win", "cmux-win.exe");
     if (fs.existsSync(installedExe)) {
       console.log(`[mcp] Launching installed: ${installedExe}`);
@@ -30205,7 +30201,15 @@ var CmuxSocketClient = class {
   pending = /* @__PURE__ */ new Map();
   buffer = "";
   connectingPromise = null;
+  launchedThisSession = false;
+  // auto-launch 중복 방지
+  lastSuccessfulCallAt = 0;
+  // #7: 마지막 성공 호출 시각
   async ensureConnection() {
+    if (this.launchedThisSession && this.lastSuccessfulCallAt > 0 && Date.now() - this.lastSuccessfulCallAt > 5 * 60 * 1e3) {
+      console.log("[mcp] 5\uBD84\uAC04 \uC131\uACF5 \uD638\uCD9C \uC5C6\uC74C \u2014 launchedThisSession \uB9AC\uC14B");
+      this.launchedThisSession = false;
+    }
     if (this.socket && !this.socket.destroyed && this.authenticated) return;
     if (this.connectingPromise) return this.connectingPromise;
     this.connectingPromise = this._doConnect();
@@ -30215,36 +30219,83 @@ var CmuxSocketClient = class {
       this.connectingPromise = null;
     }
   }
-  // 1.3: stale token 감지 + 폴링 내 소켓 정리
+  // #12, #15: auto-launch 중복 방지 + 프로세스 탐지 + 로깅 강화
   async _doConnect() {
     this.disconnect();
     let info = findSocketToken();
     if (info) {
       try {
+        console.log(`[mcp] \uD1A0\uD070 \uBC1C\uACAC (port:${info.port}), \uC5F0\uACB0 \uC2DC\uB3C4...`);
         await this.connectAndAuth(info);
+        console.log("[mcp] \uC5F0\uACB0+\uC778\uC99D \uC131\uACF5");
         return;
-      } catch {
-        console.log("[mcp] Stale token detected, attempting auto-launch...");
+      } catch (e) {
+        console.log(`[mcp] \uC5F0\uACB0 \uC2E4\uD328 (stale token): ${e.message}`);
         this.disconnect();
       }
-    } else {
-      console.log("[mcp] No token found, attempting auto-launch...");
     }
+    if (this.launchedThisSession) {
+      console.log("[mcp] \uC774\uBBF8 auto-launch \uC644\uB8CC, \uC7AC\uC5F0\uACB0 \uB300\uAE30 (\uCD5C\uB300 20\uCD08)...");
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        info = findSocketToken();
+        if (info) {
+          try {
+            await this.connectAndAuth(info);
+            console.log("[mcp] \uC7AC\uC5F0\uACB0 \uC131\uACF5!");
+            return;
+          } catch {
+            this.disconnect();
+          }
+        }
+      }
+      throw new Error("cmux-win\uC5D0 \uC7AC\uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694.");
+    }
+    try {
+      const { execSync } = await import("node:child_process");
+      const taskResult = execSync('tasklist /fi "imagename eq cmux-win*" /fo csv /nh', {
+        encoding: "utf-8",
+        timeout: 5e3
+      }).trim();
+      if (taskResult && !taskResult.includes("No tasks") && taskResult.includes("cmux-win")) {
+        console.log("[mcp] cmux-win \uD504\uB85C\uC138\uC2A4 \uBC1C\uACAC, auto-launch \uAC74\uB108\uB700 \u2014 \uC18C\uCF13 \uC11C\uBC84 \uB300\uAE30");
+        this.launchedThisSession = true;
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          info = findSocketToken();
+          if (info) {
+            try {
+              await this.connectAndAuth(info);
+              console.log("[mcp] \uAE30\uC874 \uD504\uB85C\uC138\uC2A4\uC5D0 \uC5F0\uACB0 \uC131\uACF5!");
+              return;
+            } catch {
+              this.disconnect();
+            }
+          }
+        }
+        throw new Error("cmux-win \uD504\uB85C\uC138\uC2A4\uB294 \uC788\uC9C0\uB9CC \uC18C\uCF13 \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      }
+    } catch {
+    }
+    console.log(`[mcp] ${info ? "Stale token" : "\uD1A0\uD070 \uC5C6\uC74C"}, auto-launch \uC2DC\uB3C4...`);
+    this.launchedThisSession = true;
     await launchCmuxWin();
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 500));
       info = findSocketToken();
       if (info) {
         try {
           await this.connectAndAuth(info);
-          console.log("[mcp] cmux-win launched successfully, connected!");
+          console.log(`[mcp] auto-launch \uC131\uACF5, \uC5F0\uACB0 \uC644\uB8CC (${Math.round(i * 0.5)}\uCD08)`);
           return;
         } catch {
           this.disconnect();
         }
       }
     }
-    throw new Error("cmux-win \uC790\uB3D9 \uC2E4\uD589\uC744 \uC2DC\uB3C4\uD588\uC73C\uB098 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694.");
+    throw new Error(
+      "cmux-win \uC790\uB3D9 \uC2E4\uD589\uC744 \uC2DC\uB3C4\uD588\uC73C\uB098 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC571\uC744 \uC218\uB3D9\uC73C\uB85C \uC2DC\uC791\uD574\uC8FC\uC138\uC694."
+    );
   }
   // 1.2: 10초 타임아웃 + 모든 경로 clearTimeout
   connectAndAuth(info) {
@@ -30253,6 +30304,7 @@ var CmuxSocketClient = class {
       this.socket = sock;
       this.buffer = "";
       this.authenticated = false;
+      sock.setKeepAlive(true, 3e4);
       const authTimeout = setTimeout(() => {
         sock.destroy();
         reject(new Error("cmux-win \uC778\uC99D \uD0C0\uC784\uC544\uC6C3 (10\uCD08)"));
@@ -30281,15 +30333,18 @@ var CmuxSocketClient = class {
       sock.on("error", (err) => {
         clearTimeout(authTimeout);
         this.authenticated = false;
+        console.log(`[mcp] \uC18C\uCF13 \uC5D0\uB7EC: ${err.message}`);
         reject(new Error(`cmux-win \uC5F0\uACB0 \uC2E4\uD328: ${err.message}`));
       });
       sock.on("close", () => {
         clearTimeout(authTimeout);
+        const wasPending = this.pending.size;
         this.authenticated = false;
         for (const [, p] of this.pending) {
           p.reject(new Error("cmux-win \uC5F0\uACB0\uC774 \uB04A\uC5B4\uC84C\uC2B5\uB2C8\uB2E4"));
         }
         this.pending.clear();
+        console.log(`[mcp] \uC18C\uCF13 close (pending ${wasPending}\uAC74 reject)`);
       });
       sock.connect(info.port, "127.0.0.1", () => {
         const id = this.nextId++;
@@ -30314,28 +30369,53 @@ var CmuxSocketClient = class {
       });
     });
   }
-  async call(method, params = {}) {
-    await this.ensureConnection();
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`\uC694\uCCAD \uC2DC\uAC04 \uCD08\uACFC (15s): ${method}`));
-      }, 15e3);
-      this.pending.set(id, {
-        resolve: (v) => {
+  // #5: 3회 재시도 + 지수 백오프, ensureConnection 실패도 커버
+  // #10: 타임아웃 15초→30초
+  async call(method, params = {}, _retryCount = 0) {
+    try {
+      await this.ensureConnection();
+      if (!this.socket || this.socket.destroyed) {
+        throw new Error("\uC18C\uCF13 \uB04A\uC5B4\uC9D0");
+      }
+      const id = this.nextId++;
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`\uC694\uCCAD \uC2DC\uAC04 \uCD08\uACFC (30s): ${method}`));
+        }, 3e4);
+        this.pending.set(id, {
+          resolve: (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          reject: (e) => {
+            clearTimeout(timer);
+            reject(e);
+          }
+        });
+        const ok = this.socket.write(
+          JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"
+        );
+        if (!ok) {
+          this.pending.delete(id);
           clearTimeout(timer);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
+          reject(new Error(`\uC18C\uCF13 \uC4F0\uAE30 \uC2E4\uD328 (backpressure): ${method}`));
         }
       });
-      this.socket.write(
-        JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"
-      );
-    });
+      this.lastSuccessfulCallAt = Date.now();
+      return result;
+    } catch (err) {
+      if (_retryCount < 2) {
+        const delay = 1e3 * (_retryCount + 1);
+        console.log(
+          `[mcp] call(${method}) \uC2E4\uD328, ${delay}ms \uD6C4 \uC7AC\uC2DC\uB3C4 (${_retryCount + 1}/3): ${err.message}`
+        );
+        this.disconnect();
+        await sleep(delay);
+        return this.call(method, params, _retryCount + 1);
+      }
+      throw err;
+    }
   }
   disconnect() {
     if (this.socket) {
@@ -30353,9 +30433,24 @@ function stripAnsi(str) {
   return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
 var DEFAULT_IDLE_PATTERNS = {
-  gemini: ["Type your message", "Enter your prompt", "What can I help"],
-  codex: ["What would you like", "Enter a prompt"],
-  claude: ["\u276F ", "> "]
+  gemini: [
+    "Type your message",
+    "Type your",
+    "Enter your prompt",
+    "What can I help",
+    "@path/to/file"
+  ],
+  codex: [
+    "What would you like",
+    "Enter a prompt",
+    "Use /skills to",
+    "gpt-5.4",
+    "PS C:\\",
+    "PS>",
+    "$ ",
+    "\u203A"
+  ],
+  claude: ["\u276F ", "\u276F", "> "]
 };
 function loadIdlePatterns() {
   const configPath = path.join(
@@ -30375,7 +30470,7 @@ var IDLE_PATTERNS = loadIdlePatterns();
 function isAgentIdle(screenText, agentType) {
   const clean = stripAnsi(screenText);
   const lines = clean.split("\n").filter((l) => l.trim().length > 0);
-  const tail = lines.slice(-3).join("\n");
+  const tail = lines.slice(-8).join("\n");
   const patterns = IDLE_PATTERNS[agentType.toLowerCase()] || [];
   return patterns.some((p) => tail.includes(p));
 }
@@ -30437,7 +30532,7 @@ async function summarizeStatus(tree) {
   const ws = (tree?.workspaces ?? [])[0];
   if (!ws) return "\uC528\uC708 \uC791\uB3D9\uC911. \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uC5C6\uC74C.";
   const panelCount = ws.panels?.length ?? 0;
-  const agents = (ws.agents ?? []).map((a) => `${a.agentType ?? "unknown"}(${a.status ?? "?"})`).join(", ");
+  const agents = (ws.agents ?? []).map((a) => `${a.agentType ?? "unknown"}(${a.status ?? "?"},${a.surfaceId ?? ""})`).join(", ");
   let notifCount = 0;
   try {
     const n = await client.call("notification.list");
@@ -30459,14 +30554,16 @@ async function findAgentSurface(agentType) {
   try {
     const tree = await client.call("system.tree");
     if (!tree || typeof tree !== "object") return void 0;
+    let lastMatch;
     for (const ws of tree.workspaces ?? []) {
       for (const agent of ws.agents ?? []) {
         const t = (agent.agentType ?? "").toLowerCase();
         if (!agentType || t === agentType.toLowerCase()) {
-          return agent.surfaceId;
+          lastMatch = agent.surfaceId;
         }
       }
     }
+    return lastMatch;
   } catch {
   }
   return void 0;
@@ -30475,7 +30572,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30485,13 +30582,20 @@ server.registerTool(
         "send_and_wait",
         "get_result",
         "approve",
-        "notifications"
+        "notifications",
+        "open_browser",
+        "move_window"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
       agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, gemini, codex)"),
       surfaceId: external_exports3.string().optional().describe("\uC11C\uD53C\uC2A4 ID"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (read)"),
-      timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF850)"),
+      timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF8120)"),
+      url: external_exports3.string().optional().describe("URL (open_browser)"),
+      x: external_exports3.number().optional().describe("\uCC3D X \uC88C\uD45C (move_window)"),
+      y: external_exports3.number().optional().describe("\uCC3D Y \uC88C\uD45C (move_window)"),
+      width: external_exports3.number().optional().describe("\uCC3D \uB108\uBE44 (move_window)"),
+      height: external_exports3.number().optional().describe("\uCC3D \uB192\uC774 (move_window)"),
       task_id: external_exports3.string().optional().describe("\uC791\uC5C5 ID (get_result)"),
       workspaceId: external_exports3.string().optional().describe("\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 ID (spawn)")
     })
@@ -30501,7 +30605,16 @@ server.registerTool(
       switch (params.action) {
         // ── status ──
         case "status": {
-          const tree = await client.call("system.tree");
+          let tree;
+          for (let i = 0; i < 20; i++) {
+            tree = await client.call("system.tree");
+            if ((tree.workspaces ?? []).length > 0) break;
+            if (i === 0) console.log("[mcp] Waiting for workspace initialization...");
+            await sleep(500);
+          }
+          if (!tree || (tree.workspaces ?? []).length === 0) {
+            return text("\uC528\uC708\uC774 \uC544\uC9C1 \uCD08\uAE30\uD654 \uC911\uC785\uB2C8\uB2E4. 10\uCD08 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.");
+          }
           try {
             return text(await summarizeStatus(tree));
           } catch {
@@ -30513,7 +30626,8 @@ server.registerTool(
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const agent = params.agentType ?? "claude";
           const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
+          if (!sid)
+            return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
           try {
             await client.call("agent.send_task", { surfaceId: sid, task: params.task });
             return text({ ok: true, surfaceId: sid, method: "agent.send_task" });
@@ -30531,39 +30645,105 @@ server.registerTool(
           const p = { surfaceId: sid };
           if (params.lines !== void 0) p.lines = params.lines;
           const result = await client.call("surface.read", p);
-          return text(result.content ?? result);
+          const raw = result.content ?? (typeof result === "string" ? result : JSON.stringify(result));
+          const cleaned = raw.split("\n").filter((line) => {
+            const t = line.trim();
+            if (!t) return false;
+            if (/^›\s*(Run|Use)\s/.test(t)) return false;
+            if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false;
+            if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false;
+            if (/^•\s*$/.test(t)) return false;
+            return true;
+          }).join("\n").replace(/\n{3,}/g, "\n\n");
+          return text(cleaned || raw);
         }
-        // ── spawn ──
+        // ── spawn ── (#3: CLI idle 대기 후 반환)
         case "spawn": {
-          if (!params.agentType) return text({ error: true, message: "agentType \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.agentType)
+            return text({ error: true, message: "agentType \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           let wsId = params.workspaceId;
           if (!wsId) {
-            const tree = await client.call("system.tree");
-            const ws = (tree.workspaces ?? [])[0];
-            if (!ws) return text("\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+            let ws;
+            for (let i = 0; i < 30; i++) {
+              const tree = await client.call("system.tree");
+              ws = (tree.workspaces ?? [])[0];
+              if (ws) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
+            if (!ws)
+              return text(
+                "\uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uCD08\uAE30\uD654 \uB300\uAE30 \uC2DC\uAC04 \uCD08\uACFC. \uC528\uC708\uC774 \uC644\uC804\uD788 \uC2DC\uC791\uB418\uC5C8\uB294\uC9C0 \uD655\uC778\uD558\uC138\uC694."
+              );
             wsId = ws.id;
           }
-          const p = { agentType: params.agentType, workspaceId: wsId };
-          if (params.task) p.task = params.task;
-          return text(await client.call("agent.spawn", p));
+          const spawnParams = {
+            agentType: params.agentType,
+            workspaceId: wsId
+          };
+          if (params.task) spawnParams.task = params.task;
+          const spawnResult = await client.call("agent.spawn", spawnParams);
+          const spawnSid = spawnResult?.surfaceId;
+          if (spawnSid && params.agentType) {
+            console.log(`[mcp] spawn(${params.agentType}) \u2014 CLI idle \uB300\uAE30 \uC2DC\uC791`);
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              await sleep(1e3);
+              try {
+                const screen = await client.call("surface.read", { surfaceId: spawnSid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
+                if (content.length > 0 && isAgentIdle(content, params.agentType)) {
+                  ready = true;
+                  console.log(`[mcp] spawn(${params.agentType}) \u2014 idle \uAC10\uC9C0 (${i + 1}\uCD08)`);
+                  break;
+                }
+              } catch {
+              }
+            }
+            return text({ ...spawnResult, ready });
+          }
+          return text(spawnResult);
         }
-        // ── send_and_wait ──
+        // ── send_and_wait ── (#6, #13, #14, #16 적용)
         case "send_and_wait": {
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const agent = params.agentType ?? "claude";
           const sid = params.surfaceId ?? await findAgentSurface(agent);
-          if (!sid) return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
-          try {
-            await client.call("agent.send_task", { surfaceId: sid, task: params.task });
-          } catch {
-            await client.call("surface.send_text", { surfaceId: sid, text: params.task });
-            await new Promise((r) => setTimeout(r, 500));
-            await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
+          if (!sid)
+            return text(`${agent} \uC5D0\uC774\uC804\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. spawn action\uC73C\uB85C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694.`);
+          let taskSent = false;
+          for (let sendAttempt = 0; sendAttempt < 3; sendAttempt++) {
+            try {
+              await client.call("agent.send_task", { surfaceId: sid, task: params.task });
+              taskSent = true;
+              break;
+            } catch {
+              try {
+                await client.call("surface.send_text", { surfaceId: sid, text: params.task });
+                await sleep(500);
+                await client.call("surface.send_text", { surfaceId: sid, text: "\r" });
+                taskSent = true;
+                break;
+              } catch {
+                console.log(`[mcp] send_and_wait: PTY \uC5C6\uC74C, ${sendAttempt + 1}/3 \uC7AC\uC2DC\uB3C4`);
+                await sleep(2e3);
+              }
+            }
           }
-          const maxWait = Math.min(params.timeout ?? 50, 50);
-          const interval = 5;
-          await sleep(3e3);
-          for (let elapsed = 3; elapsed < maxWait; elapsed += interval) {
+          if (!taskSent) {
+            return text({ error: true, message: "PTY\uAC00 \uC900\uBE44\uB418\uC9C0 \uC54A\uC544 \uC791\uC5C5\uC744 \uC804\uB2EC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+          }
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call("surface.read", { surfaceId: sid });
+            const baseContent = typeof baseline === "string" ? baseline : baseline?.content ?? "";
+            baselineLen = baseContent.length;
+          } catch {
+          }
+          const maxWait = Math.min(params.timeout ?? 120, 300);
+          const interval = 3;
+          const initialWait = 10;
+          await sleep(initialWait * 1e3);
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += interval) {
             await sleep(interval * 1e3);
             try {
               const progressToken = extra._meta?.progressToken;
@@ -30580,12 +30760,50 @@ server.registerTool(
             } catch {
             }
             try {
+              const health = await client.call("surface.health", { surfaceId: sid });
+              if (health && !health.hasPty) {
+                const screen = await client.call("surface.read", { surfaceId: sid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+                return text({
+                  status: "done",
+                  agentType: agent,
+                  surfaceId: sid,
+                  note: "CLI\uAC00 \uC885\uB8CC\uB418\uC5B4 \uB9C8\uC9C0\uB9C9 \uCD9C\uB825\uC744 \uBC18\uD658\uD569\uB2C8\uB2E4.",
+                  result: lastLines
+                });
+              }
+              if (health?.agent && (health.agent.status === "done" || health.agent.status === "error")) {
+                const screen = await client.call("surface.read", { surfaceId: sid });
+                const content = typeof screen === "string" ? screen : screen?.content ?? "";
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split("\n").slice(-30).join("\n");
+                return text({
+                  status: health.agent.status,
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines
+                });
+              }
+            } catch {
+            }
+            try {
               const screen = await client.call("surface.read", { surfaceId: sid });
               const content = typeof screen === "string" ? screen : screen.content ?? JSON.stringify(screen);
+              const newContentLen = content.length - baselineLen;
+              if (newContentLen < 200) continue;
               if (isAgentIdle(content, agent)) {
                 const cleanResult = stripAnsi(content).trim();
                 const lastLines = cleanResult.split("\n").slice(-30).join("\n");
-                return text({ status: "done", agentType: agent, surfaceId: sid, result: lastLines });
+                const nonEmpty = lastLines.split("\n").filter((l) => l.trim()).length;
+                return text({
+                  status: "done",
+                  agentType: agent,
+                  surfaceId: sid,
+                  result: lastLines,
+                  ...nonEmpty <= 2 ? { warning: "\uACB0\uACFC\uAC00 \uBE44\uC5B4\uC788\uC74C \u2014 \uC791\uC5C5 \uC804\uB2EC \uC2E4\uD328 \uAC00\uB2A5\uC131" } : {}
+                });
               }
             } catch {
             }
@@ -30608,9 +30826,14 @@ server.registerTool(
         }
         // ── get_result ──
         case "get_result": {
-          if (!params.task_id) return text({ error: true, message: "task_id \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.task_id)
+            return text({ error: true, message: "task_id \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const entry = taskStore.get(params.task_id);
-          if (!entry) return text({ status: "error", message: `task_id "${params.task_id}"\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` });
+          if (!entry)
+            return text({
+              status: "error",
+              message: `task_id "${params.task_id}"\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`
+            });
           if (entry.status === "done") return text({ status: "done", result: entry.result });
           try {
             const screen = await client.call("surface.read", { surfaceId: entry.surfaceId });
@@ -30650,6 +30873,41 @@ server.registerTool(
           } catch {
             return text(notifData);
           }
+        }
+        // ── open_browser ──
+        case "open_browser": {
+          if (!params.url) return text({ error: true, message: "url \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          const tree = await client.call("system.tree");
+          const ws = (tree?.workspaces ?? [])[0];
+          const panel = ws?.panels?.[0];
+          if (!panel)
+            return text({
+              error: true,
+              message: "\uC528\uC708\uC5D0 \uD328\uB110\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. status\uB85C \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694."
+            });
+          const result = await client.call("panel.split", {
+            panelId: panel.id,
+            direction: "horizontal",
+            newPanelType: "browser",
+            url: params.url
+          });
+          return text({
+            ok: true,
+            url: params.url,
+            panelId: result?.panelId,
+            surfaceId: result?.surfaceId,
+            paneIndex: result?.paneIndex
+          });
+        }
+        // ── move_window ──
+        case "move_window": {
+          if (params.x === void 0 || params.y === void 0)
+            return text({ error: true, message: "x, y \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          const moveParams = { x: params.x, y: params.y };
+          if (params.width !== void 0) moveParams.width = params.width;
+          if (params.height !== void 0) moveParams.height = params.height;
+          const result = await client.call("window.move", moveParams);
+          return text({ ok: true, bounds: result?.bounds });
         }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });

@@ -4,16 +4,19 @@ import { getShellIntegrationArgs } from '../../../src/shared/shell-integration-u
 describe('getShellIntegrationArgs', () => {
   const dir = '/app/shell-integration';
 
-  it('powershell: returns -NoExit -Command dot-source', () => {
+  it('powershell: returns -ExecutionPolicy Bypass -NoExit -Command dot-source', () => {
     const result = getShellIntegrationArgs('powershell', dir);
-    expect(result.args).toHaveLength(3);
-    expect(result.args[0]).toBe('-NoExit');
-    expect(result.args[2]).toContain('powershell.ps1');
+    expect(result.args).toHaveLength(5);
+    expect(result.args[0]).toBe('-ExecutionPolicy');
+    expect(result.args[1]).toBe('Bypass');
+    expect(result.args[2]).toBe('-NoExit');
+    expect(result.args[4]).toContain('powershell.ps1');
   });
 
   it('pwsh: treated as powershell', () => {
     const result = getShellIntegrationArgs('pwsh', dir);
-    expect(result.args[0]).toBe('-NoExit');
+    expect(result.args[0]).toBe('-ExecutionPolicy');
+    expect(result.args[2]).toBe('-NoExit');
   });
 
   it('bash: returns --rcfile and sets env', () => {
