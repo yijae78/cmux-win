@@ -225,6 +225,7 @@ export class AppStateStore extends EventEmitter {
           panelId,
           surfaceType: 'terminal',
           title: claudeCmd ? '\uD83E\uDDE0 Claude' : 'Terminal',
+          label: isFirstWorkspace ? 'Master' : undefined,
           pendingCommand: claudeCmd,
         });
         const win = draft.windows.find((w) => w.id === action.payload.windowId);
@@ -414,8 +415,14 @@ export class AppStateStore extends EventEmitter {
           direction: splitDirection,
           ratio: 0.5,
           children: sourceFirst
-            ? [{ type: 'leaf', panelId: newPanelId }, { type: 'leaf', panelId: targetPanelId }]
-            : [{ type: 'leaf', panelId: targetPanelId }, { type: 'leaf', panelId: newPanelId }],
+            ? [
+                { type: 'leaf', panelId: newPanelId },
+                { type: 'leaf', panelId: targetPanelId },
+              ]
+            : [
+                { type: 'leaf', panelId: targetPanelId },
+                { type: 'leaf', panelId: newPanelId },
+              ],
         };
         ws.panelLayout = replaceLeaf(layoutAfterRemove, targetPanelId, newSplit);
         break;
