@@ -95,11 +95,7 @@ function ensureFocusFlashStyle(): void {
 /*  Helper: compute drop direction from pointer position               */
 /*  Uses VS Code's 33% threshold algorithm                             */
 /* ------------------------------------------------------------------ */
-function computeDropDirection(
-  pointerX: number,
-  pointerY: number,
-  rect: DOMRect,
-): DropDirection {
+function computeDropDirection(pointerX: number, pointerY: number, rect: DOMRect): DropDirection {
   // Pixel distance from each edge
   const pxLeft = pointerX - rect.left;
   const pxRight = rect.right - pointerX;
@@ -211,7 +207,24 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
   const rightHasPanel = hasLivePanels(layout.children[1]);
   // Collapse: render only the side that has panels
   if (!leftHasPanel && !rightHasPanel) return null;
-  const innerProps = { panels, surfaces, activePanelId, settings, workspaceId, onPanelFocus, onResize, onSurfaceFocus, onSurfaceClose, onNewSurface, onOpenFolder, onEqualizeH, onEqualizeV, onBrowserUrlChange, onBrowserTitleChange, dispatch };
+  const innerProps = {
+    panels,
+    surfaces,
+    activePanelId,
+    settings,
+    workspaceId,
+    onPanelFocus,
+    onResize,
+    onSurfaceFocus,
+    onSurfaceClose,
+    onNewSurface,
+    onOpenFolder,
+    onEqualizeH,
+    onEqualizeV,
+    onBrowserUrlChange,
+    onBrowserTitleChange,
+    dispatch,
+  };
   if (!leftHasPanel) return <PanelLayoutInner layout={layout.children[1]} {...innerProps} />;
   if (!rightHasPanel) return <PanelLayoutInner layout={layout.children[0]} {...innerProps} />;
 
@@ -280,11 +293,7 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
 /*  Top-level component -- wraps with DndContext + DragOverlay          */
 /* ------------------------------------------------------------------ */
 const PanelLayout: FC<PanelLayoutProps> = (props) => {
-  const {
-    panels,
-    surfaces,
-    dispatch,
-  } = props;
+  const { panels, surfaces, dispatch } = props;
 
   // Inject keyframes once on first mount
   const injected = useRef(false);
@@ -350,30 +359,33 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
       const fromPanelId = event.active.data.current?.panelId as string | undefined;
       const overPanelId = overData?.panelId;
 
-      if (!overPanelId || !fromPanelId || fromPanelId === overPanelId) {
-        setDropTarget(null);
-        lastOverIdRef.current = null;
-        lastOverRectRef.current = null;
-        return;
-      }
+    if (!overPanelId || !fromPanelId || fromPanelId === overPanelId) {
+      setDropTarget(null);
+      lastOverIdRef.current = null;
+      lastOverRectRef.current = null;
+      return;
+    }
 
-      // Cache the droppable rect so pointermove can recompute direction in real-time
-      const dropNode = event.over?.rect;
-      if (dropNode) {
-        lastOverRectRef.current = new DOMRect(dropNode.left, dropNode.top, dropNode.width, dropNode.height);
-      }
-      lastOverIdRef.current = overPanelId;
+    // Cache the droppable rect so pointermove can recompute direction in real-time
+    const dropNode = event.over?.rect;
+    if (dropNode) {
+      lastOverRectRef.current = new DOMRect(
+        dropNode.left,
+        dropNode.top,
+        dropNode.width,
+        dropNode.height,
+      );
+    }
+    lastOverIdRef.current = overPanelId;
 
-      const rect = lastOverRectRef.current;
-      if (!rect) {
-        setDropTarget({ panelId: overPanelId, direction: 'center' });
-        return;
-      }
-      const direction = computeDropDirection(pointerPos.current.x, pointerPos.current.y, rect);
-      setDropTarget({ panelId: overPanelId, direction });
-    },
-    [],
-  );
+    const rect = lastOverRectRef.current;
+    if (!rect) {
+      setDropTarget({ panelId: overPanelId, direction: 'center' });
+      return;
+    }
+    const direction = computeDropDirection(pointerPos.current.x, pointerPos.current.y, rect);
+    setDropTarget({ panelId: overPanelId, direction });
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -386,7 +398,9 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
       if (!fromPanelId || !dispatch) return;
 
       // Check if dropped on an edge zone (EdgeDropZone provides direction directly)
-      const overData = event.over?.data.current as { panelId?: string; direction?: DropDirection; isEdgeDrop?: boolean } | undefined;
+      const overData = event.over?.data.current as
+        | { panelId?: string; direction?: DropDirection; isEdgeDrop?: boolean }
+        | undefined;
       if (overData?.isEdgeDrop && overData.panelId && overData.direction) {
         const toPanelId = overData.panelId;
         const direction = overData.direction;
@@ -394,7 +408,11 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
           // Self-drop: split this panel in the given direction
           void dispatch({
             type: 'panel.split',
-            payload: { panelId: fromPanelId, direction: direction === 'left' || direction === 'right' ? 'horizontal' : 'vertical', newPanelType: 'terminal' },
+            payload: {
+              panelId: fromPanelId,
+              direction: direction === 'left' || direction === 'right' ? 'horizontal' : 'vertical',
+              newPanelType: 'terminal',
+            },
           });
         } else {
           // Cross-panel: move panel to the target's edge
@@ -476,7 +494,7 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
               }}
             >
               <span style={{ color: '#0091FF' }}>{'\u2630'}</span>
-              {draggedSurface?.title ?? draggedPanel.panelType}
+              {draggedSurface?.label || (draggedSurface?.title ?? draggedPanel.panelType)}
             </div>
             {/* Content placeholder with terminal-like lines */}
             <div
@@ -489,10 +507,18 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
                 gap: '4px',
               }}
             >
-              <div style={{ height: '8px', width: '60%', background: '#333', borderRadius: '4px' }} />
-              <div style={{ height: '8px', width: '80%', background: '#2a2a2a', borderRadius: '4px' }} />
-              <div style={{ height: '8px', width: '45%', background: '#333', borderRadius: '4px' }} />
-              <div style={{ height: '8px', width: '70%', background: '#2a2a2a', borderRadius: '4px' }} />
+              <div
+                style={{ height: '8px', width: '60%', background: '#333', borderRadius: '4px' }}
+              />
+              <div
+                style={{ height: '8px', width: '80%', background: '#2a2a2a', borderRadius: '4px' }}
+              />
+              <div
+                style={{ height: '8px', width: '45%', background: '#333', borderRadius: '4px' }}
+              />
+              <div
+                style={{ height: '8px', width: '70%', background: '#2a2a2a', borderRadius: '4px' }}
+              />
             </div>
           </div>
         ) : null}

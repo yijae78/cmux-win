@@ -81,6 +81,7 @@ export const SurfaceUpdateMetaAction = z.object({
   payload: z.object({
     surfaceId: z.string(),
     title: z.string().optional(),
+    label: z.string().optional(),
     pendingCommand: z.string().nullable().optional(),
     terminal: z
       .object({

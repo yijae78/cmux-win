@@ -59,6 +59,7 @@ export interface SurfaceState {
   panelId: string;
   surfaceType: 'terminal' | 'browser' | 'markdown';
   title: string;
+  label?: string; // 사용자 지정 라벨 — 설정 시 title 대신 표시
   terminal?: {
     pid: number;
     cwd: string;

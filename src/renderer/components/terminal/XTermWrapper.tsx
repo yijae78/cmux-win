@@ -184,17 +184,16 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
     });
     terminalRef.current = terminal;
 
-    // Copy/Paste: Ctrl+Shift+C/V and right-click copy
+    // Copy: Ctrl+Shift+C (Paste is handled natively by xterm.js)
+    // Shift+Enter: send kitty keyboard protocol sequence for newline (not submit)
     terminal.attachCustomKeyEventHandler((e) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         const sel = terminal.getSelection();
         if (sel) navigator.clipboard.writeText(sel);
         return false;
       }
-      if (e.ctrlKey && e.shiftKey && e.key === 'V') {
-        navigator.clipboard.readText().then((text) => {
-          if (text) window.ptyBridge?.write(surfaceId, text);
-        });
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
+        window.ptyBridge?.write(surfaceId, '\x1b[13;2u');
         return false;
       }
       return true;
@@ -216,6 +215,21 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
     // Open terminal into DOM
     terminal.open(container);
+
+    // Fix: intercept paste in capture phase to prevent xterm.js duplicate
+    // (xterm registers paste on both textarea AND element, causing double paste)
+    container.addEventListener(
+      'paste',
+      (e: ClipboardEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const text = e.clipboardData?.getData('text/plain') || '';
+        if (text) {
+          window.ptyBridge?.write(surfaceId, text);
+        }
+      },
+      true,
+    );
 
     // L5: Ctrl+Click link detection — open URLs and file paths
     terminal.registerLinkProvider({

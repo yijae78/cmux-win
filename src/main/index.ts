@@ -81,6 +81,9 @@ import { TelegramBotService } from './notifications/telegram-bot';
 import { loadBotToken } from './notifications/telegram-token-store';
 import { BridgeWatcher } from './bridge-watcher';
 
+// Module-level bridgeWatcher — initialized inside whenReady, used in before-quit
+let bridgeWatcher: BridgeWatcher | null = null;
+
 // ---------------------------------------------------------------------------
 // 1. Load persisted state (BUG-14: clear windows for fresh session)
 // ---------------------------------------------------------------------------
@@ -485,7 +488,7 @@ app.whenReady().then(async () => {
   });
 
   // Cowork Bridge Watcher initialization
-  const bridgeWatcher = new BridgeWatcher(store);
+  bridgeWatcher = new BridgeWatcher(store);
   if (store.getState().settings.bridge.enabled) {
     bridgeWatcher.start();
   }
@@ -722,7 +725,7 @@ store.on('change', (action: { type?: string; payload?: { surfaceId?: string } })
 app.on('before-quit', () => {
   // C3: Stop Telegram bot polling BEFORE quit to prevent process hang
   telegramBot.stop();
-  bridgeWatcher.stop();
+  bridgeWatcher?.stop();
 
   // 토큰 파일 삭제 (stale token 방지)
   try {

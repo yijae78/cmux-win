@@ -654,6 +654,7 @@ export class AppStateStore extends EventEmitter {
         const surface = draft.surfaces.find((s) => s.id === action.payload.surfaceId);
         if (!surface) break;
         if (action.payload.title !== undefined) surface.title = action.payload.title;
+        if (action.payload.label !== undefined) surface.label = action.payload.label || undefined;
         if (action.payload.pendingCommand !== undefined) {
           surface.pendingCommand = action.payload.pendingCommand ?? undefined;
         }

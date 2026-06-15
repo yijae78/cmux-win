@@ -162,17 +162,19 @@ const PanelTabBar: FC<PanelTabBarProps> = ({
             display: 'flex',
             alignItems: 'center',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = TEXT_SELECTED; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = isZoomed ? ACCENT : TEXT_INACTIVE; }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = TEXT_SELECTED;
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = isZoomed ? ACCENT : TEXT_INACTIVE;
+          }}
         >
           {isZoomed ? '\u2750' : '\u2752'}
         </button>
       )}
 
       {/* Close panel button */}
-      {onPanelClose && (
-        <PanelCloseButton onClick={onPanelClose} />
-      )}
+      {onPanelClose && <PanelCloseButton onClick={onPanelClose} />}
     </div>
   );
 };
@@ -213,7 +215,9 @@ const TabItem: FC<TabItemProps> = ({ surface, isActive, onFocus, onClose }) => {
         position: 'relative',
       }}
     >
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>{surface.title}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
+        {surface.label || surface.title}
+      </span>
 
       {/* Close button (x) — always accessible, flexShrink 0 */}
       <span
@@ -298,7 +302,7 @@ interface SplitButtonProps {
   onClick: () => void;
 }
 
-const SplitButton: FC<SplitButtonProps> = ({ icon, label, tooltip, onClick }) => {
+const SplitButton: FC<SplitButtonProps> = ({ icon, tooltip, onClick }) => {
   const [hovered, setHovered] = useState(false);
 
   return (

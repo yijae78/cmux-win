@@ -71,6 +71,18 @@ export function registerSurfaceHandlers(router: JsonRpcRouter, store: AppStateSt
     return { ok: true };
   });
 
+  // surface.rename — set custom label (displayed instead of terminal title)
+  router.register('surface.rename', (params) => {
+    const p = params as { surfaceId: string; label: string };
+    if (!p?.surfaceId) throw new Error('surfaceId is required');
+    if (p.label === undefined) throw new Error('label is required');
+    store.dispatch({
+      type: 'surface.update_meta',
+      payload: { surfaceId: p.surfaceId, label: p.label },
+    });
+    return { ok: true };
+  });
+
   // R6: surface.read — read scrollback content (used by tmux capture-pane)
   // BUG-D fix: prefer live PTY buffer (real-time) over scrollbackStore (30s stale).
   router.register('surface.read', (params) => {
