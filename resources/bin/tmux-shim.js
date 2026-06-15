@@ -201,8 +201,12 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
             if (swAutoPanels.length === 1) {
               surfaceId = swAutoPanels[0].activeSurfaceId;
             } else if (swAutoPanels.length > 1) {
-              // No target specified and multiple panels — use first panel as default
-              surfaceId = swAutoPanels[0].activeSurfaceId;
+              // Master 패널 분할 방지: Master label이 있는 패널은 건너뛰고 다른 패널 선택
+              const surfResult0 = await rpcCall('surface.list', {});
+              const surfList0 = surfResult0?.surfaces || [];
+              const masterPanelIds = new Set(surfList0.filter(s => s.label === 'Master').map(s => s.panelId));
+              const nonMaster = swAutoPanels.find(p => !masterPanelIds.has(p.id));
+              surfaceId = (nonMaster || swAutoPanels[0]).activeSurfaceId;
             } else {
               process.stderr.write('No panels found\n');
               process.exit(1);

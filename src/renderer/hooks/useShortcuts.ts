@@ -164,6 +164,9 @@ export function useShortcuts(
         case 'closeWindow':
           window.cmuxWin?.close();
           break;
+        case 'reloadApp':
+          window.location.reload();
+          break;
       }
     });
 

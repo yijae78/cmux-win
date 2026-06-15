@@ -20,7 +20,6 @@ import { useTranslation } from 'react-i18next';
 import { useAppState } from './hooks/useAppState';
 import { useDispatch } from './hooks/useDispatch';
 import { useShortcuts } from './hooks/useShortcuts';
-import FileExplorer from './components/explorer/FileExplorer';
 import type { AppState } from '../shared/types';
 import { DEFAULT_SETTINGS } from '../shared/constants';
 import { collectLeafIds, rebuildEqualLayout } from '../shared/panel-layout-utils';
@@ -217,14 +216,29 @@ export default function App() {
       settings: appState.settings,
       workspaceId: activeWsId || '',
       dispatch,
-      onPanelFocus: (id: string) => void dispatch({ type: 'panel.focus', payload: { panelId: id } }),
-      onSurfaceFocus: (id: string) => void dispatch({ type: 'surface.focus', payload: { surfaceId: id } }),
-      onSurfaceClose: (id: string) => void dispatch({ type: 'surface.close', payload: { surfaceId: id } }),
-      onNewSurface: (id: string) => void dispatch({ type: 'surface.create', payload: { panelId: id, surfaceType: 'terminal' } }),
+      onPanelFocus: (id: string) =>
+        void dispatch({ type: 'panel.focus', payload: { panelId: id } }),
+      onSurfaceFocus: (id: string) =>
+        void dispatch({ type: 'surface.focus', payload: { surfaceId: id } }),
+      onSurfaceClose: (id: string) =>
+        void dispatch({ type: 'surface.close', payload: { surfaceId: id } }),
+      onNewSurface: (id: string) =>
+        void dispatch({
+          type: 'surface.create',
+          payload: { panelId: id, surfaceType: 'terminal' },
+        }),
       onEqualizeH: () => equalizeLayout('horizontal'),
       onEqualizeV: () => equalizeLayout('vertical'),
-      onBrowserUrlChange: (sid: string, u: string) => void dispatch({ type: 'surface.update_meta', payload: { surfaceId: sid, browser: { url: u } } }),
-      onBrowserTitleChange: (sid: string, titleVal: string) => void dispatch({ type: 'surface.update_meta', payload: { surfaceId: sid, title: titleVal } }),
+      onBrowserUrlChange: (sid: string, u: string) =>
+        void dispatch({
+          type: 'surface.update_meta',
+          payload: { surfaceId: sid, browser: { url: u } },
+        }),
+      onBrowserTitleChange: (sid: string, titleVal: string) =>
+        void dispatch({
+          type: 'surface.update_meta',
+          payload: { surfaceId: sid, title: titleVal },
+        }),
     };
   }, [appState, activeWsId, dispatch, equalizeLayout]);
 
@@ -301,8 +315,14 @@ export default function App() {
               flexShrink: 0,
               padding: '38px 0 0 0',
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#0091FF'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1e1e1e'; (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = '#0091FF';
+              (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = '#1e1e1e';
+              (e.currentTarget as HTMLButtonElement).style.color = '#888';
+            }}
           >
             ▶
           </button>
@@ -319,86 +339,99 @@ export default function App() {
           }}
         >
           <div style={{ position: 'absolute', top: 0, left: 0, width: '200px', height: '100%' }}>
-          <Sidebar
-            workspaces={orderedWorkspaces}
-            activeWorkspaceId={activeWsId}
-            agents={appState.agents}
-            notifications={appState.notifications}
-            surfaces={appState.surfaces}
-            panels={appState.panels}
-            windowId={windowId}
-            dispatch={dispatch}
-            explorerVisible={explorerVisible}
-            explorerRootPath={explorerRootPath}
-            openedProjects={openedProjects}
-            onProjectSelect={(path) => setExplorerRootPath(path)}
-            onExplorerNavigate={(dirPath) => {
-              const surfaceId = appState?.focus.activeSurfaceId;
-              if (surfaceId) {
-                void dispatch({
-                  type: 'surface.send_text',
-                  payload: { surfaceId, text: `cd "${dirPath.replace(/\\/g, '/')}"\r` },
-                });
-              }
-            }}
-            onFileOpen={(filePath) => {
-              if (filePath.endsWith('.md')) {
-                const activePanelId = appState?.focus.activePanelId;
-                if (activePanelId) {
-                  void dispatch({
-                    type: 'panel.split',
-                    payload: { panelId: activePanelId, direction: 'horizontal', newPanelType: 'markdown', filePath },
-                  });
-                }
-              }
-            }}
-            onExplorerOpenFolder={async () => {
-              if (!window.cmuxFile?.openFolderDialog) return;
-              const result = await window.cmuxFile.openFolderDialog();
-              if ('path' in result) {
-                const folderPath = result.path;
-                setExplorerRootPath(folderPath);
-                setExplorerVisible(true);
-                setOpenedProjects((prev) =>
-                  prev.includes(folderPath) ? prev : [...prev, folderPath],
-                );
+            <Sidebar
+              workspaces={orderedWorkspaces}
+              activeWorkspaceId={activeWsId}
+              agents={appState.agents}
+              notifications={appState.notifications}
+              surfaces={appState.surfaces}
+              panels={appState.panels}
+              windowId={windowId}
+              dispatch={dispatch}
+              explorerVisible={explorerVisible}
+              explorerRootPath={explorerRootPath}
+              openedProjects={openedProjects}
+              onProjectSelect={(path) => setExplorerRootPath(path)}
+              onExplorerNavigate={(dirPath) => {
                 const surfaceId = appState?.focus.activeSurfaceId;
                 if (surfaceId) {
                   void dispatch({
                     type: 'surface.send_text',
-                    payload: { surfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                    payload: { surfaceId, text: `cd "${dirPath.replace(/\\/g, '/')}"\r` },
                   });
-                  if (!firstFolderOpened) {
-                    setFirstFolderOpened(true);
-                    autoLaunchTimerRef.current = setTimeout(() => {
-                      void dispatch({
-                        type: 'surface.send_text',
-                        payload: { surfaceId, text: 'claude\r' },
-                      });
-                    }, 500);
+                }
+              }}
+              onFileOpen={(filePath) => {
+                if (filePath.endsWith('.md')) {
+                  const activePanelId = appState?.focus.activePanelId;
+                  if (activePanelId) {
+                    void dispatch({
+                      type: 'panel.split',
+                      payload: {
+                        panelId: activePanelId,
+                        direction: 'horizontal',
+                        newPanelType: 'markdown',
+                        filePath,
+                      },
+                    });
                   }
                 }
-              }
-            }}
-            onOpenClaudeWeb={(url: string) => {
-              const activePanelId = appState?.focus.activePanelId;
-              if (activePanelId) {
-                void dispatch({
-                  type: 'panel.split',
-                  payload: { panelId: activePanelId, direction: 'horizontal', newPanelType: 'browser', url },
-                });
-              }
-            }}
-            onEqualizeH={() => equalizeLayout('horizontal')}
-            onEqualizeV={() => equalizeLayout('vertical')}
-            onTogglePanels={toggleSidebar}
-            panelsCollapsed={!sidebarVisible}
-          />
+              }}
+              onExplorerOpenFolder={async () => {
+                if (!window.cmuxFile?.openFolderDialog) return;
+                const result = await window.cmuxFile.openFolderDialog();
+                if ('path' in result) {
+                  const folderPath = result.path;
+                  setExplorerRootPath(folderPath);
+                  setExplorerVisible(true);
+                  setOpenedProjects((prev) =>
+                    prev.includes(folderPath) ? prev : [...prev, folderPath],
+                  );
+                  const surfaceId = appState?.focus.activeSurfaceId;
+                  if (surfaceId) {
+                    void dispatch({
+                      type: 'surface.send_text',
+                      payload: { surfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
+                    });
+                    if (!firstFolderOpened) {
+                      setFirstFolderOpened(true);
+                      autoLaunchTimerRef.current = setTimeout(() => {
+                        void dispatch({
+                          type: 'surface.send_text',
+                          payload: { surfaceId, text: 'claude\r' },
+                        });
+                      }, 500);
+                    }
+                  }
+                }
+              }}
+              onOpenClaudeWeb={(url: string) => {
+                const activePanelId = appState?.focus.activePanelId;
+                if (activePanelId) {
+                  void dispatch({
+                    type: 'panel.split',
+                    payload: {
+                      panelId: activePanelId,
+                      direction: 'horizontal',
+                      newPanelType: 'browser',
+                      url,
+                    },
+                  });
+                }
+              }}
+              onEqualizeH={() => equalizeLayout('horizontal')}
+              onEqualizeV={() => equalizeLayout('vertical')}
+              onTogglePanels={toggleSidebar}
+              panelsCollapsed={!sidebarVisible}
+            />
           </div>
         </div>
 
         {/* Workspace content area: titlebar + panels */}
-        <div role="main" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div
+          role="main"
+          style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+        >
           {/* Custom titlebar — window drag region */}
           <div
             style={{
@@ -463,6 +496,36 @@ export default function App() {
                   WebkitAppRegion: 'no-drag' as unknown as string,
                 }}
               >
+                {/* Reload */}
+                <button
+                  onClick={() => window.location.reload()}
+                  aria-label="Reload app"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#999',
+                    fontSize: '14px',
+                    width: '46px',
+                    height: '32px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'Segoe Fluent Icons, Segoe MDL2 Assets, sans-serif',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      'rgba(255,255,255,0.08)';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#fff';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#999';
+                  }}
+                  title="Reload (Ctrl+Shift+F5)"
+                >
+                  &#xE72C;
+                </button>
                 {/* Minimize */}
                 <button
                   onClick={() => window.cmuxWin.minimize()}
@@ -481,7 +544,8 @@ export default function App() {
                     fontFamily: 'Segoe Fluent Icons, Segoe MDL2 Assets, sans-serif',
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)';
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      'rgba(255,255,255,0.08)';
                     (e.currentTarget as HTMLButtonElement).style.color = '#fff';
                   }}
                   onMouseLeave={(e) => {
@@ -510,7 +574,8 @@ export default function App() {
                     fontFamily: 'Segoe Fluent Icons, Segoe MDL2 Assets, sans-serif',
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)';
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      'rgba(255,255,255,0.08)';
                     (e.currentTarget as HTMLButtonElement).style.color = '#fff';
                   }}
                   onMouseLeave={(e) => {
@@ -555,7 +620,13 @@ export default function App() {
           </div>
 
           {/* Panel content — collapsible with Ctrl+` */}
-          <div style={{ flex: panelsCollapsed ? 0 : 1, overflow: 'hidden', display: panelsCollapsed ? 'none' : undefined }}>
+          <div
+            style={{
+              flex: panelsCollapsed ? 0 : 1,
+              overflow: 'hidden',
+              display: panelsCollapsed ? 'none' : undefined,
+            }}
+          >
             {activeWs && wsPanels.length === 0 ? (
               /* Workspace exists but all panels closed — show new terminal button */
               <div
@@ -602,135 +673,143 @@ export default function App() {
               </div>
             ) : activeWs && panelContextValue ? (
               <PanelContext.Provider value={panelContextValue}>
-              {zoomedPanel ? (
-                <PanelContainer
-                  panel={zoomedPanel}
-                  surfaces={appState.surfaces}
-                  settings={appState.settings}
-                  isActive={true}
-                  workspaceId={activeWsId || ''}
-                  onFocus={(id) => void dispatch({ type: 'panel.focus', payload: { panelId: id } })}
-                  onSurfaceFocus={(id) =>
-                    void dispatch({ type: 'surface.focus', payload: { surfaceId: id } })
-                  }
-                  onSurfaceClose={(id) =>
-                    void dispatch({ type: 'surface.close', payload: { surfaceId: id } })
-                  }
-                  onNewSurface={(id) =>
-                    void dispatch({
-                      type: 'surface.create',
-                      payload: { panelId: id, surfaceType: 'terminal' },
-                    })
-                  }
-                  onOpenFolder={async (targetSurfaceId: string) => {
-                    if (!window.cmuxFile?.openFolderDialog) return;
-                    const result = await window.cmuxFile.openFolderDialog();
-                    if ('path' in result) {
-                      const folderPath = result.path;
-                      setExplorerRootPath(folderPath);
-                      setExplorerVisible(true);
-                      setOpenedProjects((prev) =>
-                        prev.includes(folderPath) ? prev : [...prev, folderPath],
-                      );
-                      void dispatch({
-                        type: 'surface.send_text',
-                        payload: { surfaceId: targetSurfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
-                      });
-                      if (!firstFolderOpened) {
-                        setFirstFolderOpened(true);
-                        autoLaunchTimerRef.current = setTimeout(() => {
-                          void dispatch({
-                            type: 'surface.send_text',
-                            payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
-                          });
-                        }, 500);
-                      }
+                {zoomedPanel ? (
+                  <PanelContainer
+                    panel={zoomedPanel}
+                    surfaces={appState.surfaces}
+                    settings={appState.settings}
+                    isActive={true}
+                    workspaceId={activeWsId || ''}
+                    onFocus={(id) =>
+                      void dispatch({ type: 'panel.focus', payload: { panelId: id } })
                     }
-                  }}
-                  onEqualizeH={() => equalizeLayout('horizontal')}
-                  onEqualizeV={() => equalizeLayout('vertical')}
-                  onBrowserUrlChange={(sid, u) =>
-                    void dispatch({
-                      type: 'surface.update_meta',
-                      payload: { surfaceId: sid, browser: { url: u } },
-                    })
-                  }
-                  onBrowserTitleChange={(sid, titleVal) =>
-                    void dispatch({
-                      type: 'surface.update_meta',
-                      payload: { surfaceId: sid, title: titleVal },
-                    })
-                  }
-                  dispatch={dispatch}
-                />
-              ) : (
-                <PanelLayout
-                  layout={activeWs.panelLayout}
-                  panels={wsPanels}
-                  surfaces={appState.surfaces}
-                  activePanelId={appState.focus.activePanelId}
-                  settings={appState.settings}
-                  workspaceId={activeWsId || ''}
-                  onPanelFocus={(id) =>
-                    void dispatch({ type: 'panel.focus', payload: { panelId: id } })
-                  }
-                  onResize={(id, ratio) =>
-                    void dispatch({ type: 'panel.resize', payload: { panelId: id, ratio } })
-                  }
-                  onSurfaceFocus={(id) =>
-                    void dispatch({ type: 'surface.focus', payload: { surfaceId: id } })
-                  }
-                  onSurfaceClose={(id) =>
-                    void dispatch({ type: 'surface.close', payload: { surfaceId: id } })
-                  }
-                  onNewSurface={(id) =>
-                    void dispatch({
-                      type: 'surface.create',
-                      payload: { panelId: id, surfaceType: 'terminal' },
-                    })
-                  }
-                  onOpenFolder={async (targetSurfaceId: string) => {
-                    if (!window.cmuxFile?.openFolderDialog) return;
-                    const result = await window.cmuxFile.openFolderDialog();
-                    if ('path' in result) {
-                      const folderPath = result.path;
-                      setExplorerRootPath(folderPath);
-                      setExplorerVisible(true);
-                      setOpenedProjects((prev) =>
-                        prev.includes(folderPath) ? prev : [...prev, folderPath],
-                      );
-                      void dispatch({
-                        type: 'surface.send_text',
-                        payload: { surfaceId: targetSurfaceId, text: `cd "${folderPath.replace(/\\/g, '/')}"\r` },
-                      });
-                      if (!firstFolderOpened) {
-                        setFirstFolderOpened(true);
-                        autoLaunchTimerRef.current = setTimeout(() => {
-                          void dispatch({
-                            type: 'surface.send_text',
-                            payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
-                          });
-                        }, 500);
-                      }
+                    onSurfaceFocus={(id) =>
+                      void dispatch({ type: 'surface.focus', payload: { surfaceId: id } })
                     }
-                  }}
-                  onEqualizeH={() => equalizeLayout('horizontal')}
-                  onEqualizeV={() => equalizeLayout('vertical')}
-                  onBrowserUrlChange={(sid, u) =>
-                    void dispatch({
-                      type: 'surface.update_meta',
-                      payload: { surfaceId: sid, browser: { url: u } },
-                    })
-                  }
-                  onBrowserTitleChange={(sid, titleVal) =>
-                    void dispatch({
-                      type: 'surface.update_meta',
-                      payload: { surfaceId: sid, title: titleVal },
-                    })
-                  }
-                  dispatch={dispatch}
-                />
-              )}
+                    onSurfaceClose={(id) =>
+                      void dispatch({ type: 'surface.close', payload: { surfaceId: id } })
+                    }
+                    onNewSurface={(id) =>
+                      void dispatch({
+                        type: 'surface.create',
+                        payload: { panelId: id, surfaceType: 'terminal' },
+                      })
+                    }
+                    onOpenFolder={async (targetSurfaceId: string) => {
+                      if (!window.cmuxFile?.openFolderDialog) return;
+                      const result = await window.cmuxFile.openFolderDialog();
+                      if ('path' in result) {
+                        const folderPath = result.path;
+                        setExplorerRootPath(folderPath);
+                        setExplorerVisible(true);
+                        setOpenedProjects((prev) =>
+                          prev.includes(folderPath) ? prev : [...prev, folderPath],
+                        );
+                        void dispatch({
+                          type: 'surface.send_text',
+                          payload: {
+                            surfaceId: targetSurfaceId,
+                            text: `cd "${folderPath.replace(/\\/g, '/')}"\r`,
+                          },
+                        });
+                        if (!firstFolderOpened) {
+                          setFirstFolderOpened(true);
+                          autoLaunchTimerRef.current = setTimeout(() => {
+                            void dispatch({
+                              type: 'surface.send_text',
+                              payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
+                            });
+                          }, 500);
+                        }
+                      }
+                    }}
+                    onEqualizeH={() => equalizeLayout('horizontal')}
+                    onEqualizeV={() => equalizeLayout('vertical')}
+                    onBrowserUrlChange={(sid, u) =>
+                      void dispatch({
+                        type: 'surface.update_meta',
+                        payload: { surfaceId: sid, browser: { url: u } },
+                      })
+                    }
+                    onBrowserTitleChange={(sid, titleVal) =>
+                      void dispatch({
+                        type: 'surface.update_meta',
+                        payload: { surfaceId: sid, title: titleVal },
+                      })
+                    }
+                    dispatch={dispatch}
+                  />
+                ) : (
+                  <PanelLayout
+                    layout={activeWs.panelLayout}
+                    panels={wsPanels}
+                    surfaces={appState.surfaces}
+                    activePanelId={appState.focus.activePanelId}
+                    settings={appState.settings}
+                    workspaceId={activeWsId || ''}
+                    onPanelFocus={(id) =>
+                      void dispatch({ type: 'panel.focus', payload: { panelId: id } })
+                    }
+                    onResize={(id, ratio) =>
+                      void dispatch({ type: 'panel.resize', payload: { panelId: id, ratio } })
+                    }
+                    onSurfaceFocus={(id) =>
+                      void dispatch({ type: 'surface.focus', payload: { surfaceId: id } })
+                    }
+                    onSurfaceClose={(id) =>
+                      void dispatch({ type: 'surface.close', payload: { surfaceId: id } })
+                    }
+                    onNewSurface={(id) =>
+                      void dispatch({
+                        type: 'surface.create',
+                        payload: { panelId: id, surfaceType: 'terminal' },
+                      })
+                    }
+                    onOpenFolder={async (targetSurfaceId: string) => {
+                      if (!window.cmuxFile?.openFolderDialog) return;
+                      const result = await window.cmuxFile.openFolderDialog();
+                      if ('path' in result) {
+                        const folderPath = result.path;
+                        setExplorerRootPath(folderPath);
+                        setExplorerVisible(true);
+                        setOpenedProjects((prev) =>
+                          prev.includes(folderPath) ? prev : [...prev, folderPath],
+                        );
+                        void dispatch({
+                          type: 'surface.send_text',
+                          payload: {
+                            surfaceId: targetSurfaceId,
+                            text: `cd "${folderPath.replace(/\\/g, '/')}"\r`,
+                          },
+                        });
+                        if (!firstFolderOpened) {
+                          setFirstFolderOpened(true);
+                          autoLaunchTimerRef.current = setTimeout(() => {
+                            void dispatch({
+                              type: 'surface.send_text',
+                              payload: { surfaceId: targetSurfaceId, text: 'claude\r' },
+                            });
+                          }, 500);
+                        }
+                      }
+                    }}
+                    onEqualizeH={() => equalizeLayout('horizontal')}
+                    onEqualizeV={() => equalizeLayout('vertical')}
+                    onBrowserUrlChange={(sid, u) =>
+                      void dispatch({
+                        type: 'surface.update_meta',
+                        payload: { surfaceId: sid, browser: { url: u } },
+                      })
+                    }
+                    onBrowserTitleChange={(sid, titleVal) =>
+                      void dispatch({
+                        type: 'surface.update_meta',
+                        payload: { surfaceId: sid, title: titleVal },
+                      })
+                    }
+                    dispatch={dispatch}
+                  />
+                )}
               </PanelContext.Provider>
             ) : (
               <div
@@ -784,10 +863,18 @@ export default function App() {
             else if (id === 'equalizeVertical') equalizeLayout('vertical');
             else if (id === 'splitRight') {
               const pid = appState?.focus.activePanelId;
-              if (pid) void dispatch({ type: 'panel.split', payload: { panelId: pid, direction: 'horizontal', newPanelType: 'terminal' } });
+              if (pid)
+                void dispatch({
+                  type: 'panel.split',
+                  payload: { panelId: pid, direction: 'horizontal', newPanelType: 'terminal' },
+                });
             } else if (id === 'splitDown') {
               const pid = appState?.focus.activePanelId;
-              if (pid) void dispatch({ type: 'panel.split', payload: { panelId: pid, direction: 'vertical', newPanelType: 'terminal' } });
+              if (pid)
+                void dispatch({
+                  type: 'panel.split',
+                  payload: { panelId: pid, direction: 'vertical', newPanelType: 'terminal' },
+                });
             } else if (id === 'closePanel') {
               const pid = appState?.focus.activePanelId;
               if (pid) void dispatch({ type: 'panel.close', payload: { panelId: pid } });

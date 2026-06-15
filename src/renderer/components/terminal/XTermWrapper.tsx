@@ -184,14 +184,37 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
     });
     terminalRef.current = terminal;
 
-    // Copy: Ctrl+Shift+C (Paste is handled natively by xterm.js)
-    // Shift+Enter: send kitty keyboard protocol sequence for newline (not submit)
+    // Clipboard & special key handling
     terminal.attachCustomKeyEventHandler((e) => {
+      // Ctrl+C: copy selection if text is selected, else send SIGINT
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === 'c' && e.type === 'keydown') {
+        const sel = terminal.getSelection();
+        if (sel) {
+          navigator.clipboard.writeText(sel);
+          terminal.clearSelection();
+          return false; // block SIGINT — user wanted copy
+        }
+        return true; // no selection → normal SIGINT
+      }
+      // Ctrl+Shift+C: always copy selection
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         const sel = terminal.getSelection();
         if (sel) navigator.clipboard.writeText(sel);
         return false;
       }
+      // Ctrl+V: paste from clipboard into PTY
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === 'v' && e.type === 'keydown') {
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) window.ptyBridge?.write(surfaceId, text);
+          })
+          .catch(() => {
+            /* clipboard permission denied — silent */
+          });
+        return false; // block xterm from sending Ctrl+V control char (ASCII 22)
+      }
+      // Shift+Enter: send kitty keyboard protocol sequence for newline (not submit)
       if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
         window.ptyBridge?.write(surfaceId, '\x1b[13;2u');
         return false;
