@@ -5,7 +5,7 @@
  * Uses scoped @xterm packages (BUG-7 fix) and separate useEffect for font changes (BUG-13 fix).
  */
 import React from 'react';
-import { useRef, useEffect, type FC } from 'react';
+import { useRef, useEffect, useLayoutEffect, type FC } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { FitAddon } from '@xterm/addon-fit';
@@ -152,145 +152,208 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
   dispatchRef.current = dispatch;
   // F2-FIX: track PTY listener disposers to prevent leak on workspace switch
   const ptyListenerDisposersRef = useRef<Array<{ dispose: () => void }>>([]);
+  // DnD-safe: track OSC handler disposers for cleanup on surfaceId change
+  const oscDisposersRef = useRef<Array<{ dispose: () => void }>>([]);
+  // DnD-safe: surfaceIdRef always has current surfaceId for callbacks
+  const surfaceIdRef = useRef(surfaceId);
+  surfaceIdRef.current = surfaceId;
+  // DnD-safe: ResizeObserver + timer refs survive surfaceId changes
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // DnD-safe: track mount state — useLayoutEffect cleanup runs BEFORE useEffect cleanup
+  const mountedRef = useRef(true);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // -----------------------------------------------------------------------
-  // Main effect: create terminal + PTY on mount / surfaceId change
+  // Main effect: create terminal + connect PTY.
+  // DnD-safe: terminal is created ONCE (first mount). On surfaceId change
+  // (panel.swap), only PTY listeners are rewired — terminal object and its
+  // WebGL context survive, preventing black-screen crashes.
   // -----------------------------------------------------------------------
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Resolve theme: explicit theme prop > themeName lookup > undefined
-    const resolvedTheme = theme ?? (themeName ? BUNDLED_THEMES[themeName] : undefined);
+    let terminal = terminalRef.current;
+    const isFirstMount = !terminal;
 
-    // Create xterm.js Terminal
-    const terminal = new Terminal({
-      fontSize,
-      fontFamily,
-      cursorStyle,
-      theme: resolvedTheme as Record<string, string> | undefined,
-      allowProposedApi: true,
-      screenReaderMode,
-      rightClickSelectsWord: true,
-    });
-    terminalRef.current = terminal;
+    if (isFirstMount) {
+      // =================================================================
+      // FIRST MOUNT: Create terminal, addons, keyboard handlers, WebGL
+      // =================================================================
+      const resolvedTheme = theme ?? (themeName ? BUNDLED_THEMES[themeName] : undefined);
 
-    // Copy/Paste: Ctrl+Shift+C/V and right-click copy
-    terminal.attachCustomKeyEventHandler((e) => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-        const sel = terminal.getSelection();
-        if (sel) navigator.clipboard.writeText(sel);
-        return false;
-      }
-      if (e.ctrlKey && e.shiftKey && e.key === 'V') {
-        navigator.clipboard.readText().then((text) => {
-          if (text) window.ptyBridge?.write(surfaceId, text);
-        });
-        return false;
-      }
-      return true;
-    });
-
-    // Right-click → copy selection to clipboard
-    containerRef.current?.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const sel = terminal.getSelection();
-      if (sel) {
-        navigator.clipboard.writeText(sel);
-      }
-    });
-
-    // Load FitAddon
-    const fitAddon = new FitAddon();
-    fitAddonRef.current = fitAddon;
-    terminal.loadAddon(fitAddon);
-
-    // Open terminal into DOM
-    terminal.open(container);
-
-    // L5: Ctrl+Click link detection — open URLs and file paths
-    terminal.registerLinkProvider({
-      provideLinks(lineNumber: number, callback: (links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> | undefined) => void) {
-        const line = terminal.buffer.active.getLine(lineNumber - 1);
-        if (!line) { callback(undefined); return; }
-        const text = line.translateToString(true);
-        const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> = [];
-
-        // URL pattern
-        const urlRe = /https?:\/\/[^\s)\]>'"]+/g;
-        let m;
-        while ((m = urlRe.exec(text)) !== null) {
-          const sx = m.index;
-          links.push({
-            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
-            text: m[0],
-            activate(_e, t) { window.cmuxWin?.openExternal?.(t); },
-          });
-        }
-
-        // File path pattern: C:\... or /... or ./...
-        const fileRe = /(?:[A-Z]:\\|\/|\.\/)[^\s:]+(?::\d+)?/gi;
-        while ((m = fileRe.exec(text)) !== null) {
-          if (text.slice(m.index).match(/^https?:\/\//)) continue; // skip URLs
-          const sx = m.index;
-          links.push({
-            range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
-            text: m[0],
-            activate(_e, t) { window.cmuxWin?.openPath?.(t); },
-          });
-        }
-
-        callback(links.length > 0 ? links : undefined);
-      },
-    });
-
-    // Try loading WebGL addon with contextLoss fallback
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose();
+      terminal = new Terminal({
+        fontSize,
+        fontFamily,
+        cursorStyle,
+        theme: resolvedTheme as Record<string, string> | undefined,
+        allowProposedApi: true,
+        screenReaderMode,
+        rightClickSelectsWord: true,
       });
-      terminal.loadAddon(webglAddon);
-    } catch {
-      // WebGL not available — fall back to canvas renderer (default)
+      terminalRef.current = terminal;
+
+      // Copy/Paste: uses surfaceIdRef.current so it always targets current PTY
+      terminal.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+
+        if (e.ctrlKey && !e.shiftKey && e.key === 'c') {
+          const sel = terminal!.getSelection();
+          if (sel) {
+            navigator.clipboard.writeText(sel);
+            terminal!.clearSelection();
+            return false;
+          }
+          return true;
+        }
+
+        if (e.ctrlKey && !e.shiftKey && e.key === 'v') {
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              const normalized = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+              window.ptyBridge?.write(surfaceIdRef.current, `\x1b[200~${normalized}\x1b[201~`);
+            }
+          });
+          return false;
+        }
+
+        if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+          const sel = terminal!.getSelection();
+          if (sel) navigator.clipboard.writeText(sel);
+          return false;
+        }
+        if (e.ctrlKey && e.shiftKey && e.key === 'V') {
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              const normalized = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+              window.ptyBridge?.write(surfaceIdRef.current, `\x1b[200~${normalized}\x1b[201~`);
+            }
+          });
+          return false;
+        }
+        return true;
+      });
+
+      container.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const sel = terminal!.getSelection();
+        if (sel) navigator.clipboard.writeText(sel);
+      });
+
+      const fitAddon = new FitAddon();
+      fitAddonRef.current = fitAddon;
+      terminal.loadAddon(fitAddon);
+
+      terminal.open(container);
+
+      // L5: Ctrl+Click link detection
+      terminal.registerLinkProvider({
+        provideLinks(lineNumber: number, callback: (links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> | undefined) => void) {
+          const line = terminal!.buffer.active.getLine(lineNumber - 1);
+          if (!line) { callback(undefined); return; }
+          const text = line.translateToString(true);
+          const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }> = [];
+
+          const urlRe = /https?:\/\/[^\s)\]>'"]+/g;
+          let m;
+          while ((m = urlRe.exec(text)) !== null) {
+            const sx = m.index;
+            links.push({
+              range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+              text: m[0],
+              activate(_e, t) { window.cmuxWin?.openExternal?.(t); },
+            });
+          }
+
+          const fileRe = /(?:[A-Z]:\\|\/|\.\/)[^\s:]+(?::\d+)?/gi;
+          while ((m = fileRe.exec(text)) !== null) {
+            if (text.slice(m.index).match(/^https?:\/\//)) continue;
+            const sx = m.index;
+            links.push({
+              range: { start: { x: sx + 1, y: lineNumber }, end: { x: sx + m[0].length, y: lineNumber } },
+              text: m[0],
+              activate(_e, t) { window.cmuxWin?.openPath?.(t); },
+            });
+          }
+
+          callback(links.length > 0 ? links : undefined);
+        },
+      });
+
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => { webglAddon.dispose(); });
+        terminal.loadAddon(webglAddon);
+      } catch { /* WebGL not available */ }
+
+      fitAddon.fit();
+      terminal.focus();
+
+      // terminal → PTY: uses surfaceIdRef so it always targets current PTY
+      terminal.onData((data) => {
+        window.ptyBridge?.write(surfaceIdRef.current, data);
+      });
+      terminal.onResize(({ cols, rows }) => {
+        window.ptyBridge?.resize(surfaceIdRef.current, cols, rows);
+      });
+      terminal.onTitleChange((title) => { onTitleChange?.(title); });
+
+      // ResizeObserver (created once, survives surfaceId changes)
+      const doFit = () => {
+        if (fitAddonRef.current && terminalRef.current) {
+          try {
+            fitAddonRef.current.fit();
+            const t = terminalRef.current;
+            window.ptyBridge?.resize(surfaceIdRef.current, t.cols, t.rows);
+          } catch { /* terminal may be disposed */ }
+        }
+      };
+      const ro = new ResizeObserver(() => {
+        if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = setTimeout(doFit, 200);
+      });
+      ro.observe(container);
+      resizeObserverRef.current = ro;
+    } else {
+      // =================================================================
+      // SURFACE ID CHANGE (DnD swap): keep terminal, soft-clear buffer
+      // Avoid \x1bc (hard reset) — it can confuse the WebGL renderer.
+      // =================================================================
+      terminal.write('\x1b[2J\x1b[3J\x1b[H'); // clear screen + scrollback + cursor home
+      terminal.clear();
     }
 
-    // Fit to container and auto-focus
-    fitAddon.fit();
-    terminal.focus();
-
-    // Spawn PTY via preload bridge
+    // =================================================================
+    // CONNECT PTY — runs on both first mount and surfaceId change
+    // =================================================================
     let disposed = false;
+
+    // Dispose old PTY + OSC listeners
+    for (const d of ptyListenerDisposersRef.current) d.dispose();
+    ptyListenerDisposersRef.current = [];
+    for (const d of oscDisposersRef.current) d.dispose();
+    oscDisposersRef.current = [];
 
     const initPty = async (): Promise<void> => {
       if (!window.ptyBridge) {
-        // Standalone mode — show welcome message
-        terminal.writeln('\x1b[36m  cmux-win\x1b[0m — AI Agent Orchestration Terminal');
-        terminal.writeln('');
-        terminal.writeln('  Running in standalone mode (no Electron).');
-        terminal.writeln('  Terminal PTY is available in the full Electron app.');
-        terminal.writeln('');
-        terminal.writeln('  \x1b[33mFeatures:\x1b[0m');
-        terminal.writeln('    Ctrl+D        Split Right');
-        terminal.writeln('    Ctrl+Shift+P  Command Palette');
-        terminal.writeln('    Ctrl+,        Settings');
-        terminal.writeln('    Ctrl+B        Toggle Sidebar');
-        terminal.writeln('');
+        terminal!.writeln('\x1b[36m  cmux-win\x1b[0m — AI Agent Orchestration Terminal');
+        terminal!.writeln('');
+        terminal!.writeln('  Running in standalone mode (no Electron).');
+        terminal!.writeln('  Terminal PTY is available in the full Electron app.');
+        terminal!.writeln('');
         return;
       }
       try {
-        // F2-FIX: dispose any stale PTY listeners from previous mount cycle
-        for (const d of ptyListenerDisposersRef.current) d.dispose();
-        ptyListenerDisposersRef.current = [];
-
-        // CLI detection state — shared between data handler and OSC handlers
+        // CLI detection state
         let cliDetected = false;
         let detectedCliName = '';
         let lastDetectTime = 0;
 
-        // Model change detection: rolling buffer of ANSI-stripped PTY data
-        // Detects model switches (e.g. /model sonnet) from the raw PTY stream
-        // without relying on viewport reads which have timing issues.
         let modelRollingBuf = '';
         const MODEL_BUF_SIZE = 300;
         const checkModelFromStream = (sid: string, rawData: string) => {
@@ -316,35 +379,20 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           }
         };
 
-        // P2-BUG-5: Reattach to existing PTY if it survived workspace switch
-        if (await window.ptyBridge.has(surfaceId)) {
-          ptyIdRef.current = surfaceId;
-
-          // Restore scrollback: cache first, file fallback
-          const cached = scrollbackCache.get(surfaceId);
-          if (cached) {
-            terminal.write(cached);
-            scrollbackCache.delete(surfaceId);
-          } else if (window.cmuxScrollback) {
-            const fileContent = await window.cmuxScrollback.loadScrollback(surfaceId);
-            if (fileContent) terminal.write(fileContent);
-          }
-
-          const dataDisposer = window.ptyBridge.onData(surfaceId, (data) => {
-            terminal.write(data);
-            // Model change detection from raw PTY stream (bypass viewport timing issues)
-            checkModelFromStream(surfaceId, data);
-            // CLI detection — read clean text from xterm.js buffer (ANSI-free)
+        // Helper: set up PTY → terminal data listener with CLI detection
+        const attachDataListener = (sid: string) => {
+          const dataDisposer = window.ptyBridge!.onData(sid, (data) => {
+            terminal!.write(data);
+            checkModelFromStream(sid, data);
             if (dispatchRef.current) {
               const now = Date.now();
               const cooldown = cliDetected ? 5000 : 2000;
               if (now - lastDetectTime > cooldown) {
                 lastDetectTime = now;
-                // Read current viewport (visible area) — contains banner + prompt
-                const buf = terminal.buffer.active;
+                const buf = terminal!.buffer.active;
                 let text = '';
                 const viewStart = buf.baseY;
-                const viewEnd = viewStart + terminal.rows;
+                const viewEnd = viewStart + terminal!.rows;
                 for (let i = viewStart; i < viewEnd; i++) {
                   const line = buf.getLine(i);
                   if (line) text += line.translateToString(true) + ' ';
@@ -355,9 +403,9 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
                   if (detectedCliName !== newTitle) {
                     detectedCliName = newTitle;
                     cliDetected = true;
-                    void dispatchRef.current({
+                    void dispatchRef.current!({
                       type: 'surface.update_meta',
-                      payload: { surfaceId, title: newTitle },
+                      payload: { surfaceId: sid, title: newTitle },
                     });
                   }
                 }
@@ -365,19 +413,36 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
             }
           });
           if (dataDisposer) ptyListenerDisposersRef.current.push(dataDisposer);
-        } else {
-          // Restore scrollback from file before spawning new PTY
-          if (window.cmuxScrollback) {
+        };
+
+        if (await window.ptyBridge.has(surfaceId)) {
+          ptyIdRef.current = surfaceId;
+
+          const cached = scrollbackCache.get(surfaceId);
+          if (cached) {
+            terminal!.write(cached);
+            scrollbackCache.delete(surfaceId);
+          } else if (window.cmuxScrollback) {
             const fileContent = await window.cmuxScrollback.loadScrollback(surfaceId);
-            if (fileContent) terminal.write(fileContent);
+            if (fileContent) terminal!.write(fileContent);
           }
 
-          // P2-BUG-7: spawn with surfaceId as first argument
+          // Force render after loading scrollback (especially important for DnD swap)
+          terminal!.scrollToBottom();
+          terminal!.refresh(0, terminal!.rows - 1);
+
+          attachDataListener(surfaceId);
+        } else {
+          if (window.cmuxScrollback) {
+            const fileContent = await window.cmuxScrollback.loadScrollback(surfaceId);
+            if (fileContent) terminal!.write(fileContent);
+          }
+
           await window.ptyBridge.spawn(surfaceId, {
             shell,
             cwd,
-            cols: terminal.cols,
-            rows: terminal.rows,
+            cols: terminal!.cols,
+            rows: terminal!.rows,
             workspaceId,
             paneIndex,
           });
@@ -387,146 +452,94 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
           }
           ptyIdRef.current = surfaceId;
 
-          // Wire data: PTY → terminal
-          const dataDisposer2 = window.ptyBridge.onData(surfaceId, (data) => {
-            terminal.write(data);
-            // Model change detection from raw PTY stream (bypass viewport timing issues)
-            checkModelFromStream(surfaceId, data);
-            // CLI detection — read clean text from xterm.js buffer (ANSI-free)
-            if (dispatchRef.current) {
-              const now = Date.now();
-              const cooldown = cliDetected ? 5000 : 2000;
-              if (now - lastDetectTime > cooldown) {
-                lastDetectTime = now;
-                // Read current viewport (visible area) — contains banner + prompt
-                const buf = terminal.buffer.active;
-                let text = '';
-                const viewStart = buf.baseY;
-                const viewEnd = viewStart + terminal.rows;
-                for (let i = viewStart; i < viewEnd; i++) {
-                  const line = buf.getLine(i);
-                  if (line) text += line.translateToString(true) + ' ';
-                }
-                const detected = detectCliFromOutput(text);
-                if (detected) {
-                  const newTitle = `${detected.icon} ${detected.name}`;
-                  if (detectedCliName !== newTitle) {
-                    detectedCliName = newTitle;
-                    cliDetected = true;
-                    void dispatchRef.current({
-                      type: 'surface.update_meta',
-                      payload: { surfaceId, title: newTitle },
-                    });
-                  }
-                }
-              }
-            }
-          });
-          if (dataDisposer2) ptyListenerDisposersRef.current.push(dataDisposer2);
+          attachDataListener(surfaceId);
 
-          // Wire exit
           const exitDisposer = window.ptyBridge.onExit(surfaceId, (e) => {
             onExit?.(e.exitCode);
           });
           if (exitDisposer) ptyListenerDisposersRef.current.push(exitDisposer);
-
-          // F20: pendingCommand는 별도 useEffect(R4)에서 처리
         }
 
-        // Wire data: terminal → PTY (surfaceId-based)
-        terminal.onData((data) => {
-          window.ptyBridge?.write(surfaceId, data);
-        });
-
-        // Wire resize: terminal → PTY (surfaceId-based)
-        terminal.onResize(({ cols, rows }) => {
-          window.ptyBridge?.resize(surfaceId, cols, rows);
-        });
-
-        // OSC 133 prompt detection (git branch metadata)
-        terminal.parser.registerOscHandler(133, (data) => {
+        // OSC handlers — use surfaceIdRef.current for dispatch (always current)
+        const osc133 = terminal!.parser.registerOscHandler(133, (data) => {
           const meta = parseOsc133P(data);
           if (meta.gitBranch !== undefined && dispatchRef.current) {
             void dispatchRef.current({
               type: 'surface.update_meta',
               payload: {
-                surfaceId,
+                surfaceId: surfaceIdRef.current,
                 terminal: { gitBranch: meta.gitBranch, gitDirty: meta.gitDirty },
               },
             });
           }
           return true;
         });
+        oscDisposersRef.current.push(osc133);
 
-        // OSC 7 current working directory detection
-        terminal.parser.registerOscHandler(7, (data) => {
+        const osc7 = terminal!.parser.registerOscHandler(7, (data) => {
           const parsedCwd = parseOsc7(data);
           if (parsedCwd && dispatchRef.current) {
             void dispatchRef.current({
               type: 'surface.update_meta',
-              payload: { surfaceId, terminal: { cwd: parsedCwd } },
+              payload: { surfaceId: surfaceIdRef.current, terminal: { cwd: parsedCwd } },
             });
           }
           return true;
         });
+        oscDisposersRef.current.push(osc7);
 
-        // OSC 0/2: Set terminal title (used by shells and CLI tools)
-        // Once a CLI is detected, keep the CLI name as sticky title —
-        // don't let shell path overwrites hide which AI is running.
         const handleTitleOsc = (data: string) => {
           if (data && dispatchRef.current) {
-            if (cliDetected) {
-              // CLI detected: keep sticky name, ignore shell path titles
-              return true;
-            }
+            if (cliDetected) return true;
             void dispatchRef.current({
               type: 'surface.update_meta',
-              payload: { surfaceId, title: data },
+              payload: { surfaceId: surfaceIdRef.current, title: data },
             });
           }
           return true;
         };
-        terminal.parser.registerOscHandler(0, handleTitleOsc);
-        terminal.parser.registerOscHandler(2, handleTitleOsc);
+        const osc0 = terminal!.parser.registerOscHandler(0, handleTitleOsc);
+        const osc2 = terminal!.parser.registerOscHandler(2, handleTitleOsc);
+        oscDisposersRef.current.push(osc0, osc2);
 
-        // OSC 9: iTerm2 notification — data is the notification text
-        terminal.parser.registerOscHandler(9, (data) => {
+        const osc9 = terminal!.parser.registerOscHandler(9, (data) => {
           if (dispatchRef.current) {
             void dispatchRef.current({
               type: 'notification.create',
-              payload: { title: 'Terminal', body: data, surfaceId },
+              payload: { title: 'Terminal', body: data, surfaceId: surfaceIdRef.current },
             });
           }
           return true;
         });
+        oscDisposersRef.current.push(osc9);
 
-        // OSC 99: custom notification — data format: "title;body"
-        terminal.parser.registerOscHandler(99, (data) => {
+        const osc99 = terminal!.parser.registerOscHandler(99, (data) => {
           const semicolonIdx = data.indexOf(';');
           const title = semicolonIdx >= 0 ? data.substring(0, semicolonIdx) : 'Terminal';
           const body = semicolonIdx >= 0 ? data.substring(semicolonIdx + 1) : data;
           if (dispatchRef.current) {
             void dispatchRef.current({
               type: 'notification.create',
-              payload: { title, body, surfaceId },
+              payload: { title, body, surfaceId: surfaceIdRef.current },
             });
           }
           return true;
         });
+        oscDisposersRef.current.push(osc99);
 
-        // OSC 777: rxvt notification — data format: "notify;title;body"
-        terminal.parser.registerOscHandler(777, (data) => {
+        const osc777 = terminal!.parser.registerOscHandler(777, (data) => {
           const parts = data.split(';');
           if (parts[0] === 'notify' && parts.length >= 3) {
             if (dispatchRef.current) {
               void dispatchRef.current({
                 type: 'notification.create',
-                payload: { title: parts[1], body: parts.slice(2).join(';'), surfaceId },
+                payload: { title: parts[1], body: parts.slice(2).join(';'), surfaceId: surfaceIdRef.current },
               });
             }
           }
           return true;
         });
+        oscDisposersRef.current.push(osc777);
       } catch (err) {
         console.error('[XTermWrapper] Failed to spawn PTY:', err);
       }
@@ -534,7 +547,7 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
 
     void initPty();
 
-    // Periodic scrollback save (30s, staggered per surface)
+    // Periodic scrollback save (uses surfaceIdRef for current surface)
     const staggerMs = (surfaceId.charCodeAt(0) % 10) * 1000;
     const scrollbackTimer = setTimeout(() => {
       scrollbackIntervalRef.current = setInterval(() => {
@@ -549,59 +562,56 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         }
         const content = lines.join('\n');
         if (content.length > 0 && content.length <= 1_000_000) {
-          window.cmuxScrollback.saveScrollback(surfaceId, content);
+          window.cmuxScrollback.saveScrollback(surfaceIdRef.current, content);
         }
       }, 30_000);
     }, staggerMs);
 
-    // Title change
-    const titleDisposable = terminal.onTitleChange((title) => {
-      onTitleChange?.(title);
-    });
+    // Refit after surfaceId change (new PTY may have different content)
+    if (!isFirstMount && fitAddonRef.current) {
+      try { fitAddonRef.current.fit(); } catch { /* ignore */ }
+    }
 
-    // L3: Single debounced ResizeObserver — 200ms covers both immediate and final sizing
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const doFit = () => {
-      if (!disposed && fitAddonRef.current && terminalRef.current) {
-        try {
-          fitAddonRef.current.fit();
-          const t = terminalRef.current;
-          window.ptyBridge?.resize(surfaceId, t.cols, t.rows);
-        } catch { /* terminal may be disposed */ }
-      }
-    };
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(doFit, 200);
-    });
-    resizeObserver.observe(container);
-
-    // Cleanup — P2-BUG-5: Do NOT kill PTY on unmount (survives workspace switch)
-    // PTY is only killed via surface.close Action
+    // =================================================================
+    // CLEANUP
+    // =================================================================
     return () => {
       disposed = true;
-      resizeObserver.disconnect();
-      if (resizeTimer) clearTimeout(resizeTimer);
-      titleDisposable.dispose();
-      clearTimeout(scrollbackTimer);
-      if (scrollbackIntervalRef.current) clearInterval(scrollbackIntervalRef.current);
-      ptyIdRef.current = null;
 
-      // F2-FIX: dispose PTY data/exit listeners to prevent leak across workspace switches
-      for (const d of ptyListenerDisposersRef.current) d.dispose();
-      ptyListenerDisposersRef.current = [];
-
-      // Save scrollback before disposing terminal so content survives workspace switch
-      const scrollback = extractScrollback(terminal.buffer.active);
-      if (scrollback.length > 0) {
-        scrollbackCache.set(surfaceId, scrollback);
+      // Save scrollback for the surfaceId we're leaving (closure captures old value)
+      if (terminalRef.current) {
+        const scrollback = extractScrollback(terminalRef.current.buffer.active);
+        if (scrollback.length > 0) {
+          scrollbackCache.set(surfaceId, scrollback);
+        }
       }
 
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
+      // Dispose PTY + OSC listeners
+      for (const d of ptyListenerDisposersRef.current) d.dispose();
+      ptyListenerDisposersRef.current = [];
+      for (const d of oscDisposersRef.current) d.dispose();
+      oscDisposersRef.current = [];
+
+      clearTimeout(scrollbackTimer);
+      if (scrollbackIntervalRef.current) {
+        clearInterval(scrollbackIntervalRef.current);
+        scrollbackIntervalRef.current = null;
+      }
+      ptyIdRef.current = null;
+
+      // TRUE UNMOUNT: dispose terminal + ResizeObserver
+      // mountedRef is set to false by useLayoutEffect cleanup BEFORE this runs
+      if (!mountedRef.current) {
+        resizeObserverRef.current?.disconnect();
+        resizeObserverRef.current = null;
+        if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+        terminalRef.current?.dispose();
+        terminalRef.current = null;
+        fitAddonRef.current = null;
+      }
     };
-  }, [surfaceId]); // intentionally only re-run on surfaceId change
+  }, [surfaceId]); // re-run on surfaceId change — but terminal survives!
 
   // -----------------------------------------------------------------------
   // R4: Separate effect for pendingCommand — react to surface.update_meta
@@ -635,20 +645,20 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
       if (ptyIdRef.current) {
         // Write first part after shell init delay
         schedule(() => {
-          window.ptyBridge?.write(surfaceId, commandParts[0]);
+          window.ptyBridge?.write(surfaceIdRef.current, commandParts[0]);
         }, shellInitDelay);
         // Write subsequent parts with additional delays (1s each)
         for (let i = 1; i < commandParts.length; i++) {
           const part = commandParts[i];
           schedule(() => {
-            window.ptyBridge?.write(surfaceId, part);
+            window.ptyBridge?.write(surfaceIdRef.current, part);
           }, shellInitDelay + i * 1500);
         }
         // Clear pendingCommand after all parts are sent
         schedule(() => {
           void dispatchRef.current?.({
             type: 'surface.update_meta',
-            payload: { surfaceId, pendingCommand: null },
+            payload: { surfaceId: surfaceIdRef.current, pendingCommand: null },
           });
         }, shellInitDelay + commandParts.length * 1500);
       } else if (++attempts < maxAttempts) {

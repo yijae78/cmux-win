@@ -218,7 +218,7 @@ export class AppStateStore extends EventEmitter {
         // E1: Auto-start Claude CLI on first workspace
         // Ensures Dispatch always has a Claude CLI target
         const isFirstWorkspace = draft.workspaces.length === 1;
-        const claudeCmd = isFirstWorkspace ? 'claude\r' : undefined;
+        const claudeCmd = isFirstWorkspace ? 'claude --dangerously-skip-permissions\r' : undefined;
 
         draft.surfaces.push({
           id: surfaceId,
@@ -321,12 +321,17 @@ export class AppStateStore extends EventEmitter {
           surface.title = action.payload.filePath.split(/[\\/]/).pop() || 'Markdown';
         }
         draft.surfaces.push(surface as any);
-        // F11: After adding the new panel, rebuild the entire workspace layout
-        // as a balanced equal-size tree. Without this, nested binary splits
-        // cause panels to shrink exponentially (50% → 25% → 12.5%...).
-        const allLeafIds = collectLeafIds(ws.panelLayout);
-        allLeafIds.push(newPanelId);
-        ws.panelLayout = rebuildEqualLayout(allLeafIds, direction);
+        // Replace the target leaf with a split containing old + new panel (50:50)
+        const newSplit: PanelLayoutTree = {
+          type: 'split',
+          direction,
+          ratio: 0.5,
+          children: [
+            { type: 'leaf', panelId },
+            { type: 'leaf', panelId: newPanelId },
+          ],
+        };
+        ws.panelLayout = replaceLeaf(ws.panelLayout, panelId, newSplit);
         break;
       }
       case 'panel.resize': {
@@ -344,15 +349,24 @@ export class AppStateStore extends EventEmitter {
       case 'panel.swap': {
         const { panelId1, panelId2 } = action.payload;
         if (panelId1 === panelId2) break;
-        function swapInTree(node: PanelLayoutTree): void {
-          if (node.type === 'leaf') {
-            if (node.panelId === panelId1) node.panelId = panelId2;
-            else if (node.panelId === panelId2) node.panelId = panelId1;
-          } else if (node.children) {
-            node.children.forEach(swapInTree);
-          }
+        // Swap CONTENTS (surfaces) between panels, NOT layout positions.
+        // This avoids xterm.js terminal destruction/recreation and WebGL crashes.
+        const p1 = draft.panels.find((p) => p.id === panelId1);
+        const p2 = draft.panels.find((p) => p.id === panelId2);
+        if (!p1 || !p2) break;
+        const tempSurfaceIds = [...p1.surfaceIds];
+        const tempActiveSurface = p1.activeSurfaceId;
+        p1.surfaceIds = [...p2.surfaceIds];
+        p1.activeSurfaceId = p2.activeSurfaceId;
+        p2.surfaceIds = tempSurfaceIds;
+        p2.activeSurfaceId = tempActiveSurface;
+        // Update surface→panel association
+        // p1.surfaceIds now has p2's old surfaces (should point to panelId1)
+        // p2.surfaceIds (= tempSurfaceIds) now has p1's old surfaces (should point to panelId2)
+        for (const s of draft.surfaces) {
+          if (p1.surfaceIds.includes(s.id)) s.panelId = panelId1;
+          else if (tempSurfaceIds.includes(s.id)) s.panelId = panelId2;
         }
-        for (const ws of draft.workspaces) swapInTree(ws.panelLayout);
         break;
       }
       case 'panel.move': {
@@ -363,10 +377,37 @@ export class AppStateStore extends EventEmitter {
           (w) => findLeaf(w.panelLayout, sourcePanelId) !== null && findLeaf(w.panelLayout, targetPanelId) !== null,
         );
         if (!ws) break;
-        // Step 1: Remove source panel from layout tree (promote its sibling)
+        const sourcePanel = draft.panels.find((p) => p.id === sourcePanelId);
+        if (!sourcePanel) break;
+
+        // WebGL-safe move: create NEW panel at target position, transfer surfaces, remove old.
+        // This avoids unmounting a PanelContainer that holds a live WebGL terminal.
+        // React will: (1) unmount source → save scrollback cache, (2) mount new → load cache.
+
+        // Step 1: Create new panel and take ownership of source's surfaces
+        const newPanelId = crypto.randomUUID();
+        draft.panels.push({
+          id: newPanelId,
+          workspaceId: ws.id,
+          panelType: sourcePanel.panelType,
+          surfaceIds: [...sourcePanel.surfaceIds],
+          activeSurfaceId: sourcePanel.activeSurfaceId,
+          isZoomed: false,
+          paneIndex: this.nextPaneIndex(draft),
+        });
+        for (const s of draft.surfaces) {
+          if (sourcePanel.surfaceIds.includes(s.id)) s.panelId = newPanelId;
+        }
+
+        // Step 2: Remove source panel (now has no surfaces)
+        sourcePanel.surfaceIds = [];
+        sourcePanel.activeSurfaceId = '';
+        const srcIdx = draft.panels.findIndex((p) => p.id === sourcePanelId);
+        if (srcIdx !== -1) draft.panels.splice(srcIdx, 1);
         const layoutAfterRemove = removeLeaf(ws.panelLayout, sourcePanelId);
-        if (!layoutAfterRemove) break; // source was the only leaf
-        // Step 2: Replace target leaf with a new split containing both source and target
+        if (!layoutAfterRemove) break;
+
+        // Step 3: Insert new panel next to target in the requested direction
         const splitDirection: 'horizontal' | 'vertical' =
           direction === 'left' || direction === 'right' ? 'horizontal' : 'vertical';
         const sourceFirst = direction === 'left' || direction === 'top';
@@ -375,8 +416,8 @@ export class AppStateStore extends EventEmitter {
           direction: splitDirection,
           ratio: 0.5,
           children: sourceFirst
-            ? [{ type: 'leaf', panelId: sourcePanelId }, { type: 'leaf', panelId: targetPanelId }]
-            : [{ type: 'leaf', panelId: targetPanelId }, { type: 'leaf', panelId: sourcePanelId }],
+            ? [{ type: 'leaf', panelId: newPanelId }, { type: 'leaf', panelId: targetPanelId }]
+            : [{ type: 'leaf', panelId: targetPanelId }, { type: 'leaf', panelId: newPanelId }],
         };
         ws.panelLayout = replaceLeaf(layoutAfterRemove, targetPanelId, newSplit);
         break;

@@ -316,7 +316,7 @@ async function createWindow(): Promise<BrowserWindow> {
       win.webContents.send(IPC_CHANNELS.WINDOW_ID, windowId);
       // Show window after content is ready (avoids blank flash)
       win.show();
-      // DevTools: Ctrl+Shift+I to open manually (not auto-open)
+      // DevTools: Ctrl+Shift+I to open manually
       // win.webContents.openDevTools({ mode: 'detach' });
       resolve(win);
     });

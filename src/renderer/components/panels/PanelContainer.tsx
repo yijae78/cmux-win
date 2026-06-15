@@ -1,5 +1,5 @@
 import React from 'react';
-import { type FC, useState, useEffect, useRef, useCallback, useContext } from 'react';
+import { type FC, useState, useEffect, useRef, useContext } from 'react';
 import type { PanelState, SurfaceState, SettingsState } from '../../../shared/types';
 import type { Action } from '../../../shared/actions';
 import { useDraggable, useDroppable, useDndContext } from '@dnd-kit/core';
@@ -7,19 +7,19 @@ import XTermWrapper from '../terminal/XTermWrapper';
 import BrowserSurface from '../browser/BrowserSurface';
 import MarkdownViewer from '../markdown/MarkdownViewer';
 import PanelTabBar from './PanelTabBar';
-import { DropTargetContext, type DropDirection } from './PanelLayout';
+import { type DropDirection, DropTargetContext } from './PanelLayout';
 import EdgeDropZone from './EdgeDropZone';
 
 /* ------------------------------------------------------------------ */
-/*  Constants -- Bonsplit design                                        */
+/*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 const OVERLAY_BG = 'rgba(0,0,0,0.15)';
-const FOCUS_ANIM_DURATION = 900; // ms -- matches 0.9s keyframe
+const FOCUS_ANIM_DURATION = 900;
 const DROP_HIGHLIGHT = 'rgba(0, 145, 255, 0.25)';
 const DROP_BORDER_COLOR = '#0091FF';
 
 /* ------------------------------------------------------------------ */
-/*  Helper: compute overlay style for directional indicator             */
+/*  Directional overlay style — shows where the panel will land        */
 /* ------------------------------------------------------------------ */
 function getDirectionalOverlayStyle(direction: DropDirection): React.CSSProperties {
   const base: React.CSSProperties = {
@@ -31,74 +31,38 @@ function getDirectionalOverlayStyle(direction: DropDirection): React.CSSProperti
 
   switch (direction) {
     case 'left':
-      return {
-        ...base,
-        top: 0,
-        left: 0,
-        bottom: 0,
-        width: '50%',
+      return { ...base, top: 0, left: 0, bottom: 0, width: '50%',
         background: DROP_HIGHLIGHT,
-        borderLeft: `4px solid ${DROP_BORDER_COLOR}`,
-        borderTop: `4px solid ${DROP_BORDER_COLOR}`,
-        borderBottom: `4px solid ${DROP_BORDER_COLOR}`,
-        borderRight: `2px dashed ${DROP_BORDER_COLOR}`,
-        borderRadius: '8px 0 0 8px',
-        boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
+        borderLeft: `4px solid ${DROP_BORDER_COLOR}`, borderTop: `4px solid ${DROP_BORDER_COLOR}`,
+        borderBottom: `4px solid ${DROP_BORDER_COLOR}`, borderRight: `2px dashed ${DROP_BORDER_COLOR}`,
+        borderRadius: '8px 0 0 8px', boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
       };
     case 'right':
-      return {
-        ...base,
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: '50%',
+      return { ...base, top: 0, right: 0, bottom: 0, width: '50%',
         background: DROP_HIGHLIGHT,
-        borderRight: `4px solid ${DROP_BORDER_COLOR}`,
-        borderTop: `4px solid ${DROP_BORDER_COLOR}`,
-        borderBottom: `4px solid ${DROP_BORDER_COLOR}`,
-        borderLeft: `2px dashed ${DROP_BORDER_COLOR}`,
-        borderRadius: '0 8px 8px 0',
-        boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
+        borderRight: `4px solid ${DROP_BORDER_COLOR}`, borderTop: `4px solid ${DROP_BORDER_COLOR}`,
+        borderBottom: `4px solid ${DROP_BORDER_COLOR}`, borderLeft: `2px dashed ${DROP_BORDER_COLOR}`,
+        borderRadius: '0 8px 8px 0', boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
       };
     case 'top':
-      return {
-        ...base,
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '50%',
+      return { ...base, top: 0, left: 0, right: 0, height: '50%',
         background: DROP_HIGHLIGHT,
-        borderTop: `4px solid ${DROP_BORDER_COLOR}`,
-        borderLeft: `4px solid ${DROP_BORDER_COLOR}`,
-        borderRight: `4px solid ${DROP_BORDER_COLOR}`,
-        borderBottom: `2px dashed ${DROP_BORDER_COLOR}`,
-        borderRadius: '8px 8px 0 0',
-        boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
+        borderTop: `4px solid ${DROP_BORDER_COLOR}`, borderLeft: `4px solid ${DROP_BORDER_COLOR}`,
+        borderRight: `4px solid ${DROP_BORDER_COLOR}`, borderBottom: `2px dashed ${DROP_BORDER_COLOR}`,
+        borderRadius: '8px 8px 0 0', boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
       };
     case 'bottom':
-      return {
-        ...base,
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: '50%',
+      return { ...base, bottom: 0, left: 0, right: 0, height: '50%',
         background: DROP_HIGHLIGHT,
-        borderBottom: `4px solid ${DROP_BORDER_COLOR}`,
-        borderLeft: `4px solid ${DROP_BORDER_COLOR}`,
-        borderRight: `4px solid ${DROP_BORDER_COLOR}`,
-        borderTop: `2px dashed ${DROP_BORDER_COLOR}`,
-        borderRadius: '0 0 8px 8px',
-        boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
+        borderBottom: `4px solid ${DROP_BORDER_COLOR}`, borderLeft: `4px solid ${DROP_BORDER_COLOR}`,
+        borderRight: `4px solid ${DROP_BORDER_COLOR}`, borderTop: `2px dashed ${DROP_BORDER_COLOR}`,
+        borderRadius: '0 0 8px 8px', boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.15)',
       };
     case 'center':
     default:
-      return {
-        ...base,
-        inset: '4px',
-        border: `3px dashed ${DROP_BORDER_COLOR}`,
-        borderRadius: '8px',
-        background: 'rgba(0, 145, 255, 0.10)',
-        boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.1)',
+      return { ...base, inset: '4px',
+        border: `3px dashed ${DROP_BORDER_COLOR}`, borderRadius: '8px',
+        background: 'rgba(0, 145, 255, 0.10)', boxShadow: 'inset 0 0 20px rgba(0, 145, 255, 0.1)',
       };
   }
 }
@@ -157,11 +121,6 @@ const PanelContainer: FC<PanelContainerProps> = ({
   const panelSurfaces = surfaces.filter((s) => panel.surfaceIds.includes(s.id));
   const activeSurface = surfaces.find((s) => s.id === panel.activeSurfaceId);
 
-  /* ---- Drop target context ---- */
-  const dropTarget = useContext(DropTargetContext);
-  const isDropTarget = dropTarget !== null && dropTarget.panelId === panel.id;
-  const dropDirection = isDropTarget ? dropTarget.direction : null;
-
   /* ---- Drag-and-drop ---- */
   const {
     attributes: dragAttributes,
@@ -181,12 +140,21 @@ const PanelContainer: FC<PanelContainerProps> = ({
     data: { panelId: panel.id },
   });
 
+  /* ---- Drop direction from context ---- */
+  const dropTarget = useContext(DropTargetContext);
+  const isDropTarget = dropTarget?.panelId === panel.id;
+  const dropDirection = isDropTarget ? dropTarget.direction : null;
+  const showDropIndicator = isOver && !isDragging && isDropTarget && dropDirection !== null;
+
+  /* ---- Detect if any drag is active (for edge drop zones) ---- */
+  const { active: dndActive } = useDndContext();
+  const isDragActiveGlobal = dndActive !== null;
+
   /* ---- Focus flash animation ---- */
   const [flashing, setFlashing] = useState(false);
   const prevActive = useRef(isActive);
 
   useEffect(() => {
-    // Trigger flash when panel transitions from inactive to active
     if (isActive && !prevActive.current) {
       setFlashing(true);
       const timer = setTimeout(() => setFlashing(false), FOCUS_ANIM_DURATION);
@@ -200,13 +168,6 @@ const PanelContainer: FC<PanelContainerProps> = ({
       onFocus(panel.id);
     }
   };
-
-  // Determine if we should show the directional drop indicator
-  const showDropIndicator = isOver && !isDragging && isDropTarget && dropDirection !== null;
-
-  // Detect if any drag is active (for edge drop zones)
-  const { active: dndActive } = useDndContext();
-  const isDragActiveGlobal = dndActive !== null;
 
   return (
     <div
@@ -223,11 +184,10 @@ const PanelContainer: FC<PanelContainerProps> = ({
         overflow: 'hidden',
         borderRadius: flashing ? '10px' : undefined,
         animation: flashing ? 'cmux-focus-flash 0.9s ease-in-out forwards' : undefined,
-        opacity: isDragging ? 0.4 : 1,
-        transition: 'opacity 0.2s ease',
+        /* Do NOT change opacity — WebGL context loss crashes xterm.js */
       }}
     >
-      {/* Tab bar -- always visible (cmux Bonsplit style: split buttons on right) */}
+      {/* Tab bar */}
       <PanelTabBar
         surfaceIds={panel.surfaceIds}
         surfaces={panelSurfaces}
@@ -303,7 +263,7 @@ const PanelContainer: FC<PanelContainerProps> = ({
         )}
       </div>
 
-      {/* Unfocused pane overlay: semi-transparent 15% opacity */}
+      {/* Unfocused pane overlay */}
       {!isActive && (
         <div
           style={{
@@ -314,28 +274,6 @@ const PanelContainer: FC<PanelContainerProps> = ({
             zIndex: 1,
           }}
         />
-      )}
-
-      {/* Directional drop indicator */}
-      {showDropIndicator && (
-        <div style={getDirectionalOverlayStyle(dropDirection)}>
-          <div
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: DROP_BORDER_COLOR,
-              fontSize: '14px',
-              fontWeight: 'bold',
-              opacity: 0.8,
-              whiteSpace: 'nowrap',
-              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-            }}
-          >
-            {getDirectionalLabel(dropDirection)}
-          </div>
-        </div>
       )}
 
       {/* Edge drop zones — visible during any active drag */}

@@ -11,10 +11,29 @@ import {
   DndContext,
   DragOverlay,
   MouseSensor,
+  closestCenter,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
+import type { DragStartEvent, DragEndEvent, DragOverEvent, CollisionDetection } from '@dnd-kit/core';
+
+/**
+ * Custom collision detection: closestCenter but excludes the main panel droppable
+ * for the currently dragged panel. Edge drop zones (isEdgeDrop) are kept, even
+ * for the same panel (self-drop → split).
+ */
+const closestCenterExcludingSelf: CollisionDetection = (args) => {
+  const draggedPanelId = args.active.data.current?.panelId;
+  if (!draggedPanelId) return closestCenter(args);
+  const filtered = args.droppableContainers.filter((container) => {
+    const data = container.data.current;
+    // Keep edge zones (even for the same panel — allows self-split)
+    if (data?.isEdgeDrop) return true;
+    // Exclude the main panel droppable for the dragged panel
+    return data?.panelId !== draggedPanelId;
+  });
+  return closestCenter({ ...args, droppableContainers: filtered });
+};
 import PanelContainer from './PanelContainer';
 import PanelDivider from './PanelDivider';
 
@@ -163,6 +182,7 @@ const PanelLayoutInner: FC<PanelLayoutProps> = ({
 
     return (
       <PanelContainer
+        key={panel.id}
         panel={panel}
         surfaces={surfaces}
         settings={settings}
@@ -317,8 +337,18 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
 
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
+      const overData = event.over?.data.current as { panelId?: string; isEdgeDrop?: boolean } | undefined;
+
+      // Edge zones handle their own visuals — don't set main panel drop target
+      if (overData?.isEdgeDrop) {
+        setDropTarget(null);
+        lastOverIdRef.current = null;
+        lastOverRectRef.current = null;
+        return;
+      }
+
       const fromPanelId = event.active.data.current?.panelId as string | undefined;
-      const overPanelId = event.over?.data.current?.panelId as string | undefined;
+      const overPanelId = overData?.panelId;
 
       if (!overPanelId || !fromPanelId || fromPanelId === overPanelId) {
         setDropTarget(null);
@@ -347,7 +377,6 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      // Now clear state
       setActiveDragPanelId(null);
       setDropTarget(null);
       lastOverIdRef.current = null;
@@ -368,6 +397,7 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
             payload: { panelId: fromPanelId, direction: direction === 'left' || direction === 'right' ? 'horizontal' : 'vertical', newPanelType: 'terminal' },
           });
         } else {
+          // Cross-panel: move panel to the target's edge
           void dispatch({
             type: 'panel.move',
             payload: { sourcePanelId: fromPanelId, targetPanelId: toPanelId, direction },
@@ -402,6 +432,7 @@ const PanelLayout: FC<PanelLayoutProps> = (props) => {
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={closestCenterExcludingSelf}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}

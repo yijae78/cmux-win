@@ -1,5 +1,5 @@
 import React from 'react';
-import { type FC, useState } from 'react';
+import { type FC, useState, useRef, useEffect, useCallback } from 'react';
 import type {
   WorkspaceState,
   AgentSessionState,
@@ -48,7 +48,7 @@ export interface WorkspaceItemProps {
   panels?: PanelState[];
   onSelect: (workspaceId: string) => void;
   onClose: (workspaceId: string) => void;
-  onRename: (workspaceId: string) => void;
+  onRename: (workspaceId: string, newName: string) => void;
 }
 
 const WorkspaceItem: FC<WorkspaceItemProps> = ({
@@ -64,6 +64,24 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
   onRename,
 }) => {
   const [hovered, setHovered] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(workspace.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== workspace.name) {
+      onRename(workspace.id, trimmed);
+    }
+    setIsEditing(false);
+  }, [editValue, workspace.name, workspace.id, onRename]);
 
   const wsAgents = agents.filter((a) => a.workspaceId === workspace.id);
   const wsNotifications = notifications.filter((n) => n.workspaceId === workspace.id && !n.isRead);
@@ -111,11 +129,8 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
       onClick={() => onSelect(workspace.id)}
       onContextMenu={(e) => {
         e.preventDefault();
-        const action = window.confirm(`Rename "${workspace.name}"? (Cancel to close)`)
-          ? 'rename'
-          : 'close';
-        if (action === 'rename') onRename(workspace.id);
-        else onClose(workspace.id);
+        setEditValue(workspace.name);
+        setIsEditing(true);
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -207,21 +222,56 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {/* ── Row 1: Title row with name ─────────────────────────────── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span
-            style={{
-              fontSize: '13px',
-              fontWeight: 700,
-              color: isActive ? '#ffffff' : TEXT_PRIMARY,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              lineHeight: '16px',
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
-            {workspace.name}
-          </span>
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+                if (e.key === 'Escape') { setEditValue(workspace.name); setIsEditing(false); }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: '#fff',
+                background: 'rgba(0,0,0,0.3)',
+                border: `1px solid ${ACCENT}`,
+                borderRadius: '3px',
+                padding: '0 4px',
+                lineHeight: '16px',
+                flex: 1,
+                minWidth: 0,
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+          ) : (
+            <span
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditValue(workspace.name);
+                setIsEditing(true);
+              }}
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: isActive ? '#ffffff' : TEXT_PRIMARY,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                lineHeight: '16px',
+                flex: 1,
+                minWidth: 0,
+                cursor: 'text',
+              }}
+              title="Double-click to rename"
+            >
+              {workspace.name}
+            </span>
+          )}
 
           {/* Keyboard shortcut hint (visible on hover) */}
           {shortcutHint && (

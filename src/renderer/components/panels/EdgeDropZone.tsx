@@ -4,7 +4,7 @@
  * directional split (top/bottom/left/right).
  * Works even for self-drop (split current panel).
  */
-import { type FC, useState } from 'react';
+import React, { type FC } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import type { DropDirection } from './PanelLayout';
 

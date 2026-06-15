@@ -242,6 +242,15 @@ const Sidebar: FC<SidebarProps> = ({
             ⊟
           </button>
         )}
+        <button
+          onClick={handleCreateWorkspace}
+          title="New Workspace"
+          style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+        >
+          +
+        </button>
         {onTogglePanels && (
           <button
             onClick={onTogglePanels}
@@ -286,14 +295,12 @@ const Sidebar: FC<SidebarProps> = ({
             onClose={(id) =>
               void dispatch({ type: 'workspace.close', payload: { workspaceId: id } })
             }
-            onRename={(id) => {
-              const name = window.prompt(t('sidebar.workspaceNamePrompt'));
-              if (name)
-                void dispatch({
-                  type: 'workspace.rename',
-                  payload: { workspaceId: id, name },
-                });
-            }}
+            onRename={(id, name) =>
+              void dispatch({
+                type: 'workspace.rename',
+                payload: { workspaceId: id, name },
+              })
+            }
           />
         ))}
       </div>
