@@ -8,11 +8,14 @@ Anti-flicker: components.html() 단일 iframe 렌더링
 """
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import re
 import socket as _socket
+import ssl
 import threading
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -25,8 +28,7 @@ import streamlit.components.v1 as components
 SOCKET_TOKEN_FILE = Path.home() / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 SOCKET_PORT = 19840
 REFRESH_SEC = 5
-DAILY_TOKEN_LIMIT = 5_000_000  # Max $100 플랜 기준 일일 한도 (약 500만)
-MONTHLY_TOKEN_LIMIT = DAILY_TOKEN_LIMIT * 30  # 월간 한도 (약 1.5억)
+RATE_LIMIT_CACHE_SEC = 60  # Rate limit API 호출 캐시 (60초마다 갱신)
 
 # ━━━━━━━ Design Tokens (신교수님 디자인 시스템) ━━━━━━━
 BG_VOID = "#0a0a0a"
@@ -135,6 +137,76 @@ def gather_fleet_data():
         return [], []
 
 
+# ━━━━━━━ Rate Limit API (실제 한도 조회) ━━━━━━━
+_rate_limit_cache = {"ts": 0, "data": None}
+
+
+def get_rate_limits():
+    """Anthropic API 최소 호출로 실제 rate limit 헤더 추출 (캐시 60초)."""
+    now = time.time()
+    if _rate_limit_cache["data"] and now - _rate_limit_cache["ts"] < RATE_LIMIT_CACHE_SEC:
+        return _rate_limit_cache["data"]
+
+    default = {
+        "session_pct": 0, "session_reset": "", "session_status": "unknown",
+        "weekly_pct": 0, "weekly_reset": "", "weekly_status": "unknown",
+    }
+    try:
+        cred_path = Path.home() / ".claude" / ".credentials.json"
+        if not cred_path.exists():
+            return default
+        cred = json.loads(cred_path.read_text())
+        token = cred.get("claudeAiOauth", {}).get("accessToken", "")
+        if not token:
+            return default
+
+        body = json.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "h"}],
+        })
+        ctx = ssl.create_default_context()
+        conn = http.client.HTTPSConnection("api.anthropic.com", context=ctx, timeout=8)
+        conn.request("POST", "/v1/messages", body, {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "User-Agent": "claude-code/2.1.94",
+        })
+        resp = conn.getresponse()
+        resp.read()  # drain body
+
+        headers = {k.lower(): v for k, v in resp.getheaders()}
+
+        # 5h session
+        s5_util = float(headers.get("anthropic-ratelimit-unified-5h-utilization", 0))
+        s5_reset_ts = int(headers.get("anthropic-ratelimit-unified-5h-reset", 0))
+        s5_status = headers.get("anthropic-ratelimit-unified-5h-status", "unknown")
+        s5_reset = datetime.fromtimestamp(s5_reset_ts).strftime("%H:%M") if s5_reset_ts else ""
+
+        # 7d weekly
+        w7_util = float(headers.get("anthropic-ratelimit-unified-7d-utilization", 0))
+        w7_reset_ts = int(headers.get("anthropic-ratelimit-unified-7d-reset", 0))
+        w7_status = headers.get("anthropic-ratelimit-unified-7d-status", "unknown")
+        w7_reset = datetime.fromtimestamp(w7_reset_ts).strftime("%m/%d %H:%M") if w7_reset_ts else ""
+
+        conn.close()
+
+        result = {
+            "session_pct": round(s5_util * 100, 1),
+            "session_reset": s5_reset,
+            "session_status": s5_status,
+            "weekly_pct": round(w7_util * 100, 1),
+            "weekly_reset": w7_reset,
+            "weekly_status": w7_status,
+        }
+        _rate_limit_cache["ts"] = now
+        _rate_limit_cache["data"] = result
+        return result
+    except Exception:
+        return _rate_limit_cache.get("data") or default
+
+
 # ━━━━━━━ Data processing ━━━━━━━
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\r")
 
@@ -147,16 +219,28 @@ def detect_status(content):
     if not content:
         return "offline"
     last = _strip("\n".join(content.strip().split("\n")[-8:])).lower()
-    if any(k in last for k in ["error", "failed", "traceback", "exception", "crash"]):
-        return "error"
-    if any(k in last for k in ["working", "running", "processing", "generating", "searching",
-                                "reading", "writing", "editing", "creating", "analyzing",
-                                "building", "fetching", "compiling", "levitating"]):
-        return "live"
-    if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ",
-                                "what would you like", "how can i help"]):
+    # idle 먼저 체크 — 프롬프트 대기 상태 우선 감지 (최우선)
+    if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ", "ps c:\\",
+                                "what would you like", "how can i help",
+                                "대기합니다", "지시를 대기", "명령을 대기",
+                                "try \"", "bypass permissions",
+                                "type your message", "run /review",
+                                "각성 완료", "awakened"]):
         return "idle"
-    return "live"
+    # 실제 작업 에러만 감지 (MCP/settings 알림은 제외)
+    error_kws = ["traceback", "exception", "crash", "fatal error", "panic"]
+    noise_kws = ["mcp server failed", "mcp server", "settings issue", "/doctor", "/mcp"]
+    has_error = any(k in last for k in error_kws)
+    is_noise = any(k in last for k in noise_kws)
+    if has_error and not is_noise:
+        return "error"
+    # 작업 중 감지
+    if any(k in last for k in ["working", "running", "processing", "generating", "searching",
+                                "reading file", "writing file", "editing", "creating", "analyzing",
+                                "building", "fetching", "compiling", "levitating",
+                                "thinking", "tool call"]):
+        return "live"
+    return "idle"
 
 
 def get_activity_summary(content):
@@ -428,7 +512,7 @@ def _esc(t):
 DATA_PORT = 8501
 
 
-def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False):
+def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, body_only=False):
     now = datetime.now()
     n_live = sum(1 for _, _, _, s, _, _ in pane_data if s == "live")
     n_total = len(pane_data)
@@ -593,28 +677,19 @@ def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False)
       <span class="hdr-time">{now.strftime('%Y.%m.%d')} <span style="color:rgba(255,255,255,0.6);margin:0 6px;">|</span> <span id="live-clock">{now.strftime('%H:%M:%S')}</span></span>
     </div>''')
 
-    # ── KPI: Radar on top, 3 cards below (가동시간 / 컨텍스트 / 오늘 토큰) ──
+    # ── KPI: Radar on top, 3 cards below (가동시간 / 세션 5h / 주간 7d) ──
     radar = _radar_svg(n_live, n_total, size=130)
-    hourly_total = usage_data["hourly_in"] + usage_data["hourly_out"]
     daily_total = usage_data["daily_in"] + usage_data["daily_out"]
 
-    # 컨텍스트 윈도우 데이터
-    ctx_data = get_claude_contexts()
-    if ctx_data:
-        ctx_pct = ctx_data[0]["pct"]
-        ctx_tokens = ctx_data[0]["ctx"]
-    else:
-        ctx_pct = 0
-        ctx_tokens = 0
-    if ctx_pct >= 80:
-        ctx_color = RED
-        ctx_warn = "즉시 /clear"
-    elif ctx_pct >= 60:
-        ctx_color = AMBER
-        ctx_warn = "/clear 권장"
-    else:
-        ctx_color = GREEN
-        ctx_warn = ""
+    # Rate limit 데이터
+    s_pct = rate_limits["session_pct"]
+    s_reset = rate_limits["session_reset"]
+    w_pct = rate_limits["weekly_pct"]
+    w_reset = rate_limits["weekly_reset"]
+
+    # 색상: 60% 이상 경고, 80% 이상 위험
+    s_color = RED if s_pct >= 80 else AMBER if s_pct >= 60 else GREEN
+    w_color = RED if w_pct >= 80 else AMBER if w_pct >= 60 else GREEN
 
     body.append(f'''
     <div class="kpi-section">
@@ -627,14 +702,14 @@ def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False)
           <div class="kpi-lbl">가동시간</div>
         </div>
         <div class="glass glass--accent kpi">
-          <div class="kpi-val" style="color:{ctx_color};">{ctx_pct:.0f}%</div>
-          {f'<div style="font-size:9px;color:{ctx_color};margin-top:2px;font-weight:600;">{ctx_warn}</div>' if ctx_warn else f'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">{_fmt_tokens(ctx_tokens)}</div>'}
-          <div class="kpi-lbl">컨텍스트</div>
+          <div class="kpi-val" style="color:{s_color};">{s_pct:.0f}%</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">리셋 {s_reset}</div>
+          <div class="kpi-lbl">세션 (5h)</div>
         </div>
         <div class="glass glass--accent kpi">
-          <div class="kpi-val" style="color:{AMBER};">{_fmt_tokens(daily_total)}</div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">/ {_fmt_tokens(DAILY_TOKEN_LIMIT)}</div>
-          <div class="kpi-lbl">오늘 토큰</div>
+          <div class="kpi-val" style="color:{w_color};">{w_pct:.0f}%</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">리셋 {w_reset}</div>
+          <div class="kpi-lbl">주간 (7d)</div>
         </div>
       </div>
     </div>''')
@@ -645,7 +720,7 @@ def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False)
     for idx, (sf, cfg, content, status, activity, preview) in enumerate(pane_data):
         color = cfg["color"]
         dot_cls = {"live": "live", "idle": "idle", "error": "err"}.get(status, "off")
-        st_label = {"live": "진행중", "idle": "대기", "error": "오류", "offline": "완료"}.get(status, "?")
+        st_label = {"live": "작업중", "idle": "대기", "error": "오류", "offline": "오프라인"}.get(status, "?")
         short_name = cfg["key"].split("(")[0].strip()
         act_text = _esc(activity[:60]) if activity else ""
 
@@ -660,12 +735,43 @@ def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False)
         </div>''')
     body.append('</div>')
 
-    # ── Token Usage (밴드형: 제목 상단) ──
+    # ── Token Usage (밴드형: 세션 / 주간 / 오늘 실사용) ──
+    hourly_total = usage_data["hourly_in"] + usage_data["hourly_out"]
+
     body.append('<div class="sec">토큰 사용량</div>')
     body.append('<div class="glass" style="padding:0;">')
-    monthly_total = usage_data["monthly_total"]
+
+    # 프로그레스 바 색상
+    s_bar_color = f"linear-gradient(90deg, {ACCENT}, {ACCENT_LIGHT})"
+    w_bar_color = f"linear-gradient(90deg, {BLUE}, {CYAN})"
+    if s_pct >= 80:
+        s_bar_color = f"linear-gradient(90deg, {RED}, #f87171)"
+    elif s_pct >= 60:
+        s_bar_color = f"linear-gradient(90deg, {AMBER}, #fbbf24)"
+    if w_pct >= 80:
+        w_bar_color = f"linear-gradient(90deg, {RED}, #f87171)"
+    elif w_pct >= 60:
+        w_bar_color = f"linear-gradient(90deg, {AMBER}, #fbbf24)"
 
     body.append(f'''
+    <div style="padding:12px 14px 6px;">
+      <div class="bar-row">
+        <div class="bar-lbl">세션</div>
+        <div class="bar-tk"><div class="bar-fl" style="width:{min(s_pct,100):.0f}%;background:{s_bar_color};"></div></div>
+        <div class="bar-v">{s_pct:.0f}%</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:-2px 0 6px 48px;">
+        <span>5시간 윈도우</span><span>리셋 {s_reset}</span>
+      </div>
+      <div class="bar-row">
+        <div class="bar-lbl">주간</div>
+        <div class="bar-tk"><div class="bar-fl" style="width:{min(w_pct,100):.0f}%;background:{w_bar_color};"></div></div>
+        <div class="bar-v">{w_pct:.0f}%</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:-2px 0 4px 48px;">
+        <span>전체 모델</span><span>리셋 {w_reset}</span>
+      </div>
+    </div>
     <div class="usage-band">
       <div class="usage-item">
         <div class="usage-lbl-top">최근 1시간</div>
@@ -673,14 +779,14 @@ def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False)
         <div class="usage-sub">입력 {_fmt_tokens(usage_data["hourly_in"])} · 출력 {_fmt_tokens(usage_data["hourly_out"])}</div>
       </div>
       <div class="usage-item">
-        <div class="usage-lbl-top">오늘 ({round(daily_total/DAILY_TOKEN_LIMIT*100)}%)</div>
+        <div class="usage-lbl-top">오늘 소비</div>
         <div class="usage-val" style="color:{GREEN};">{_fmt_tokens(daily_total)}</div>
-        <div class="usage-sub">한도 {_fmt_tokens(DAILY_TOKEN_LIMIT)}</div>
+        <div class="usage-sub">입력 {_fmt_tokens(usage_data["daily_in"])} · 출력 {_fmt_tokens(usage_data["daily_out"])}</div>
       </div>
       <div class="usage-item">
-        <div class="usage-lbl-top">이번 달 ({round(monthly_total/MONTHLY_TOKEN_LIMIT*100)}%)</div>
-        <div class="usage-val" style="color:{AMBER};">{_fmt_tokens(monthly_total)}</div>
-        <div class="usage-sub">한도 {_fmt_tokens(MONTHLY_TOKEN_LIMIT)}</div>
+        <div class="usage-lbl-top">세션 수</div>
+        <div class="usage-val" style="color:{AMBER};">{usage_data["sessions"]}</div>
+        <div class="usage-sub">메시지 {usage_data["messages"]}건</div>
       </div>
     </div>''')
 
@@ -807,7 +913,8 @@ def _gather_and_render_body():
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()
-    return build_full_html(pane_data, metrics, _fleet_start, usage_data, body_only=True)
+    rl = get_rate_limits()
+    return build_full_html(pane_data, metrics, _fleet_start, usage_data, rl, body_only=True)
 
 
 class _DataHandler(BaseHTTPRequestHandler):
@@ -823,9 +930,14 @@ class _DataHandler(BaseHTTPRequestHandler):
         pass  # suppress logs
 
 
+class _ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+    allow_reuse_port = True
+
+
 def _start_data_server():
     try:
-        srv = HTTPServer(("127.0.0.1", DATA_PORT), _DataHandler)
+        srv = _ReusableHTTPServer(("127.0.0.1", DATA_PORT), _DataHandler)
         srv.serve_forever()
     except Exception:
         pass
@@ -865,5 +977,6 @@ else:
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()
-    html = build_full_html(pane_data, metrics, st.session_state.fleet_start, usage_data)
+    rl = get_rate_limits()
+    html = build_full_html(pane_data, metrics, st.session_state.fleet_start, usage_data, rl)
     components.html(html, height=2000, scrolling=True)

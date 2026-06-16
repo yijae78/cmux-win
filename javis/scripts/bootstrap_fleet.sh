@@ -1,11 +1,11 @@
 #!/bin/bash
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Javis Fleet Bootstrap — "너는 마스터다" 트리거
-# Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) 순서
-# 총 5개 pane 구성 (마스터 기존 유지)
+# Master → CSO → Worker1(Claude) → Worker2(AGY) → Worker3(Codex) → Dashboard 순서
+# 총 6-pane 구성 (5터미널 + 1대시보드 브라우저)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-set -euo pipefail
+set -uo pipefail  # -e 제거: Socket API 실패가 전체를 죽이지 않도록
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 JAVIS_DIR="$(dirname "$SCRIPT_DIR")"
 MAPPING_FILE="$JAVIS_DIR/fleet_mapping.env"
@@ -147,10 +147,14 @@ if [ -n "$PID" ] && [ "$PID" != "0" ]; then
     log "  기존 대시보드 종료 (PID: $PID)"
     sleep 1
 fi
-powershell.exe -Command "Start-Process -WindowStyle Hidden streamlit -ArgumentList 'run','$DASHBOARD','--server.port','8500','--server.headless','true'" &
-sleep 2
-# 엣지 브라우저 열지 않음 — cmux-win 브라우저 패널로만 표시
-log "  대시보드: http://localhost:8500 (cmux-win 패널 전용)"
+nohup streamlit run "$DASHBOARD" --server.headless true --server.port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
+DASH_PID=$!
+sleep 3
+if kill -0 "$DASH_PID" 2>/dev/null; then
+    log "  대시보드 시작 (PID: $DASH_PID) — http://localhost:8500"
+else
+    log "  [WARN] 대시보드 프로세스 시작 실패 — 로그 확인: $LOG_DIR/dashboard.log"
+fi
 
 # ── 1. CSO pane (2번 — 마스터 바로 옆) ──
 log "[1/4] CSO pane 생성 (Claude Code)..."
@@ -175,7 +179,7 @@ log "  Worker2(AGY) pane: $AGY2_PANE"
 
 # ── 4. Worker3(Codex) pane (5번) ──
 log "[4/4] Worker3(Codex) pane 생성..."
-tmux split-window -h "codex --full-auto --no-alt-screen"
+tmux split-window -h "codex -a never --no-alt-screen"
 sleep 1
 CODEX_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  Worker3(Codex) pane: $CODEX_PANE"
@@ -184,7 +188,7 @@ log "  Worker3(Codex) pane: $CODEX_PANE"
 log "=== 패널 라벨 설정 ==="
 sleep 2  # 패널 생성 안정화 대기
 
-SURFACE_IDS=($(get_surface_ids))
+SURFACE_IDS=($(get_surface_ids)) || true
 SURFACE_COUNT=${#SURFACE_IDS[@]}
 log "  Surface 수: $SURFACE_COUNT"
 

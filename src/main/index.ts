@@ -283,6 +283,7 @@ let historyDb: HistoryDb | null = null;
 // 7. app.whenReady: start socket, create window, adopt orphans
 // ---------------------------------------------------------------------------
 async function createWindow(): Promise<BrowserWindow> {
+  const iconPath = path.join(__dirname, '../../resources/icon.png');
   const win = new BrowserWindow({
     width: lastWindowGeometry?.width ?? 1200,
     height: lastWindowGeometry?.height ?? 800,
@@ -291,6 +292,7 @@ async function createWindow(): Promise<BrowserWindow> {
     center: !lastWindowGeometry,
     show: false,
     title: 'cmux-win',
+    icon: iconPath,
     frame: false,
     backgroundColor: '#272822',
     webPreferences: {
