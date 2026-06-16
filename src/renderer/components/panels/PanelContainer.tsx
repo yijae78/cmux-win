@@ -58,8 +58,6 @@ const PanelContainer: FC<PanelContainerProps> = ({
 }) => {
   const panelSurfaces = surfaces.filter((s) => panel.surfaceIds.includes(s.id));
   const activeSurface = surfaces.find((s) => s.id === panel.activeSurfaceId);
-  // Master 패널은 분할 불가
-  const isMasterPanel = panelSurfaces.some((s) => s.label === 'Master');
 
   /* ---- Drag-and-drop ---- */
   const {
@@ -129,7 +127,7 @@ const PanelContainer: FC<PanelContainerProps> = ({
         onEqualizeH={onEqualizeH}
         onEqualizeV={onEqualizeV}
         onSplitRight={
-          dispatch && !isMasterPanel
+          dispatch
             ? () =>
                 void dispatch({
                   type: 'panel.split',
@@ -138,7 +136,7 @@ const PanelContainer: FC<PanelContainerProps> = ({
             : undefined
         }
         onSplitDown={
-          dispatch && !isMasterPanel
+          dispatch
             ? () =>
                 void dispatch({
                   type: 'panel.split',

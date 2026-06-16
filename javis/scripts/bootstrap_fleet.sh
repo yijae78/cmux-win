@@ -92,8 +92,52 @@ if [ "$PANE_COUNT" -gt 2 ] && [ "${FORCE:-0}" != "1" ]; then
     exit 2
 fi
 
-log "=== Javis Fleet Bootstrap 시작 (총 5-pane 구성) ==="
-log "패널 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex)"
+# ── 유령 패널 정리 (Ghost Panel Cleanup) ──
+log "[PRE] 유령 패널 정리..."
+python3 << 'GHOST_CLEANUP'
+import socket, json, pathlib, os, time
+token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
+try:
+    token = token_path.read_text().strip().split('\n')[0].strip()
+except:
+    print("token 없음 — 건너뜀")
+    exit(0)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(5)
+try:
+    s.connect(('127.0.0.1', 19840))
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
+    time.sleep(0.3); s.recv(4096)
+    # 패널 목록
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':1,'method':'panel.list','params':{}}) + '\n').encode())
+    time.sleep(0.3); panels = json.loads(s.recv(16384).decode()).get('result',{}).get('panels',[])
+    live_ids = {p['id'] for p in panels}
+    # 워크스페이스 레이아웃
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':2,'method':'workspace.list','params':{}}) + '\n').encode())
+    time.sleep(0.3); wss = json.loads(s.recv(16384).decode()).get('result',{}).get('workspaces',[])
+    for ws in wss:
+        layout = ws.get('panelLayout',{})
+        def collect(node):
+            if node.get('type')=='leaf': return [node.get('panelId','')]
+            return collect(node['children'][0]) + collect(node['children'][1])
+        leaf_ids = collect(layout)
+        ghosts = [lid for lid in leaf_ids if lid not in live_ids]
+        if ghosts:
+            # Master 패널만 남기는 clean layout
+            master_id = panels[0]['id'] if panels else leaf_ids[0]
+            clean = {'type':'leaf','panelId':master_id}
+            s.sendall((json.dumps({'jsonrpc':'2.0','id':3,'method':'workspace.set_layout','params':{'workspaceId':ws['id'],'panelLayout':clean}}) + '\n').encode())
+            time.sleep(0.3); s.recv(4096)
+            print(f"유령 {len(ghosts)}개 제거, layout 리셋")
+        else:
+            print("유령 없음")
+    s.close()
+except Exception as e:
+    print(f"cleanup 건너뜀: {e}")
+GHOST_CLEANUP
+
+log "=== Javis Fleet Bootstrap 시작 (총 6-pane 구성: 5터미널 + 1대시보드) ==="
+log "패널 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) → Dashboard(browser)"
 
 # ── 0. 대시보드 실행 (가장 먼저) ──
 log "[0] Javis Dashboard 실행..."
@@ -178,7 +222,7 @@ for i in $(seq 1 15); do
 done
 
 if [ "$DASH_READY" = "1" ]; then
-    # Socket API로 브라우저 패널 생성 + 라벨 설정
+    # Socket API로 브라우저 패널 생성 (panel.split RPC 직접 호출) + 라벨 설정
     python3 << 'PYEOF'
 import socket, json, pathlib, os, time
 token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
@@ -191,48 +235,42 @@ s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params'
 time.sleep(0.3)
 s.recv(4096)
 
-# 마지막 패널 ID 가져오기 (Worker3 Codex 패널에 브라우저 탭 추가)
-s.sendall((json.dumps({'jsonrpc':'2.0','id':1,'method':'surface.list','params':{}}) + '\n').encode())
+# panel.list로 마지막 패널 ID 가져오기
+s.sendall((json.dumps({'jsonrpc':'2.0','id':1,'method':'panel.list','params':{}}) + '\n').encode())
 time.sleep(0.3)
 data = s.recv(16384).decode('utf-8')
-resp = json.loads(data)
-surfaces = resp.get('result',{}).get('surfaces',[])
+panels = json.loads(data).get('result',{}).get('panels',[])
 
-if surfaces:
-    # 마지막 패널에 브라우저 surface 추가
-    last_panel_id = surfaces[-1].get('panelId','')
-    # panel.split으로 새 브라우저 패널 생성
+if panels:
+    last_panel_id = panels[-1]['id']
+    # panel.split RPC로 브라우저 패널 생성 (dispatch가 아닌 직접 호출)
     split_req = json.dumps({
-        'jsonrpc':'2.0','id':2,'method':'dispatch',
-        'params':{'action':{'type':'panel.split','payload':{
+        'jsonrpc':'2.0','id':2,'method':'panel.split',
+        'params':{
             'panelId': last_panel_id,
             'direction': 'horizontal',
             'newPanelType': 'browser',
             'url': 'http://localhost:8500'
-        }}}
+        }
     }) + '\n'
     s.sendall(split_req.encode())
-    time.sleep(0.5)
-    r = s.recv(4096).decode('utf-8')
-    print(f"Dashboard panel: {r.strip()}")
-
-    # 새로 생긴 surface에 Dashboard 라벨 설정
     time.sleep(1)
-    s.sendall((json.dumps({'jsonrpc':'2.0','id':3,'method':'surface.list','params':{}}) + '\n').encode())
-    time.sleep(0.3)
-    data2 = s.recv(16384).decode('utf-8')
-    resp2 = json.loads(data2)
-    new_surfaces = resp2.get('result',{}).get('surfaces',[])
-    if len(new_surfaces) > len(surfaces):
-        new_sf = new_surfaces[-1]
+    r = s.recv(4096).decode('utf-8')
+    result = json.loads(r).get('result',{})
+    new_surface_id = result.get('surfaceId','')
+    print(f"Dashboard panel: paneIndex={result.get('paneIndex')}, surfaceId={new_surface_id[:12]}")
+
+    # Dashboard 라벨 설정
+    if new_surface_id:
+        time.sleep(0.5)
         rename_req = json.dumps({
-            'jsonrpc':'2.0','id':4,'method':'surface.rename',
-            'params':{'surfaceId': new_sf['id'], 'label': 'Dashboard'}
+            'jsonrpc':'2.0','id':3,'method':'surface.rename',
+            'params':{'surfaceId': new_surface_id, 'label': 'Dashboard'}
         }) + '\n'
         s.sendall(rename_req.encode())
         time.sleep(0.3)
         s.recv(4096)
-        print(f"Dashboard label set: {new_sf['id'][:12]}")
+        print(f"Dashboard label set: {new_surface_id[:12]}")
 
 s.close()
 PYEOF
@@ -283,6 +321,6 @@ print(f"Equalized {len(panels)} panels at ratio {ratio}")
 PYEOF
 log "  패널 균등화 완료"
 
-log "=== Fleet Bootstrap 완료 (5-pane + Dashboard 브라우저) ==="
+log "=== Fleet Bootstrap 완료 (총 6-pane: 5터미널 + 1대시보드 브라우저) ==="
 log "매핑 저장: $MAPPING_FILE"
 cat "$MAPPING_FILE"

@@ -218,7 +218,9 @@ export class AppStateStore extends EventEmitter {
         // E1: Auto-start Claude CLI on first workspace
         // Ensures Dispatch always has a Claude CLI target
         const isFirstWorkspace = draft.workspaces.length === 1;
-        const claudeCmd = isFirstWorkspace ? 'claude --dangerously-skip-permissions\r' : undefined;
+        const claudeCmd = isFirstWorkspace
+          ? 'clear; claude --dangerously-skip-permissions\r'
+          : undefined;
 
         draft.surfaces.push({
           id: surfaceId,
@@ -329,8 +331,11 @@ export class AppStateStore extends EventEmitter {
         // as a balanced equal-size tree. Without this, nested binary splits
         // cause panels to shrink exponentially (50% → 25% → 12.5%...).
         const allLeafIds = collectLeafIds(ws.panelLayout);
-        allLeafIds.push(newPanelId);
-        ws.panelLayout = rebuildEqualLayout(allLeafIds, direction);
+        // Ghost panel cleanup: remove leaf IDs that no longer exist in panels array
+        const existingPanelIds = new Set(draft.panels.map((p) => p.id));
+        const liveLeafIds = allLeafIds.filter((id) => existingPanelIds.has(id));
+        liveLeafIds.push(newPanelId);
+        ws.panelLayout = rebuildEqualLayout(liveLeafIds, direction);
         break;
       }
       case 'panel.resize': {

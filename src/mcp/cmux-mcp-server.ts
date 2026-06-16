@@ -957,18 +957,18 @@ server.registerTool(
         case 'open_browser': {
           if (!params.url) return text({ error: true, message: 'url 파라미터가 필요합니다.' });
 
-          // system.tree에서 첫 번째 패널의 panelId를 가져옴
-          const tree = await client.call('system.tree');
-          const ws = (tree?.workspaces ?? [])[0];
-          const panel = ws?.panels?.[0];
-          if (!panel)
+          // panel.list로 마지막 패널을 가져옴 (system.tree보다 안정적)
+          const panelListResult = await client.call('panel.list');
+          const allPanels = (panelListResult as any)?.panels ?? [];
+          const lastPanel = allPanels[allPanels.length - 1];
+          if (!lastPanel)
             return text({
               error: true,
               message: '씨윈에 패널이 없습니다. status로 먼저 확인하세요.',
             });
 
           const result = await client.call('panel.split', {
-            panelId: panel.id,
+            panelId: lastPanel.id,
             direction: 'horizontal',
             newPanelType: 'browser',
             url: params.url,
