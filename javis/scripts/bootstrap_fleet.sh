@@ -1,7 +1,7 @@
 #!/bin/bash
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Javis Fleet Bootstrap — "너는 마스터다" 트리거
-# Master → CSO → Worker1(AGY) → Worker2(Gemini) → Worker3(Codex) 순서
+# Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) 순서
 # 총 5개 pane 구성 (마스터 기존 유지)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -93,7 +93,7 @@ if [ "$PANE_COUNT" -gt 2 ] && [ "${FORCE:-0}" != "1" ]; then
 fi
 
 log "=== Javis Fleet Bootstrap 시작 (총 5-pane 구성) ==="
-log "패널 순서: Master → CSO → Worker1(AGY) → Worker2(Gemini) → Worker3(Codex)"
+log "패널 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex)"
 
 # ── 0. 대시보드 실행 (가장 먼저) ──
 log "[0] Javis Dashboard 실행..."
@@ -105,8 +105,8 @@ if [ -n "$PID" ] && [ "$PID" != "0" ]; then
 fi
 powershell.exe -Command "Start-Process -WindowStyle Hidden streamlit -ArgumentList 'run','$DASHBOARD','--server.port','8500','--server.headless','true'" &
 sleep 2
-start "" "http://localhost:8500"
-log "  대시보드: http://localhost:8500"
+# 엣지 브라우저 열지 않음 — cmux-win 브라우저 패널로만 표시
+log "  대시보드: http://localhost:8500 (cmux-win 패널 전용)"
 
 # ── 1. CSO pane (2번 — 마스터 바로 옆) ──
 log "[1/4] CSO pane 생성 (Claude Code)..."
@@ -122,16 +122,16 @@ sleep 1
 AGY_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  Worker1(AGY) pane: $AGY_PANE"
 
-# ── 3. Worker2(Gemini) pane (4번) ──
-log "[3/4] Worker2(Gemini) pane 생성..."
-tmux split-window -h "gemini -y"
+# ── 3. Worker2(AGY) pane (4번) ──
+log "[3/4] Worker2(AGY) pane 생성..."
+tmux split-window -h "agy"
 sleep 1
-GEMINI_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  Worker2(Gemini) pane: $GEMINI_PANE"
+AGY2_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
+log "  Worker2(AGY) pane: $AGY2_PANE"
 
 # ── 4. Worker3(Codex) pane (5번) ──
 log "[4/4] Worker3(Codex) pane 생성..."
-tmux split-window -h
+tmux split-window -h "codex --full-auto --no-alt-screen"
 sleep 1
 CODEX_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  Worker3(Codex) pane: $CODEX_PANE"
@@ -148,11 +148,11 @@ if [ "$SURFACE_COUNT" -ge 5 ]; then
     set_label "${SURFACE_IDS[0]}" "마스터(claude)"
     set_label "${SURFACE_IDS[1]}" "CSO(claude)"
     set_label "${SURFACE_IDS[2]}" "Worker1(AGY)"
-    set_label "${SURFACE_IDS[3]}" "Worker2(Gemini)"
+    set_label "${SURFACE_IDS[3]}" "Worker2(AGY)"
     set_label "${SURFACE_IDS[4]}" "Worker3(Codex)"
-    log "  라벨 설정 완료: 마스터(claude), CSO(claude), Worker1(AGY), Worker2(Gemini), Worker3(Codex)"
+    log "  라벨 설정 완료: 마스터(claude), CSO(claude), Worker1(AGY), Worker2(AGY), Worker3(Codex)"
 elif [ "$SURFACE_COUNT" -gt 0 ]; then
-    LABELS=("마스터(claude)" "CSO(claude)" "Worker1(AGY)" "Worker2(Gemini)" "Worker3(Codex)")
+    LABELS=("마스터(claude)" "CSO(claude)" "Worker1(AGY)" "Worker2(AGY)" "Worker3(Codex)")
     for i in "${!SURFACE_IDS[@]}"; do
         if [ "$i" -lt "${#LABELS[@]}" ]; then
             set_label "${SURFACE_IDS[$i]}" "${LABELS[$i]}"
@@ -245,11 +245,11 @@ fi
 # ── 매핑 저장 ──
 cat > "$MAPPING_FILE" << EOF
 # Javis Fleet Mapping — $(date '+%Y-%m-%d %H:%M:%S')
-# 순서: Master → CSO → Worker1(AGY) → Worker2(Gemini) → Worker3(Codex) → Dashboard
+# 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) → Dashboard
 # 대시보드: http://localhost:8500
 CSO=$CSO_PANE
 AGY=$AGY_PANE
-GEMINI=$GEMINI_PANE
+AGY2=$AGY2_PANE
 CODEX=$CODEX_PANE
 DASHBOARD=browser:8500
 EOF

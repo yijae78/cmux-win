@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Javis Fleet Dashboard — cmux-win 실시간 작업 현황
+"""Javis Fleet Dashboard v2 — 신교수님 통합 디자인 시스템 적용
 
-Benchmark: EnvironmentScan monitor.py + GlobalNews dashboard.py
+글래스모피즘 + 브랜드 축A(블루-시안) + KPI 카드 + Usage 트래킹
 Anti-flicker: components.html() 단일 iframe 렌더링
-Layout: 900px centered, 블랙 + 시안 1색, SVG 레이더 도넛
 
     streamlit run dashboard.py --server.port 8500 --server.headless true
 """
@@ -13,7 +12,10 @@ import json
 import math
 import re
 import socket as _socket
+import threading
+from collections import defaultdict
 from datetime import datetime, timedelta
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 import streamlit as st
@@ -23,42 +25,60 @@ import streamlit.components.v1 as components
 SOCKET_TOKEN_FILE = Path.home() / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 SOCKET_PORT = 19840
 REFRESH_SEC = 5
+DAILY_TOKEN_LIMIT = 5_000_000  # Max $100 플랜 기준 일일 한도 (약 500만)
+MONTHLY_TOKEN_LIMIT = DAILY_TOKEN_LIMIT * 30  # 월간 한도 (약 1.5억)
 
-# ━━━━━━━ Colors ━━━━━━━
-BG = "#0a0a0a"
-C1 = "#00d4ff"
-C_RED = "#ff5252"
-W = "#ffffff"
-G1 = "rgba(255,255,255,0.55)"
-G2 = "rgba(255,255,255,0.35)"
-G3 = "rgba(255,255,255,0.20)"
-TK = "rgba(255,255,255,0.06)"
+# ━━━━━━━ Design Tokens (신교수님 디자인 시스템) ━━━━━━━
+BG_VOID = "#0a0a0a"
+BG_PRIMARY = "#0c111b"
+BG_RAISED = "#111827"
+SURFACE_1 = "rgba(255,255,255,0.04)"
+SURFACE_2 = "rgba(255,255,255,0.06)"
+SURFACE_3 = "rgba(255,255,255,0.09)"
+BORDER = "rgba(255,255,255,0.08)"
+BORDER_HEAVY = "rgba(255,255,255,0.12)"
 
+TEXT_PRIMARY = "#f1f5f9"
+TEXT_SECONDARY = "#94a3b8"
+TEXT_MUTED = "#64748b"
+
+# Semantic
+GREEN = "#22c55e"
+BLUE = "#3b82f6"
+AMBER = "#f59e0b"
+RED = "#ef4444"
+CYAN = "#00d4ff"
+
+# Brand Accent A (tech/monitoring)
+ACCENT = "#00A8FF"
+ACCENT_LIGHT = "#00d4ff"
+ACCENT_DIM = "#38bdf8"
+
+# Agent colors
 C_MASTER = "#3b82f6"
 C_CSO = "#8b5cf6"
 C_AGY = "#00e676"
-C_GEMINI = "#ffa726"
+C_AGY2 = "#ffa726"
 C_CODEX = "#00d4ff"
 
 FLEET = [
-    {"key": "Master", "icon": "👑", "color": C_MASTER, "ai": "Claude", "desc": "총지휘 · 신교수님 대화"},
-    {"key": "CSO", "icon": "🛡️", "color": C_CSO, "ai": "Claude", "desc": "시스템 운영 · 모니터링"},
-    {"key": "Worker1(AGY)", "icon": "⚙️", "color": C_AGY, "ai": "Claude", "desc": "작업 수행 워커"},
-    {"key": "Worker2(Gemini)", "icon": "💎", "color": C_GEMINI, "ai": "Gemini", "desc": "리뷰 · 비평"},
-    {"key": "Worker3(Codex)", "icon": "🔍", "color": C_CODEX, "ai": "Codex", "desc": "코드 검수"},
+    {"key": "Master", "icon": "M", "color": C_MASTER, "ai": "Claude", "desc": "총지휘"},
+    {"key": "CSO", "icon": "C", "color": C_CSO, "ai": "Claude", "desc": "시스템 운영"},
+    {"key": "Worker1(AGY)", "icon": "A", "color": C_AGY, "ai": "Claude", "desc": "작업 수행"},
+    {"key": "Worker2(AGY)", "icon": "G", "color": C_AGY2, "ai": "AGY", "desc": "리뷰"},
+    {"key": "Worker3(Codex)", "icon": "X", "color": C_CODEX, "ai": "Codex", "desc": "검수"},
 ]
 
 # ━━━━━━━ Page config ━━━━━━━
-st.set_page_config(page_title="Javis Fleet", page_icon="🤖",
-                   layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Javis Fleet", page_icon="J",
+                   layout="wide", initial_sidebar_state="collapsed")
 
-# Hide Streamlit chrome
 st.markdown("""<style>
 .stApp>header,#MainMenu,footer,[data-testid="stHeader"],
 [data-testid="stToolbar"],[data-testid="stDecoration"],
 .stDeployButton,[data-testid="stStatusWidget"]{display:none!important;}
 section[data-testid="stSidebar"]{display:none!important;}
-.block-container{padding-top:0!important;padding-bottom:0!important;}
+.block-container{padding-top:0!important;padding-bottom:0!important;max-width:100%!important;}
 [data-testid="stVerticalBlockBorderWrapper"]{gap:0!important;}
 [data-testid="stVerticalBlock"]{gap:0!important;}
 .stApp{background:#0a0a0a;}
@@ -133,7 +153,7 @@ def detect_status(content):
                                 "reading", "writing", "editing", "creating", "analyzing",
                                 "building", "fetching", "compiling", "levitating"]):
         return "live"
-    if any(k in last for k in ["waiting", "idle", "$ ", "❯", "> ", ">>> ",
+    if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ",
                                 "what would you like", "how can i help"]):
         return "idle"
     return "live"
@@ -147,39 +167,49 @@ def get_activity_summary(content):
         return "대기 중"
     for line in reversed(lines[-10:]):
         low = line.lower()
-        if any(skip in low for skip in ["$", "❯", ">>>", "╭", "╰", "───", "```"]):
+        if any(skip in low for skip in ["$", ">>>", "```"]):
             continue
         if len(line) > 5:
-            return line[:80] + ("…" if len(line) > 80 else "")
-    return lines[-1][:80] if lines else "대기 중"
+            return line[:90] + ("..." if len(line) > 90 else "")
+    return lines[-1][:90] if lines else "대기 중"
+
+
+def get_terminal_preview(content, n=3):
+    """터미널 마지막 n줄 미리보기."""
+    if not content:
+        return []
+    lines = [_strip(l).strip() for l in content.strip().split("\n") if _strip(l).strip()]
+    return lines[-n:] if lines else []
 
 
 def get_claude_contexts():
-    """각 Claude 세션의 마지막 메시지에서 context 사용량 읽기."""
-    results = []
+    """cmux-win 세션을 하나로 통합하여 현재 활성 세션 기준으로 표시."""
     projects_dir = Path.home() / ".claude" / "projects"
     if not projects_dir.exists():
-        return results
+        return []
     try:
-        # Find recently modified .jsonl files (active sessions)
-        import glob
+        # cmux-win 세션만 (홈 디렉토리 프로젝트 = C--Users----)
+        cmux_project = projects_dir / "C--Users----"
+        search_dirs = [cmux_project] if cmux_project.exists() else [projects_dir]
         jsonls = []
-        for p in projects_dir.rglob("*.jsonl"):
-            if "subagent" in str(p):
-                continue
-            try:
-                mtime = p.stat().st_mtime
-                size = p.stat().st_size
-                if size > 1000:  # skip tiny files
-                    jsonls.append((mtime, p))
-            except Exception:
-                pass
+        for search_dir in search_dirs:
+            for p in search_dir.glob("*.jsonl"):
+                if "subagent" in str(p):
+                    continue
+                try:
+                    mtime = p.stat().st_mtime
+                    size = p.stat().st_size
+                    if size > 1000:
+                        jsonls.append((mtime, p))
+                except Exception:
+                    pass
         jsonls.sort(key=lambda x: x[0], reverse=True)
 
-        for _, jf in jsonls[:6]:  # top 6 most recent
+        # 가장 최근 활성 세션 1개만 (컨텍스트 사용량 가장 높은 것)
+        best = None
+        session_count = 0
+        for _, jf in jsonls[:10]:
             last_usage = None
-            session_id = ""
-            cwd = ""
             try:
                 with open(jf, "r", encoding="utf-8", errors="replace") as fh:
                     for line in fh:
@@ -188,26 +218,115 @@ def get_claude_contexts():
                             u = data.get("message", {}).get("usage", {})
                             if u and u.get("input_tokens") is not None:
                                 last_usage = u
-                                session_id = data.get("sessionId", "")[:12]
-                                cwd = data.get("cwd", "")
                         except Exception:
                             pass
             except Exception:
                 continue
             if last_usage:
+                session_count += 1
                 inp = last_usage.get("input_tokens", 0)
                 cache_r = last_usage.get("cache_read_input_tokens", 0)
                 cache_c = last_usage.get("cache_creation_input_tokens", 0)
                 ctx = inp + cache_r + cache_c
-                limit = 200_000
-                pct = min(100, round(ctx / limit * 100, 1))
-                # Derive a short label from cwd
-                label = cwd.split("\\")[-1].split("/")[-1] if cwd else jf.stem[:12]
-                results.append({"label": label, "ctx": ctx, "limit": limit,
-                                "pct": pct, "session": session_id})
+                if best is None or ctx > best["ctx"]:
+                    best = {"ctx": ctx}
+
+        if best:
+            limit = 200_000
+            ctx = best["ctx"]
+            pct = min(100, round(ctx / limit * 100, 1))
+            return [{"label": "cmux-win", "project": "cmux-win",
+                      "ctx": ctx, "limit": limit, "pct": pct,
+                      "sessions": session_count}]
     except Exception:
         pass
-    return results
+    return []
+
+
+def get_token_usage():
+    """JSONL 파싱으로 시간별/일별/월별 토큰 사용량 집계."""
+    projects_dir = Path.home() / ".claude" / "projects"
+    now = datetime.now()
+    hour_ago = now - timedelta(hours=1)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    hourly_in = 0
+    hourly_out = 0
+    daily_in = 0
+    daily_out = 0
+    monthly_in = 0
+    monthly_out = 0
+    session_count = 0
+    message_count = 0
+    hourly_buckets = defaultdict(int)
+
+    try:
+        # stats-cache.json for monthly data
+        stats_file = Path.home() / ".claude" / "stats-cache.json"
+        if stats_file.exists():
+            stats = json.loads(stats_file.read_text())
+            dmt = stats.get("dailyModelTokens", [])
+            month_str = now.strftime("%Y-%m")
+            for d in dmt:
+                if d["date"].startswith(month_str):
+                    for model, tokens in d.get("tokensByModel", {}).items():
+                        monthly_in += tokens
+
+        # JSONL for today's detailed data
+        for jf in projects_dir.rglob("*.jsonl"):
+            if "subagent" in str(jf):
+                continue
+            try:
+                mtime = jf.stat().st_mtime
+                if datetime.fromtimestamp(mtime) < today_start:
+                    continue
+                session_count += 1
+                with open(jf, "r", encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        try:
+                            d = json.loads(line)
+                            ts_str = d.get("timestamp", "")
+                            usage = d.get("message", {}).get("usage", {})
+                            if not usage or not ts_str:
+                                continue
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                            inp = usage.get("input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
+                            out = usage.get("output_tokens", 0)
+                            message_count += 1
+
+                            # daily
+                            daily_in += inp
+                            daily_out += out
+
+                            # hourly (last 1h)
+                            if ts >= hour_ago:
+                                hourly_in += inp
+                                hourly_out += out
+
+                            # hourly buckets for sparkline
+                            bucket = ts.strftime("%H")
+                            hourly_buckets[bucket] += inp + out
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Build sparkline data (last 12 hours)
+    sparkline = []
+    for i in range(12):
+        h = (now - timedelta(hours=11 - i)).strftime("%H")
+        sparkline.append(hourly_buckets.get(h, 0))
+
+    return {
+        "hourly_in": hourly_in, "hourly_out": hourly_out,
+        "daily_in": daily_in, "daily_out": daily_out,
+        "monthly_total": monthly_in + daily_in,
+        "sessions": session_count, "messages": message_count,
+        "sparkline": sparkline,
+    }
 
 
 def get_system_metrics():
@@ -223,191 +342,367 @@ def get_system_metrics():
 
 
 # ━━━━━━━ SVG Radar ━━━━━━━
-def _radar_svg(active, total, size=120):
+def _radar_svg(active, total, size=130):
     pct = active / max(total, 1)
     cx, cy = size // 2, size // 2
-    r = size * 0.36
-    sw = size * 0.07
+    r = size * 0.34
+    sw = size * 0.055
     circ = 2 * math.pi * r
     dash = f"{pct * circ:.1f} {circ:.1f}"
-    color = C1 if active > 0 else "#90a4ae"
-    ro = int(size * 0.45)
+    color = ACCENT_LIGHT if active > 0 else TEXT_MUTED
+    ro = int(size * 0.43)
+    ri = int(size * 0.25)  # inner decoration ring
 
     sweep = ""
     ripples = ""
     if active > 0:
-        sweep = f'''<defs><linearGradient id="sw" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="{C1}" stop-opacity="0.5"/>
-          <stop offset="100%" stop-color="{C1}" stop-opacity="0"/>
-        </linearGradient></defs>
+        sweep = f'''<defs>
+          <linearGradient id="sw" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="{ACCENT_LIGHT}" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="{ACCENT_LIGHT}" stop-opacity="0"/>
+          </linearGradient>
+          <radialGradient id="rg" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="{ACCENT}" stop-opacity="0.08"/>
+            <stop offset="100%" stop-color="{ACCENT}" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="{cx}" cy="{cy}" r="{ro}" fill="url(#rg)"/>
         <line x1="{cx}" y1="{cy}" x2="{cx}" y2="{cy-ro}"
-              stroke="url(#sw)" stroke-width="2" style="transform-origin:{cx}px {cy}px;animation:radar-spin 4s linear infinite;"/>'''
+              stroke="url(#sw)" stroke-width="1.5" style="transform-origin:{cx}px {cy}px;animation:radar-spin 4s linear infinite;"/>'''
         for i in range(3):
-            ripples += f'<circle cx="{cx}" cy="{cy}" r="0" fill="none" stroke="{C1}" stroke-opacity="0.25" style="animation:rp-out 4s ease-out infinite {i*1.5}s;"/>'
+            ripples += f'<circle cx="{cx}" cy="{cy}" r="0" fill="none" stroke="{ACCENT_LIGHT}" stroke-opacity="0.15" style="animation:rp-out 4s ease-out infinite {i*1.3}s;"/>'
 
-    cross = f'''<line x1="{cx}" y1="{cy-ro+5}" x2="{cx}" y2="{cy+ro-5}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-    <line x1="{cx-ro+5}" y1="{cy}" x2="{cx+ro-5}" y2="{cy}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>'''
+    # 작업 중 표현: 레이더 스윕 + 리플만 사용. 원호는 애니메이션 없음 (두께 변화 방지)
 
-    ring = f'<circle cx="{cx}" cy="{cy}" r="{ro}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="4 4" style="animation:wave-rot 3s linear infinite;"/>'
-
-    return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" style="filter:drop-shadow(0 0 12px {color}30);">
-      {cross}{ring}{ripples}{sweep}
+    return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">
+      <circle cx="{cx}" cy="{cy}" r="{ro}" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3 5" style="animation:wave-rot 4s linear infinite;"/>
+      <circle cx="{cx}" cy="{cy}" r="{ri}" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" stroke-dasharray="2 4"/>
+      {ripples}{sweep}
       <circle cx="{cx}" cy="{cy}" r="{r:.0f}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="{sw:.0f}"/>
       <circle cx="{cx}" cy="{cy}" r="{r:.0f}" fill="none" stroke="{color}" stroke-width="{sw:.0f}"
-              stroke-dasharray="{dash}" stroke-linecap="round" transform="rotate(-90 {cx} {cy})"
-              style="filter:drop-shadow(0 0 6px {color});animation:neon-p 2.5s ease-in-out infinite;"/>
+              stroke-dasharray="{dash}" stroke-linecap="round" transform="rotate(-90 {cx} {cy})"/>
       <text x="{cx}" y="{cy-4}" text-anchor="middle" dominant-baseline="central"
-            fill="{W}" font-size="{size*0.22:.0f}" font-weight="800" font-family="system-ui,sans-serif">{active}/{total}</text>
-      <text x="{cx}" y="{cy+size*0.12:.0f}" text-anchor="middle"
-            fill="{G2}" font-size="{size*0.07:.0f}" font-family="system-ui,sans-serif">ACTIVE</text>
+            fill="#fff" font-size="{size*0.17:.0f}" font-weight="700"
+            font-family="'Pretendard Variable','Inter',sans-serif"
+            style="letter-spacing:-0.5px;">{round(pct*100)}%</text>
+      <text x="{cx}" y="{cy+size*0.18:.0f}" text-anchor="middle"
+            fill="{ACCENT_LIGHT}" font-size="{size*0.085:.0f}" font-weight="600"
+            font-family="'Pretendard Variable','Inter',sans-serif"
+            style="letter-spacing:0.5px;">{active}/{total} 활성</text>
     </svg>'''
 
 
-# ━━━━━━━ Full HTML builder ━━━━━━━
+def _sparkline_svg(data, w=160, h=36, color=ACCENT_LIGHT):
+    if not data or max(data) == 0:
+        return f'<svg width="{w}" height="{h}"><text x="{w//2}" y="{h//2}" text-anchor="middle" fill="rgba(255,255,255,0.2)" font-size="10">데이터 없음</text></svg>'
+    mx = max(data)
+    n = len(data)
+    step = w / max(n - 1, 1)
+    points = " ".join(f"{i*step:.1f},{h - (v/mx)*(h-4) - 2:.1f}" for i, v in enumerate(data))
+    base = f"0,{h} {points} {w},{h}"
+    return f'''<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" style="filter:drop-shadow(0 0 4px {color}30);">
+      <defs><linearGradient id="spk" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="{color}" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="{color}" stop-opacity="0.03"/>
+      </linearGradient></defs>
+      <polygon points="{base}" fill="url(#spk)"/>
+      <polyline points="{points}" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                style="filter:drop-shadow(0 0 3px {color});"/>
+    </svg>'''
+
+
+def _fmt_tokens(n):
+    """토큰 수를 읽기 쉬운 형태로 (만 단위)."""
+    if n >= 10_000:
+        return f"{n/10_000:.1f}만"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}천"
+    return str(n)
+
+
+# ━━━━━━━ HTML builder ━━━━━━━
 def _esc(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def build_full_html(pane_data, metrics, start_time):
+DATA_PORT = 8501
+
+
+def build_full_html(pane_data, metrics, start_time, usage_data, body_only=False):
     now = datetime.now()
-    n_live = sum(1 for _, _, _, s, _ in pane_data if s == "live")
+    n_live = sum(1 for _, _, _, s, _, _ in pane_data if s == "live")
     n_total = len(pane_data)
     elapsed = now - start_time
     h, rem = divmod(int(elapsed.total_seconds()), 3600)
     m, sec = divmod(rem, 60)
-    mode_color = "#00e676" if n_live > 0 else "#90a4ae"
-    dot_cls = "dot-live" if n_live > 0 else "dot-idle"
+    is_live = n_live > 0
 
     css = f"""
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
     *{{margin:0;padding:0;box-sizing:border-box;}}
     html,body{{height:100%;overflow-y:auto;overflow-x:hidden;}}
-    body{{background:{BG};color:{W};font-family:'Pretendard Variable','Inter',system-ui,sans-serif;
-         padding:8px 10px;width:100%;}}
-    .hud{{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;}}
-    .hud-title{{font-size:16px;font-weight:800;letter-spacing:-.3px;}}
-    .hud-time{{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:{G1};margin-left:auto;}}
-    .hud-badge{{font-size:9px;font-weight:700;padding:1px 7px;border-radius:9999px;}}
-    .hud-sub{{font-size:10px;color:{G2};margin-bottom:6px;}}
-    /* --- Radar + Stats side by side --- */
-    .top-row{{display:flex;align-items:center;gap:10px;margin-bottom:6px;}}
-    .top-stats{{flex:1;display:flex;flex-direction:column;gap:3px;}}
-    .ts-row{{display:flex;align-items:center;gap:6px;}}
-    .ts-lbl{{font-size:9px;color:{G3};width:36px;flex-shrink:0;}}
-    .ts-val{{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;}}
-    /* --- Fleet list --- */
-    .fleet-row{{display:flex;align-items:center;gap:6px;padding:5px 8px;
-                border-radius:6px;margin-bottom:2px;transition:background 0.2s;}}
-    .fleet-row:hover{{background:rgba(255,255,255,0.04);}}
-    .fr-icon{{font-size:13px;flex-shrink:0;width:18px;text-align:center;}}
-    .fr-name{{font-size:11px;font-weight:700;flex-shrink:0;min-width:0;}}
-    .fr-ai{{font-size:8px;font-weight:600;padding:0 5px;border-radius:9999px;
-            background:rgba(255,255,255,0.07);color:{G1};flex-shrink:0;}}
-    .fr-act{{font-size:9px;color:{G2};flex:1;min-width:0;overflow:hidden;
-             text-overflow:ellipsis;white-space:nowrap;}}
-    .dot{{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0;}}
-    .dot-live{{background:#00e676;animation:blink 1.4s ease-in-out infinite;}}
-    .dot-idle{{background:#90a4ae;}}
-    .dot-err{{background:{C_RED};animation:blink 0.8s ease-in-out infinite;}}
-    .dot-off{{background:#424242;}}
-    .fr-badge{{font-size:8px;font-weight:600;padding:0 6px;border-radius:9999px;flex-shrink:0;}}
-    .st-live{{background:rgba(0,230,118,0.12);color:#00e676;}}
-    .st-idle{{background:rgba(144,164,174,0.12);color:#90a4ae;}}
-    .st-err{{background:rgba(255,82,82,0.12);color:{C_RED};}}
-    .st-off{{background:rgba(66,66,66,0.12);color:#616161;}}
-    /* --- Bars (system, context) --- */
-    .sec-title{{font-size:10px;font-weight:700;color:{G2};margin:8px 0 4px 0;
-                text-transform:uppercase;letter-spacing:0.8px;}}
-    .bar-row{{display:flex;align-items:center;gap:5px;margin:2px 0;}}
-    .bar-lbl{{font-size:9px;color:{G1};flex-shrink:0;min-width:28px;}}
-    .bar-tk{{flex:1;height:6px;background:{TK};border-radius:3px;overflow:hidden;}}
-    .bar-fl{{height:100%;border-radius:3px;transition:width 0.5s;}}
-    .bar-v{{font-family:'JetBrains Mono',monospace;font-size:9px;color:{G2};
-            text-align:right;flex-shrink:0;min-width:50px;}}
-    .foot{{font-size:8px;color:{G3};margin-top:8px;padding-top:4px;border-top:1px solid {TK};}}
-    @keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:0.3;}}}}
-    @keyframes radar-spin{{0%{{transform:rotate(0deg);}}100%{{transform:rotate(360deg);}}}}
-    @keyframes rp-out{{
-      0%{{r:0;opacity:0.4;stroke-width:1.5;}}
-      100%{{r:80;opacity:0;stroke-width:0.3;}}
+    body{{background:{BG_VOID};color:#e2e8f0;
+         font-family:'Pretendard Variable','Inter',-apple-system,'Noto Sans KR',sans-serif;
+         padding:12px 14px;width:100%;word-break:keep-all;-webkit-font-smoothing:antialiased;
+         font-size:14px;}}
+
+    /* ── Live Pulse (Red) ── */
+    .live-pulse{{width:10px;height:10px;border-radius:50%;background:{RED};flex-shrink:0;
+                 animation:red-pulse 0.8s ease-in-out infinite;
+                 box-shadow:0 0 8px {RED},0 0 16px rgba(239,68,68,0.5);}}
+    @keyframes red-pulse{{
+      0%,100%{{opacity:1;box-shadow:0 0 8px {RED},0 0 20px rgba(239,68,68,0.6);transform:scale(1);}}
+      50%{{opacity:0.3;box-shadow:0 0 2px {RED};transform:scale(0.8);}}
     }}
+
+    /* ── Glass Card ── */
+    .glass{{background:rgba(255,255,255,0.05);backdrop-filter:blur(16px) saturate(1.3);
+            border:1px solid rgba(255,255,255,0.10);border-radius:12px;padding:14px;
+            transition:all 0.25s cubic-bezier(0.22,1,0.36,1);}}
+    .glass:hover{{background:rgba(255,255,255,0.08);}}
+    .glass--accent{{border-top:3px solid {ACCENT_LIGHT};}}
+
+    /* ── Header ── */
+    .hdr{{display:flex;align-items:center;gap:10px;margin-bottom:12px;}}
+    .hdr-title{{font-size:clamp(18px,4vw,26px);font-weight:800;letter-spacing:-.5px;color:#fff;}}
+    .hdr-badge{{font-size:11px;font-weight:700;padding:3px 10px;border-radius:9999px;}}
+    .hdr-time{{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;
+               color:#cbd5e1;margin-left:auto;}}
+
+    /* ── KPI Section: Radar on top, 3 cards below ── */
+    .kpi-section{{text-align:center;margin-bottom:12px;}}
+    .kpi-radar{{display:flex;justify-content:center;margin-bottom:10px;}}
+    .kpi-row{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}}
+    .kpi{{text-align:center;padding:10px 8px;}}
+    .kpi-val{{font-family:'JetBrains Mono',monospace;font-size:clamp(18px,3vw,28px);font-weight:700;line-height:1.1;}}
+    .kpi-lbl{{font-size:13px;font-weight:700;color:#ffffff;margin-top:5px;letter-spacing:0.03em;}}
+
+    /* ── Section Title ── */
+    .sec{{font-size:15px;font-weight:800;color:#ffffff;margin:16px 0 8px 0;letter-spacing:0.3px;}}
+
+    /* ── Fleet List (세로 스택) ── */
+    .fleet-list{{display:flex;flex-direction:column;gap:5px;}}
+    .fleet-card{{display:flex;align-items:center;gap:6px;padding:8px 10px;}}
+    .fleet-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
+    .ag-icon{{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+              font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;
+              border:2px solid var(--ac);background:rgba(0,0,0,0.3);}}
+    .ag-body{{flex:1;min-width:0;}}
+    .ag-top{{display:flex;align-items:center;gap:6px;}}
+    .ag-name{{font-size:13px;font-weight:700;color:var(--ac);}}
+    .ag-ai{{font-size:9px;font-weight:600;padding:2px 6px;border-radius:9999px;
+            background:rgba(255,255,255,0.08);color:#cbd5e1;}}
+    .ag-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
+    .ag-dot{{width:7px;height:7px;border-radius:50%;}}
+    .ag-dot--live{{background:{GREEN};animation:blink 1.4s ease-in-out infinite;box-shadow:0 0 6px {GREEN};}}
+    .ag-dot--idle{{background:#94a3b8;}}
+    .ag-dot--err{{background:{RED};animation:blink 0.8s ease-in-out infinite;box-shadow:0 0 6px {RED};}}
+    .ag-dot--off{{background:#4a5568;}}
+    .ag-stlbl{{font-size:9px;font-weight:700;padding:2px 6px;border-radius:9999px;}}
+    .ag-stlbl--live{{background:rgba(34,197,94,0.15);color:#4ade80;}}
+    .ag-stlbl--idle{{background:rgba(148,163,184,0.15);color:#94a3b8;}}
+    .ag-stlbl--err{{background:rgba(239,68,68,0.15);color:#f87171;}}
+    .ag-stlbl--off{{background:rgba(74,85,104,0.15);color:#718096;}}
+    .ag-act{{font-size:11px;color:#e2e8f0;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;}}
+
+    /* ── Progress Bar ── */
+    .bar-row{{display:flex;align-items:center;gap:8px;margin:4px 0;}}
+    .bar-lbl{{font-size:12px;color:#cbd5e1;flex-shrink:0;min-width:40px;font-weight:600;}}
+    .bar-tk{{flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;position:relative;}}
+    .bar-fl{{height:100%;border-radius:4px;transition:width 0.5s ease;}}
+    .bar-v{{font-family:'JetBrains Mono',monospace;font-size:11px;color:#e2e8f0;font-weight:600;
+            text-align:right;flex-shrink:0;min-width:65px;}}
+
+    /* ── Usage Section (밴드형) ── */
+    .usage-band{{display:flex;gap:0;border-radius:10px;overflow:hidden;margin-bottom:8px;}}
+    .usage-item{{flex:1;text-align:center;padding:10px 6px;position:relative;}}
+    .usage-item+.usage-item{{border-left:1px solid rgba(255,255,255,0.06);}}
+    .usage-item .usage-lbl-top{{font-size:11px;font-weight:700;color:rgba(255,255,255,0.55);margin-bottom:6px;letter-spacing:0.04em;}}
+    .usage-val{{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}}
+    .usage-sub{{font-size:10px;color:#cbd5e1;margin-top:3px;}}
+    .sparkline-row{{display:flex;align-items:center;gap:8px;margin-top:8px;}}
+    .sparkline-lbl{{font-size:10px;color:#94a3b8;flex-shrink:0;}}
+
+    /* ── Footer ── */
+    .foot{{font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px;padding-top:8px;
+           border-top:1px solid rgba(255,255,255,0.08);text-align:center;}}
+
+    /* ── Animations ── */
+    @keyframes fadeUp{{from{{opacity:0;transform:translateY(12px);}}to{{opacity:1;transform:translateY(0);}}}}
+    @keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:0.3;}}}}
+    @keyframes pulse-glow{{
+      0%,100%{{box-shadow:0 0 8px rgba(0,168,255,0.15);}}
+      50%{{box-shadow:0 0 20px rgba(0,168,255,0.35);}}
+    }}
+    @keyframes barFlow{{0%{{background-position:0% 50%;}}100%{{background-position:200% 50%;}}}}
+    @keyframes radar-spin{{0%{{transform:rotate(0deg);}}100%{{transform:rotate(360deg);}}}}
+    @keyframes rp-out{{0%{{r:0;opacity:0.4;stroke-width:1.5;}}100%{{r:60;opacity:0;stroke-width:0.3;}}}}
     @keyframes wave-rot{{0%{{stroke-dashoffset:0;}}100%{{stroke-dashoffset:-60;}}}}
     @keyframes neon-p{{
-      0%,100%{{filter:drop-shadow(0 0 4px {C1}40);}}
-      50%{{filter:drop-shadow(0 0 12px {C1}aa);}}
+      0%,100%{{filter:drop-shadow(0 0 4px rgba(0,212,255,0.25));}}
+      50%{{filter:drop-shadow(0 0 12px rgba(0,212,255,0.65));}}
     }}
-    ::-webkit-scrollbar{{width:4px;}}
+    /* arc-breathe 제거 — SVG 원호 발광은 구현 불가 */
+    @keyframes shimmer{{0%{{background-position:-200% 0;}}100%{{background-position:200% 0;}}}}
+    @keyframes pulse-glow-bar{{
+      0%,100%{{opacity:1;filter:brightness(1);}}
+      50%{{opacity:0.7;filter:brightness(1.4);}}
+    }}
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar{{width:6px;}}
     ::-webkit-scrollbar-track{{background:transparent;}}
-    ::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.10);border-radius:2px;}}
+    ::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.12);border-radius:4px;}}
+    ::-webkit-scrollbar-thumb:hover{{background:rgba(255,255,255,0.22);}}
+
+    /* ── Reduced motion ── */
+    @media(prefers-reduced-motion:reduce){{
+      *,*::before,*::after{{animation-duration:0.01ms!important;transition-duration:0.01ms!important;}}
+    }}
+
+    /* ── Responsive ── */
+    @media(max-width:350px){{
+      body{{padding:8px 10px;font-size:12px;}}
+      .hdr-title{{font-size:16px;}}
+      .kpi-val{{font-size:16px!important;}}
+      .kpi-lbl{{font-size:9px;}}
+      .agent{{padding:6px 8px;gap:8px;}}
+      .ag-icon{{width:22px;height:22px;font-size:9px;}}
+      .ag-name{{font-size:11px;}}
+      .usage-val{{font-size:14px;}}
+      .sec{{font-size:11px;}}
+      .bar-lbl,.bar-v{{font-size:10px;}}
+    }}
+    @media(max-width:220px){{
+      .kpi-row{{grid-template-columns:1fr;}}
+      .usage-grid{{grid-template-columns:1fr;}}
+      .ag-act{{display:none;}}
+    }}
     """
 
     body = []
 
-    # Header: compact single line
-    mode_rgb = "0,230,118" if n_live > 0 else "144,164,174"
-    mode_label = "LIVE" if n_live > 0 else "IDLE"
+    # ── Header ──
+    mode_label = "LIVE" if is_live else "IDLE"
     body.append(f'''
-    <div class="hud">
-      <span class="dot {dot_cls}"></span>
-      <span class="hud-title">Javis Fleet</span>
-      <span class="hud-badge" style="color:{mode_color};background:rgba({mode_rgb},0.12);">{mode_label}</span>
-      <span class="hud-time">{now.strftime('%H:%M:%S')}</span>
+    <div class="hdr">
+      <span class="live-pulse"></span>
+      <span class="hdr-title">JARVIS Control Center</span>
+      <span class="hdr-badge" style="color:{RED};background:rgba(239,68,68,0.15);">{mode_label}</span>
+      <span class="hdr-time">{now.strftime('%Y.%m.%d')} <span style="color:rgba(255,255,255,0.6);margin:0 6px;">|</span> <span id="live-clock">{now.strftime('%H:%M:%S')}</span></span>
     </div>''')
 
-    # Top row: radar + stats side by side
-    radar = _radar_svg(n_live, n_total)
+    # ── KPI: Radar on top, 3 cards below (가동시간 / 컨텍스트 / 오늘 토큰) ──
+    radar = _radar_svg(n_live, n_total, size=130)
+    hourly_total = usage_data["hourly_in"] + usage_data["hourly_out"]
+    daily_total = usage_data["daily_in"] + usage_data["daily_out"]
+
+    # 컨텍스트 윈도우 데이터
+    ctx_data = get_claude_contexts()
+    if ctx_data:
+        ctx_pct = ctx_data[0]["pct"]
+        ctx_tokens = ctx_data[0]["ctx"]
+    else:
+        ctx_pct = 0
+        ctx_tokens = 0
+    if ctx_pct >= 80:
+        ctx_color = RED
+        ctx_warn = "즉시 /clear"
+    elif ctx_pct >= 60:
+        ctx_color = AMBER
+        ctx_warn = "/clear 권장"
+    else:
+        ctx_color = GREEN
+        ctx_warn = ""
+
     body.append(f'''
-    <div class="top-row">
-      <div>{radar}</div>
-      <div class="top-stats">
-        <div class="ts-row"><span class="ts-lbl">가동</span>
-          <span class="ts-val" style="color:{G1}">{h:02d}:{m:02d}:{sec:02d}</span></div>
-        <div class="ts-row"><span class="ts-lbl">시작</span>
-          <span class="ts-val" style="color:{C1}">{start_time.strftime('%H:%M')}</span></div>
-        <div class="ts-row"><span class="ts-lbl">활성</span>
-          <span class="ts-val" style="color:{mode_color}">{n_live}/{n_total}</span></div>
+    <div class="kpi-section">
+      <div style="display:inline-block;padding:12px;">
+        {radar}
+      </div>
+      <div class="kpi-row">
+        <div class="glass glass--accent kpi">
+          <div class="kpi-val" style="color:{ACCENT_LIGHT};">{h:02d}:{m:02d}</div>
+          <div class="kpi-lbl">가동시간</div>
+        </div>
+        <div class="glass glass--accent kpi">
+          <div class="kpi-val" style="color:{ctx_color};">{ctx_pct:.0f}%</div>
+          {f'<div style="font-size:9px;color:{ctx_color};margin-top:2px;font-weight:600;">{ctx_warn}</div>' if ctx_warn else f'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">{_fmt_tokens(ctx_tokens)}</div>'}
+          <div class="kpi-lbl">컨텍스트</div>
+        </div>
+        <div class="glass glass--accent kpi">
+          <div class="kpi-val" style="color:{AMBER};">{_fmt_tokens(daily_total)}</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">/ {_fmt_tokens(DAILY_TOKEN_LIMIT)}</div>
+          <div class="kpi-lbl">오늘 토큰</div>
+        </div>
       </div>
     </div>''')
 
-    # Fleet list: compact rows
-    body.append('<div class="sec-title">Fleet</div>')
-    for _, cfg, content, status, activity in pane_data:
+    # ── Fleet Agents (세로 스택) ──
+    body.append('<div class="sec">플릿 현황</div>')
+    body.append('<div class="fleet-list">')
+    for idx, (sf, cfg, content, status, activity, preview) in enumerate(pane_data):
         color = cfg["color"]
-        dot_c = {"live": "dot-live", "idle": "dot-idle", "error": "dot-err"}.get(status, "dot-off")
-        st_c = {"live": "st-live", "idle": "st-idle", "error": "st-err"}.get(status, "st-off")
-        st_l = {"live": "LIVE", "idle": "IDLE", "error": "ERR", "offline": "OFF"}.get(status, "?")
+        dot_cls = {"live": "live", "idle": "idle", "error": "err"}.get(status, "off")
+        st_label = {"live": "진행중", "idle": "대기", "error": "오류", "offline": "완료"}.get(status, "?")
         short_name = cfg["key"].split("(")[0].strip()
+        act_text = _esc(activity[:60]) if activity else ""
 
         body.append(f'''
-        <div class="fleet-row">
-          <span class="fr-icon">{cfg["icon"]}</span>
-          <span class="fr-name" style="color:{color}">{short_name}</span>
-          <span class="fr-ai">{cfg["ai"]}</span>
-          <span class="fr-act">{_esc(activity)}</span>
-          <span class="dot {dot_c}"></span>
-          <span class="fr-badge {st_c}">{st_l}</span>
+        <div class="fleet-card glass" style="border-left:3px solid {color};">
+          <div class="ag-icon" style="border-color:{color};">{cfg["icon"]}</div>
+          <span class="ag-name" style="color:{color};">{short_name}</span>
+          <span class="fleet-status">
+            <span class="ag-dot ag-dot--{dot_cls}"></span>
+            <span class="ag-stlbl ag-stlbl--{dot_cls}">{st_label}</span>
+          </span>
         </div>''')
+    body.append('</div>')
 
-    # Context / Token usage (compact)
-    ctx_data = get_claude_contexts()
-    if ctx_data:
-        body.append('<div class="sec-title">Context</div>')
-        for cd in ctx_data[:4]:
-            cp = cd["pct"]
-            cc = "#00e676" if cp < 50 else C_GEMINI if cp < 80 else C_RED
-            ctx_k = f'{cd["ctx"]//1000}k'
-            body.append(f'''
-            <div class="bar-row">
-              <div class="bar-lbl">{_esc(cd["label"][:8])}</div>
-              <div class="bar-tk"><div class="bar-fl" style="width:{cp:.0f}%;background:{cc};"></div></div>
-              <div class="bar-v">{ctx_k} ({cp:.0f}%)</div>
-            </div>''')
+    # ── Token Usage (밴드형: 제목 상단) ──
+    body.append('<div class="sec">토큰 사용량</div>')
+    body.append('<div class="glass" style="padding:0;">')
+    monthly_total = usage_data["monthly_total"]
 
-    # System (compact)
-    cpu_c = "#00e676" if metrics["cpu"] < 60 else C_GEMINI if metrics["cpu"] < 80 else C_RED
-    mem_c = "#00e676" if metrics["mem_pct"] < 70 else C_GEMINI if metrics["mem_pct"] < 90 else C_RED
     body.append(f'''
-    <div class="sec-title">System</div>
+    <div class="usage-band">
+      <div class="usage-item">
+        <div class="usage-lbl-top">최근 1시간</div>
+        <div class="usage-val" style="color:{ACCENT_LIGHT};">{_fmt_tokens(hourly_total)}</div>
+        <div class="usage-sub">입력 {_fmt_tokens(usage_data["hourly_in"])} · 출력 {_fmt_tokens(usage_data["hourly_out"])}</div>
+      </div>
+      <div class="usage-item">
+        <div class="usage-lbl-top">오늘 ({round(daily_total/DAILY_TOKEN_LIMIT*100)}%)</div>
+        <div class="usage-val" style="color:{GREEN};">{_fmt_tokens(daily_total)}</div>
+        <div class="usage-sub">한도 {_fmt_tokens(DAILY_TOKEN_LIMIT)}</div>
+      </div>
+      <div class="usage-item">
+        <div class="usage-lbl-top">이번 달 ({round(monthly_total/MONTHLY_TOKEN_LIMIT*100)}%)</div>
+        <div class="usage-val" style="color:{AMBER};">{_fmt_tokens(monthly_total)}</div>
+        <div class="usage-sub">한도 {_fmt_tokens(MONTHLY_TOKEN_LIMIT)}</div>
+      </div>
+    </div>''')
+
+    # Sparkline
+    sparkline = _sparkline_svg(usage_data["sparkline"])
+    hours_labels = " ".join(f'<span style="flex:1;text-align:center;">{(now - timedelta(hours=11-i)).strftime("%H")}</span>'
+                           for i in range(0, 12, 3))
+    body.append(f'''
+    <div class="sparkline-row">
+      <span class="sparkline-lbl">12h</span>
+      {sparkline}
+    </div>
+    <div style="display:flex;margin-left:28px;font-size:11px;color:rgba(255,255,255,0.6);font-family:'JetBrains Mono',monospace;font-weight:600;">{hours_labels}</div>
+    ''')
+    body.append('</div>')
+
+    # ── System ──
+    body.append('<div class="sec">시스템</div>')
+    body.append('<div class="glass" style="padding:10px;">')
+    cpu_c = GREEN if metrics["cpu"] < 60 else AMBER if metrics["cpu"] < 80 else RED
+    mem_c = GREEN if metrics["mem_pct"] < 70 else AMBER if metrics["mem_pct"] < 90 else RED
+    body.append(f'''
     <div class="bar-row">
       <div class="bar-lbl">CPU</div>
       <div class="bar-tk"><div class="bar-fl" style="width:{metrics["cpu"]:.0f}%;background:{cpu_c};"></div></div>
@@ -418,43 +713,79 @@ def build_full_html(pane_data, metrics, start_time):
       <div class="bar-tk"><div class="bar-fl" style="width:{metrics["mem_pct"]:.0f}%;background:{mem_c};"></div></div>
       <div class="bar-v">{metrics["mem_used"]:.1f}/{metrics["mem_total"]:.0f}G</div>
     </div>''')
+    body.append('</div>')
 
-    # Footer
-    body.append(f'<div class="foot">Javis Fleet · {REFRESH_SEC}s · {now.strftime("%H:%M:%S")}</div>')
+    # ── Footer ──
+    body.append(f'<div class="foot">자비스 플릿 v2 &middot; {REFRESH_SEC}초 새로고침 &middot; {now.strftime("%Y-%m-%d %H:%M:%S")}</div>')
 
+    body_html = "".join(body)
+    if body_only:
+        return body_html
+
+    # JS 자체 새로고침 + 1초 시계 업데이트
+    js_refresh = f"""
+    <script>
+    async function refreshDashboard() {{
+        try {{
+            const resp = await fetch('http://localhost:{DATA_PORT}/');
+            if (resp.ok) {{
+                const root = document.getElementById('dash-root');
+                root.innerHTML = await resp.text();
+            }}
+        }} catch(e) {{}}
+    }}
+    setInterval(refreshDashboard, {REFRESH_SEC * 1000});
+
+    // 1초마다 시계 업데이트 (초 카운팅 정확하게)
+    setInterval(function() {{
+        var el = document.getElementById('live-clock');
+        if (el) {{
+            var now = new Date();
+            var hh = String(now.getHours()).padStart(2,'0');
+            var mm = String(now.getMinutes()).padStart(2,'0');
+            var ss = String(now.getSeconds()).padStart(2,'0');
+            el.textContent = hh + ':' + mm + ':' + ss;
+        }}
+    }}, 1000);
+    </script>
+    """
     return f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>{css}</style></head>
-<body>{"".join(body)}</body></html>'''
+<style>{css}</style>{js_refresh}</head>
+<body><div id="dash-root">{body_html}</div></body></html>'''
 
 
 def build_empty_html():
     return f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>body{{background:{BG};color:{W};font-family:system-ui,sans-serif;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;height:90vh;}}</style>
-</head><body>
-  <div style="font-size:48px;margin-bottom:16px;">🤖</div>
-  <div style="font-size:20px;font-weight:700;margin-bottom:8px;">Javis Fleet 대기 중</div>
-  <div style="color:{G2};font-size:13px;text-align:center;">
-    마스터 Claude에게 <strong style="color:{C_MASTER};">"너는 마스터다"</strong>를 입력하면<br>
-    5-pane fleet이 자동으로 부트스트랩됩니다.
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+body{{background:{BG_VOID};color:{TEXT_PRIMARY};font-family:'Pretendard Variable',system-ui,sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;height:90vh;}}
+.glass{{background:{SURFACE_1};backdrop-filter:blur(16px);border:1px solid {BORDER};
+        border-radius:20px;padding:40px;text-align:center;animation:fadeUp 0.6s cubic-bezier(0.22,1,0.36,1);}}
+@keyframes fadeUp{{from{{opacity:0;transform:translateY(20px);}}to{{opacity:1;transform:translateY(0);}}}}
+</style></head><body>
+  <div class="glass">
+    <div style="font-size:40px;margin-bottom:16px;font-weight:900;color:{ACCENT_LIGHT};">J</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">자비스 플릿 대기 중</div>
+    <div style="color:{TEXT_SECONDARY};font-size:13px;line-height:1.6;">
+      마스터 Claude에게 <strong style="color:{C_MASTER};">"너는 마스터다"</strong>를 입력하면<br>
+      5-pane fleet이 자동으로 부트스트랩됩니다.
+    </div>
   </div>
 </body></html>'''
 
 
-# ━━━━━━━ Main ━━━━━━━
-if "fleet_start" not in st.session_state:
-    st.session_state.fleet_start = datetime.now()
+# ━━━━━━━ Data Server (깜박임 방지용 — JS fetch 대상) ━━━━━━━
+_fleet_start = datetime.now()
 
 
-@st.fragment(run_every=timedelta(seconds=REFRESH_SEC))
-def live_content():
+def _gather_and_render_body():
+    """Fleet 데이터 수집 → body HTML 생성 (JS fetch 응답용)."""
     terminals, contents = gather_fleet_data()
-
     if not terminals:
-        components.html(build_empty_html(), height=400, scrolling=False)
-        return
+        return '<div style="text-align:center;padding:40px;color:#64748b;">플릿 대기 중...</div>'
 
     label_map = {cfg["key"]: cfg for cfg in FLEET}
     pane_data = []
@@ -467,17 +798,72 @@ def live_content():
                     cfg = v
                     break
         if not cfg:
-            cfg = {"key": label, "icon": "📦", "color": "#888", "ai": "?", "desc": ""}
+            cfg = {"key": label, "icon": "?", "color": "#888", "ai": "?", "desc": ""}
         content = contents[i] if i < len(contents) else ""
         status = detect_status(content)
         activity = get_activity_summary(content)
-        pane_data.append((sf, cfg, content, status, activity))
+        preview = get_terminal_preview(content, 3)
+        pane_data.append((sf, cfg, content, status, activity, preview))
 
     metrics = get_system_metrics()
-    html = build_full_html(pane_data, metrics, st.session_state.fleet_start)
-    # 컴팩트 HUD: header 50 + radar+stats 130 + fleet 30*N + context 60 + system 50 + footer 30
-    est_h = 50 + 130 + len(pane_data) * 30 + 60 + 50 + 30
-    components.html(html, height=est_h, scrolling=True)
+    usage_data = get_token_usage()
+    return build_full_html(pane_data, metrics, _fleet_start, usage_data, body_only=True)
 
 
-live_content()
+class _DataHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = _gather_and_render_body()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def log_message(self, *_a):
+        pass  # suppress logs
+
+
+def _start_data_server():
+    try:
+        srv = HTTPServer(("127.0.0.1", DATA_PORT), _DataHandler)
+        srv.serve_forever()
+    except Exception:
+        pass
+
+
+# ━━━━━━━ Main ━━━━━━━
+if "data_srv" not in st.session_state:
+    st.session_state.data_srv = True
+    threading.Thread(target=_start_data_server, daemon=True).start()
+
+if "fleet_start" not in st.session_state:
+    st.session_state.fleet_start = datetime.now()
+
+# 초기 렌더링 1회만 — 이후 JS가 자체 새로고침 (깜박임 없음)
+terminals, contents = gather_fleet_data()
+
+if not terminals:
+    components.html(build_empty_html(), height=400, scrolling=False)
+else:
+    label_map = {cfg["key"]: cfg for cfg in FLEET}
+    pane_data = []
+    for i, sf in enumerate(terminals):
+        label = sf.get("label") or sf.get("title", "Terminal")
+        cfg = label_map.get(label)
+        if not cfg:
+            for k, v in label_map.items():
+                if k.lower() in label.lower():
+                    cfg = v
+                    break
+        if not cfg:
+            cfg = {"key": label, "icon": "?", "color": "#888", "ai": "?", "desc": ""}
+        content = contents[i] if i < len(contents) else ""
+        status = detect_status(content)
+        activity = get_activity_summary(content)
+        preview = get_terminal_preview(content, 3)
+        pane_data.append((sf, cfg, content, status, activity, preview))
+
+    metrics = get_system_metrics()
+    usage_data = get_token_usage()
+    html = build_full_html(pane_data, metrics, st.session_state.fleet_start, usage_data)
+    components.html(html, height=2000, scrolling=True)

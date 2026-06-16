@@ -202,21 +202,14 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         if (sel) navigator.clipboard.writeText(sel);
         return false;
       }
-      // Ctrl+V: paste from clipboard into PTY
+      // Ctrl+V: native paste event handler가 처리 (중복 방지 — 키보드 핸들러 제거)
+      // ASCII 22 (Ctrl+V control char)만 차단
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === 'v' && e.type === 'keydown') {
-        navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (text) window.ptyBridge?.write(surfaceId, text);
-          })
-          .catch(() => {
-            /* clipboard permission denied — silent */
-          });
-        return false; // block xterm from sending Ctrl+V control char (ASCII 22)
+        return false;
       }
-      // Shift+Enter: send kitty keyboard protocol sequence for newline (not submit)
+      // Shift+Enter: 줄바꿈 (한칸 내려쓰기)
       if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
-        window.ptyBridge?.write(surfaceId, '\x1b[13;2u');
+        window.ptyBridge?.write(surfaceId, '\n');
         return false;
       }
       return true;
@@ -252,6 +245,24 @@ const XTermWrapper: FC<XTermWrapperProps> = ({
         }
       },
       true,
+    );
+
+    // Ctrl+Wheel: 터미널별 폰트 크기 조절
+    container.addEventListener(
+      'wheel',
+      (e: WheelEvent) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const current = terminal.options.fontSize ?? 14;
+        const delta = e.deltaY < 0 ? 1 : -1;
+        const next = Math.max(8, Math.min(32, current + delta));
+        if (next !== current) {
+          terminal.options.fontSize = next;
+          fitAddon.fit();
+        }
+      },
+      { passive: false },
     );
 
     // L5: Ctrl+Click link detection — open URLs and file paths

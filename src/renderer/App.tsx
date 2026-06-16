@@ -153,12 +153,23 @@ export default function App() {
   const toggleSettings = useCallback(() => setSettingsVisible((v) => !v), []);
   const equalizeLayout = useCallback(
     (direction: 'horizontal' | 'vertical') => {
-      if (!appState) return;
+      if (!appState) {
+        console.warn('[equalize] no appState');
+        return;
+      }
       const activeWs = appState.workspaces.find((w) => w.id === appState.focus.activeWorkspaceId);
-      if (!activeWs?.panelLayout) return;
+      if (!activeWs?.panelLayout) {
+        console.warn('[equalize] no panelLayout');
+        return;
+      }
       const panelIds = collectLeafIds(activeWs.panelLayout);
-      if (panelIds.length <= 1) return;
+      console.log('[equalize]', direction, 'panels:', panelIds.length, panelIds);
+      if (panelIds.length <= 1) {
+        console.warn('[equalize] only 1 panel, skip');
+        return;
+      }
       const newLayout = rebuildEqualLayout(panelIds, direction);
+      console.log('[equalize] newLayout:', JSON.stringify(newLayout));
       void dispatch({
         type: 'workspace.set_layout',
         payload: { workspaceId: activeWs.id, panelLayout: newLayout },
