@@ -10,3 +10,9 @@ tests/e2e/screenshots/
 Thumbs.db
 tmp-captures/
 *.swp
+
+# Javis runtime (세션마다 갱신되는 파일)
+javis/fleet_mapping.env
+javis/fleet_status.json
+javis/cso_health_report.md
+javis/review_gemini.md
