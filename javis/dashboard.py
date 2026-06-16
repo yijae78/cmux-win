@@ -64,9 +64,9 @@ C_AGY2 = "#ffa726"
 C_CODEX = "#00d4ff"
 
 FLEET = [
-    {"key": "Master", "icon": "M", "color": C_MASTER, "ai": "Claude", "desc": "총지휘"},
-    {"key": "CSO", "icon": "C", "color": C_CSO, "ai": "Claude", "desc": "시스템 운영"},
-    {"key": "Worker1(AGY)", "icon": "A", "color": C_AGY, "ai": "Claude", "desc": "작업 수행"},
+    {"key": "마스터(claude)", "icon": "M", "color": C_MASTER, "ai": "Claude", "desc": "총지휘"},
+    {"key": "CSO(claude)", "icon": "C", "color": C_CSO, "ai": "Claude", "desc": "시스템 운영"},
+    {"key": "Worker1(claude)", "icon": "A", "color": C_AGY, "ai": "Claude", "desc": "작업 수행"},
     {"key": "Worker2(AGY)", "icon": "G", "color": C_AGY2, "ai": "AGY", "desc": "리뷰"},
     {"key": "Worker3(Codex)", "icon": "X", "color": C_CODEX, "ai": "Codex", "desc": "검수"},
 ]
@@ -219,27 +219,34 @@ def detect_status(content):
     if not content:
         return "offline"
     last = _strip("\n".join(content.strip().split("\n")[-8:])).lower()
-    # idle 먼저 체크 — 프롬프트 대기 상태 우선 감지 (최우선)
-    if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ", "ps c:\\",
-                                "what would you like", "how can i help",
-                                "대기합니다", "지시를 대기", "명령을 대기",
-                                "try \"", "bypass permissions",
-                                "type your message", "run /review",
-                                "각성 완료", "awakened"]):
-        return "idle"
-    # 실제 작업 에러만 감지 (MCP/settings 알림은 제외)
+    # 에러 감지 (최우선)
     error_kws = ["traceback", "exception", "crash", "fatal error", "panic"]
     noise_kws = ["mcp server failed", "mcp server", "settings issue", "/doctor", "/mcp"]
     has_error = any(k in last for k in error_kws)
     is_noise = any(k in last for k in noise_kws)
     if has_error and not is_noise:
         return "error"
-    # 작업 중 감지
+    # 작업 중 감지 (idle보다 먼저 — thinking + bypass permissions 동시 존재 시 live 우선)
     if any(k in last for k in ["working", "running", "processing", "generating", "searching",
                                 "reading file", "writing file", "editing", "creating", "analyzing",
                                 "building", "fetching", "compiling", "levitating",
-                                "thinking", "tool call"]):
+                                "thinking", "tool call", "spinning", "moonwalking",
+                                "deciphering", "contemplating", "pondering",
+                                "pontificating", "cogitating", "ruminating",
+                                "meditating", "deliberating", "musing",
+                                "분석 중", "작업 중", "모니터링", "읽는 중", "작성 중",
+                                "zigzagging", "shenaniganing", "cooked"]):
         return "live"
+    # idle 감지
+    if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ", "ps c:\\",
+                                "what would you like", "how can i help",
+                                "대기합니다", "지시를 대기", "명령을 대기",
+                                "분석 완료", "작업 완료", "완료했습니다", "보고합니다",
+                                "try \"", "bypass permissions",
+                                "type your message", "run /review",
+                                "각성 완료", "awakened", "worked for",
+                                "? for shortcuts"]):
+        return "idle"
     return "idle"
 
 
@@ -425,6 +432,37 @@ def get_system_metrics():
         return {"cpu": 0, "mem_pct": 0, "mem_used": 0, "mem_total": 0}
 
 
+# ━━━━━━━ SVG Uptime Circle ━━━━━━━
+def _uptime_svg(h, m, sec, size=130):
+    """가동시간을 원형 SVG로 표시. 레이더와 동일 크기. 60분 기준 원호 진행."""
+    cx, cy = size // 2, size // 2
+    r = size * 0.34
+    sw = size * 0.055
+    circ = 2 * math.pi * r
+    pct = m / 60
+    dash = f"{pct * circ:.1f} {circ:.1f}"
+    color = ACCENT_LIGHT
+    ro = int(size * 0.43)
+    ri = int(size * 0.25)
+
+    return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">
+      <circle cx="{cx}" cy="{cy}" r="{ro}" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3 5"/>
+      <circle cx="{cx}" cy="{cy}" r="{ri}" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" stroke-dasharray="2 4"/>
+      <circle cx="{cx}" cy="{cy}" r="{r:.0f}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="{sw:.0f}"/>
+      <circle cx="{cx}" cy="{cy}" r="{r:.0f}" fill="none" stroke="{color}" stroke-width="{sw:.0f}"
+              stroke-dasharray="{dash}" stroke-linecap="round" transform="rotate(-90 {cx} {cy})"
+              style="transition:stroke-dasharray 1s ease;"/>
+      <text id="uptime-val" x="{cx}" y="{cy-2}" text-anchor="middle" dominant-baseline="central"
+            fill="#fff" font-size="16" font-weight="700"
+            font-family="'JetBrains Mono',monospace"
+            style="letter-spacing:-0.3px;">{h:02d}:{m:02d}:{sec:02d}</text>
+      <text x="{cx}" y="{cy+size*0.18:.0f}" text-anchor="middle"
+            fill="{ACCENT_LIGHT}" font-size="{size*0.085:.0f}" font-weight="600"
+            font-family="'Pretendard Variable','Inter',sans-serif"
+            style="letter-spacing:0.5px;">가동시간</text>
+    </svg>'''
+
+
 # ━━━━━━━ SVG Radar ━━━━━━━
 def _radar_svg(active, total, size=130):
     pct = active / max(total, 1)
@@ -433,7 +471,7 @@ def _radar_svg(active, total, size=130):
     sw = size * 0.055
     circ = 2 * math.pi * r
     dash = f"{pct * circ:.1f} {circ:.1f}"
-    color = ACCENT_LIGHT if active > 0 else TEXT_MUTED
+    color = GREEN if active > 0 else TEXT_MUTED
     ro = int(size * 0.43)
     ri = int(size * 0.25)  # inner decoration ring
 
@@ -442,19 +480,19 @@ def _radar_svg(active, total, size=130):
     if active > 0:
         sweep = f'''<defs>
           <linearGradient id="sw" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stop-color="{ACCENT_LIGHT}" stop-opacity="0.6"/>
-            <stop offset="100%" stop-color="{ACCENT_LIGHT}" stop-opacity="0"/>
+            <stop offset="0%" stop-color="{GREEN}" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="{GREEN}" stop-opacity="0"/>
           </linearGradient>
           <radialGradient id="rg" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="{ACCENT}" stop-opacity="0.08"/>
-            <stop offset="100%" stop-color="{ACCENT}" stop-opacity="0"/>
+            <stop offset="0%" stop-color="{GREEN}" stop-opacity="0.08"/>
+            <stop offset="100%" stop-color="{GREEN}" stop-opacity="0"/>
           </radialGradient>
         </defs>
         <circle cx="{cx}" cy="{cy}" r="{ro}" fill="url(#rg)"/>
         <line x1="{cx}" y1="{cy}" x2="{cx}" y2="{cy-ro}"
               stroke="url(#sw)" stroke-width="1.5" style="transform-origin:{cx}px {cy}px;animation:radar-spin 4s linear infinite;"/>'''
         for i in range(3):
-            ripples += f'<circle cx="{cx}" cy="{cy}" r="0" fill="none" stroke="{ACCENT_LIGHT}" stroke-opacity="0.15" style="animation:rp-out 4s ease-out infinite {i*1.3}s;"/>'
+            ripples += f'<circle cx="{cx}" cy="{cy}" r="0" fill="none" stroke="{GREEN}" stroke-opacity="0.15" style="animation:rp-out 4s ease-out infinite {i*1.3}s;"/>'
 
     # 작업 중 표현: 레이더 스윕 + 리플만 사용. 원호는 애니메이션 없음 (두께 변화 방지)
 
@@ -470,7 +508,7 @@ def _radar_svg(active, total, size=130):
             font-family="'Pretendard Variable','Inter',sans-serif"
             style="letter-spacing:-0.5px;">{round(pct*100)}%</text>
       <text x="{cx}" y="{cy+size*0.18:.0f}" text-anchor="middle"
-            fill="{ACCENT_LIGHT}" font-size="{size*0.085:.0f}" font-weight="600"
+            fill="{GREEN}" font-size="{size*0.085:.0f}" font-weight="600"
             font-family="'Pretendard Variable','Inter',sans-serif"
             style="letter-spacing:0.5px;">{active}/{total} 활성</text>
     </svg>'''
@@ -691,26 +729,13 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
     s_color = RED if s_pct >= 80 else AMBER if s_pct >= 60 else GREEN
     w_color = RED if w_pct >= 80 else AMBER if w_pct >= 60 else GREEN
 
+    uptime_circle = _uptime_svg(h, m, sec, size=130)
+
     body.append(f'''
     <div class="kpi-section">
-      <div style="display:inline-block;padding:12px;">
-        {radar}
-      </div>
-      <div class="kpi-row">
-        <div class="glass glass--accent kpi">
-          <div class="kpi-val" style="color:{ACCENT_LIGHT};">{h:02d}:{m:02d}</div>
-          <div class="kpi-lbl">가동시간</div>
-        </div>
-        <div class="glass glass--accent kpi">
-          <div class="kpi-val" style="color:{s_color};">{s_pct:.0f}%</div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">리셋 {s_reset}</div>
-          <div class="kpi-lbl">세션 (5h)</div>
-        </div>
-        <div class="glass glass--accent kpi">
-          <div class="kpi-val" style="color:{w_color};">{w_pct:.0f}%</div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:2px;">리셋 {w_reset}</div>
-          <div class="kpi-lbl">주간 (7d)</div>
-        </div>
+      <div style="display:flex;justify-content:center;gap:16px;">
+        <div style="display:inline-block;">{radar}</div>
+        <div style="display:inline-block;">{uptime_circle}</div>
       </div>
     </div>''')
 
@@ -754,21 +779,21 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
         w_bar_color = f"linear-gradient(90deg, {AMBER}, #fbbf24)"
 
     body.append(f'''
-    <div style="padding:12px 14px 6px;">
-      <div class="bar-row">
+    <div style="padding:16px 14px 10px;">
+      <div class="bar-row" style="margin:6px 0;">
         <div class="bar-lbl">세션</div>
-        <div class="bar-tk"><div class="bar-fl" style="width:{min(s_pct,100):.0f}%;background:{s_bar_color};"></div></div>
-        <div class="bar-v">{s_pct:.0f}%</div>
+        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(s_pct,100):.0f}%;background:{s_bar_color};"></div></div>
+        <div class="bar-v" style="font-size:13px;">{s_pct:.0f}%</div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:-2px 0 6px 48px;">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:2px 0 12px 48px;">
         <span>5시간 윈도우</span><span>리셋 {s_reset}</span>
       </div>
-      <div class="bar-row">
+      <div class="bar-row" style="margin:6px 0;">
         <div class="bar-lbl">주간</div>
-        <div class="bar-tk"><div class="bar-fl" style="width:{min(w_pct,100):.0f}%;background:{w_bar_color};"></div></div>
-        <div class="bar-v">{w_pct:.0f}%</div>
+        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(w_pct,100):.0f}%;background:{w_bar_color};"></div></div>
+        <div class="bar-v" style="font-size:13px;">{w_pct:.0f}%</div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:-2px 0 4px 48px;">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:2px 0 6px 48px;">
         <span>전체 모델</span><span>리셋 {w_reset}</span>
       </div>
     </div>
@@ -842,15 +867,26 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
     }}
     setInterval(refreshDashboard, {REFRESH_SEC * 1000});
 
-    // 1초마다 시계 업데이트 (초 카운팅 정확하게)
+    // 1초마다 시계 + 가동시간 업데이트
+    var _uptimeStart = Date.now() - {int(elapsed.total_seconds()) * 1000};
     setInterval(function() {{
+        var now = new Date();
+        // 시계
         var el = document.getElementById('live-clock');
         if (el) {{
-            var now = new Date();
             var hh = String(now.getHours()).padStart(2,'0');
             var mm = String(now.getMinutes()).padStart(2,'0');
             var ss = String(now.getSeconds()).padStart(2,'0');
             el.textContent = hh + ':' + mm + ':' + ss;
+        }}
+        // 가동시간
+        var uel = document.getElementById('uptime-val');
+        if (uel) {{
+            var elapsed = Math.floor((Date.now() - _uptimeStart) / 1000);
+            var uh = Math.floor(elapsed / 3600);
+            var um = Math.floor((elapsed % 3600) / 60);
+            var us = elapsed % 60;
+            uel.textContent = String(uh).padStart(2,'0') + ':' + String(um).padStart(2,'0') + ':' + String(us).padStart(2,'0');
         }}
     }}, 1000);
     </script>
@@ -899,8 +935,10 @@ def _gather_and_render_body():
         label = sf.get("label") or sf.get("title", "Terminal")
         cfg = label_map.get(label)
         if not cfg:
+            label_base = label.split("(")[0].strip().lower()
             for k, v in label_map.items():
-                if k.lower() in label.lower():
+                k_base = k.split("(")[0].strip().lower()
+                if k_base == label_base or k.lower() in label.lower() or label.lower() in k.lower():
                     cfg = v
                     break
         if not cfg:
@@ -963,8 +1001,10 @@ else:
         label = sf.get("label") or sf.get("title", "Terminal")
         cfg = label_map.get(label)
         if not cfg:
+            label_base = label.split("(")[0].strip().lower()
             for k, v in label_map.items():
-                if k.lower() in label.lower():
+                k_base = k.split("(")[0].strip().lower()
+                if k_base == label_base or k.lower() in label.lower() or label.lower() in k.lower():
                     cfg = v
                     break
         if not cfg:

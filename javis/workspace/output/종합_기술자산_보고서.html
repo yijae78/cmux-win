@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>종합 기술자산 보고서 — Javis Fleet</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+:root {
+  --bg-void: #0a0a0a;
+  --bg-primary: #0c111b;
+  --bg-raised: #111827;
+  --surface-1: rgba(255,255,255,0.04);
+  --surface-2: rgba(255,255,255,0.06);
+  --surface-3: rgba(255,255,255,0.09);
+  --border: rgba(255,255,255,0.08);
+  --border-accent: rgba(255,255,255,0.15);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #00A8FF;
+  --accent-light: #00d4ff;
+  --green: #22c55e;
+  --blue: #3b82f6;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --purple: #8b5cf6;
+  --cyan: #00d4ff;
+  --accent-rgb: 0,168,255;
+  --green-rgb: 34,197,94;
+  --blue-rgb: 59,130,246;
+  --amber-rgb: 245,158,11;
+  --red-rgb: 239,68,68;
+  --purple-rgb: 139,92,246;
+  --font-ui: 'Pretendard Variable','Inter',-apple-system,'Noto Sans KR',sans-serif;
+  --font-code: 'JetBrains Mono','D2Coding',monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 20px;
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 24px rgba(var(--accent-rgb),0.2);
+  --ease-spring: cubic-bezier(0.22,1,0.36,1);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+/* ── Hero ── */
+.hero {
+  text-align: center;
+  padding: 48px 24px 40px;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb),0.06), rgba(var(--purple-rgb),0.04), rgba(0,0,0,0));
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  margin-bottom: 40px;
+  animation: fadeUp 0.6s var(--ease-spring);
+}
+.hero h1 {
+  font-size: clamp(22px,4vw,32px);
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+}
+.hero-meta {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.hero-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.hero-meta .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+/* ── Section ── */
+.section {
+  margin-bottom: 32px;
+  animation: fadeUp 0.5s var(--ease-spring) both;
+}
+.section:nth-child(2) { animation-delay: 0.05s; }
+.section:nth-child(3) { animation-delay: 0.1s; }
+.section:nth-child(4) { animation-delay: 0.15s; }
+.section:nth-child(5) { animation-delay: 0.2s; }
+.section:nth-child(6) { animation-delay: 0.25s; }
+h2 {
+  font-size: clamp(16px,3vw,20px);
+  font-weight: 700;
+  color: var(--accent-light);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h2 .sec-num {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(var(--accent-rgb),0.15);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.5px;
+}
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 20px 0 10px;
+}
+h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 16px 0 8px;
+}
+p { color: var(--text-secondary); margin-bottom: 10px; }
+strong { color: var(--text-primary); }
+
+/* ── Glass Card ── */
+.glass {
+  background: var(--surface-1);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.25s ease;
+}
+.glass:hover {
+  background: rgba(255,255,255,0.07);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+.glass--accent { border-top: 3px solid var(--accent); }
+.glass--green { border-left: 3px solid var(--green); }
+.glass--blue { border-left: 3px solid var(--blue); }
+.glass--purple { border-left: 3px solid var(--purple); }
+.glass--amber { border-left: 3px solid var(--amber); }
+
+/* ── Overview Grid ── */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width: 800px) { .overview-grid { grid-template-columns: 1fr; } }
+.overview-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  text-align: center;
+  border-top: 3px solid var(--accent);
+  transition: all 0.25s ease;
+}
+.overview-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.overview-card:nth-child(1) { border-top-color: var(--blue); }
+.overview-card:nth-child(2) { border-top-color: var(--green); }
+.overview-card:nth-child(3) { border-top-color: var(--purple); }
+.overview-card .oc-title {
+  font-size: 13px; font-weight: 700; margin-bottom: 4px;
+}
+.overview-card:nth-child(1) .oc-title { color: var(--blue); }
+.overview-card:nth-child(2) .oc-title { color: var(--green); }
+.overview-card:nth-child(3) .oc-title { color: var(--purple); }
+.overview-card .oc-desc { font-size: 11px; color: var(--text-muted); }
+.overview-card .oc-domain { font-size: 10px; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* ── Table ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+thead th {
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-accent);
+  position: sticky;
+  top: 0;
+  font-size: 10px;
+}
+tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+tbody tr:hover { background: rgba(255,255,255,0.03); }
+tbody td:first-child { color: var(--text-primary); font-weight: 500; }
+
+/* ── Badge ── */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.badge--blue { background: rgba(var(--blue-rgb),0.15); color: var(--blue); }
+.badge--green { background: rgba(var(--green-rgb),0.15); color: var(--green); }
+.badge--purple { background: rgba(var(--purple-rgb),0.15); color: var(--purple); }
+.badge--amber { background: rgba(var(--amber-rgb),0.15); color: var(--amber); }
+.badge--red { background: rgba(var(--red-rgb),0.15); color: var(--red); }
+.badge--cyan { background: rgba(var(--accent-rgb),0.15); color: var(--cyan); }
+
+/* ── Commonality List ── */
+.common-item {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.common-item h4 { margin: 0 0 6px; font-size: 13px; }
+
+/* ── Diff Table ── */
+.diff-table th:first-child { width: 80px; }
+
+/* ── Project Card ── */
+.proj-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.proj-card .proj-title {
+  font-size: 16px; font-weight: 700; margin-bottom: 4px;
+}
+.proj-card .proj-oneliner {
+  font-size: 12px; color: var(--text-muted); margin-bottom: 12px; font-style: italic;
+}
+.proj-card .proj-arch { margin-bottom: 12px; }
+.proj-card .proj-arch li {
+  color: var(--text-secondary); font-size: 12px; margin-bottom: 4px; list-style: none; padding-left: 12px; position: relative;
+}
+.proj-card .proj-arch li::before { content: ''; position: absolute; left: 0; top: 8px; width: 4px; height: 4px; border-radius: 50%; }
+.proj-card .proj-tech {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;
+}
+.proj-card .proj-tech span {
+  font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);
+}
+
+.proj-card.sermon { border-top: 3px solid var(--blue); }
+.proj-card.sermon .proj-title { color: var(--blue); }
+.proj-card.sermon .proj-arch li::before { background: var(--blue); }
+
+.proj-card.news { border-top: 3px solid var(--green); }
+.proj-card.news .proj-title { color: var(--green); }
+.proj-card.news .proj-arch li::before { background: var(--green); }
+
+.proj-card.scan { border-top: 3px solid var(--purple); }
+.proj-card.scan .proj-title { color: var(--purple); }
+.proj-card.scan .proj-arch li::before { background: var(--purple); }
+
+/* ── Asset Table ── */
+.asset-table td:nth-child(1) {
+  font-family: var(--font-code); font-size: 11px; color: var(--accent); white-space: nowrap;
+}
+.asset-table td:nth-child(2) { font-weight: 600; color: var(--text-primary); }
+
+/* ── Synergy ── */
+.synergy-matrix {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+@media (max-width: 800px) { .synergy-matrix { grid-template-columns: 1fr; } }
+.synergy-cell {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  transition: all 0.25s ease;
+}
+.synergy-cell:hover { background: var(--surface-2); transform: translateY(-1px); }
+.synergy-cell .syn-id { font-size: 11px; font-weight: 700; color: var(--accent); }
+.synergy-cell .syn-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 4px 0; }
+.synergy-cell .syn-desc { font-size: 11px; color: var(--text-muted); }
+.synergy-cell .syn-diff { margin-top: 6px; }
+
+/* ── Priority Table ── */
+.pri-table td:nth-child(4) { font-weight: 700; }
+
+/* ── Proposal ── */
+.proposal-group { margin-bottom: 20px; }
+.proposal-group .pg-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 8px; padding: 4px 10px; border-radius: 9999px; display: inline-block;
+}
+.pg-short { background: rgba(var(--green-rgb),0.15); color: var(--green); }
+.pg-mid { background: rgba(var(--amber-rgb),0.15); color: var(--amber); }
+.pg-long { background: rgba(var(--purple-rgb),0.15); color: var(--purple); }
+
+.proposal-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 8px;
+  border-left: 3px solid var(--accent);
+}
+.proposal-card .pc-num { font-size: 11px; font-weight: 700; color: var(--accent); }
+.proposal-card .pc-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 2px 0 6px; }
+.proposal-card .pc-desc { font-size: 12px; color: var(--text-muted); }
+
+.proposal-card code {
+  font-family: var(--font-code);
+  font-size: 11px;
+  background: rgba(0,0,0,0.3);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-light);
+}
+
+/* ── Summary Stats ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  text-align: center;
+}
+.stat-val {
+  font-size: clamp(22px,3vw,32px);
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ── Footer ── */
+.footer {
+  text-align: center;
+  padding: 24px;
+  margin-top: 40px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* ── Code Block ── */
+.code-block {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  white-space: pre;
+}
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>종합 기술자산 보고서</h1>
+  <div class="hero-meta">
+    <span><span class="dot" style="background:var(--green);"></span> 작성일 2026-06-16</span>
+    <span><span class="dot" style="background:var(--blue);"></span> Worker1 (Javis Fleet)</span>
+    <span><span class="dot" style="background:var(--purple);"></span> 3개 프로젝트 종합</span>
+    <span><span class="dot" style="background:var(--cyan);"></span> 원본 수정 없음</span>
+  </div>
+</div>
+
+<!-- Stats Summary -->
+<div class="stats-grid">
+  <div class="stat-card"><div class="stat-val">15</div><div class="stat-lbl">코드 자산</div></div>
+  <div class="stat-card"><div class="stat-val">15</div><div class="stat-lbl">아키텍처 패턴</div></div>
+  <div class="stat-card"><div class="stat-val">10</div><div class="stat-lbl">인프라 자산</div></div>
+  <div class="stat-card"><div class="stat-val">6</div><div class="stat-lbl">시너지 기회</div></div>
+  <div class="stat-card"><div class="stat-val">9</div><div class="stat-lbl">활용 제안</div></div>
+  <div class="stat-card"><div class="stat-val">55</div><div class="stat-lbl">총 기술자산</div></div>
+</div>
+
+<!-- 1. 총괄 요약 -->
+<div class="section">
+<h2><span class="sec-num">01</span> 총괄 요약</h2>
+
+<h3>프로젝트 개요</h3>
+<div class="overview-grid">
+  <div class="overview-card">
+    <div class="oc-title">My-Sermon-Editor</div>
+    <div class="oc-desc">설교 원고 → PPT 자동 생성<br>AI 콘텐츠 파이프라인</div>
+    <div class="oc-domain">교회/설교 콘텐츠 · 9단계 · ~34 스크립트</div>
+  </div>
+  <div class="overview-card">
+    <div class="oc-title">GlobalNews-Crawling</div>
+    <div class="oc-desc">116개 사이트 수집 → NLP 분석<br>Staged Monolith 빅데이터</div>
+    <div class="oc-domain">글로벌 뉴스 · 8단계 · 116 어댑터</div>
+  </div>
+  <div class="overview-card">
+    <div class="oc-title">EnvironmentScan v4</div>
+    <div class="oc-desc">4채널 환경스캐닝 → 약신호 탐지<br>STEEPs 전략 분석</div>
+    <div class="oc-domain">미래학/전략 · 7단계 · 4 워크플로우</div>
+  </div>
+</div>
+
+<h3>공통점</h3>
+
+<div class="common-item">
+  <h4>A. 단계적 파이프라인 아키텍처</h4>
+  <p>3개 프로젝트 모두 <strong>다단계 순차 파이프라인</strong>으로 설계. 설교에디터 9단계, 글로벌뉴스 8단계(Stage 1~8), 환경스캐닝 7단계(5-Layer).</p>
+</div>
+<div class="common-item">
+  <h4>B. JSON/YAML 중심 설정 구조</h4>
+  <p>설교에디터 <code>slots.json</code>, 글로벌뉴스 <code>state.yaml</code>, 환경스캐닝 <code>sources*.yaml</code> 등 설정 파일이 Single Source of Truth 역할.</p>
+</div>
+<div class="common-item">
+  <h4>C. 품질 검증 게이트</h4>
+  <p>설교에디터 ~35개, 글로벌뉴스 ~50+개, 환경스캐닝 <strong>145+개</strong> 자동 검증 게이트. 종료 코드 기반 품질 관리 체계.</p>
+</div>
+<div class="common-item">
+  <h4>D. 대시보드 시각화 계층</h4>
+  <p>설교에디터 Streamlit, 글로벌뉴스 Streamlit 6탭, 환경스캐닝 D3.js 인터랙티브 시그널 맵.</p>
+</div>
+<div class="common-item">
+  <h4>E. 다국어/다문자 처리</h4>
+  <p>한글+헬라어+히브리어(설교에디터), 14개 언어(글로벌뉴스), EN/KO 이중언어+11개 소스(환경스캐닝).</p>
+</div>
+
+<h3>차이점</h3>
+<table class="diff-table">
+  <thead><tr><th>축</th><th>설교에디터</th><th>글로벌뉴스</th><th>환경스캐닝</th></tr></thead>
+  <tbody>
+    <tr><td><strong>데이터 규모</strong></td><td>단일 설교 (슬롯 15~25개)</td><td>일일 수백~수천 기사</td><td>4 WF × 일일 수집</td></tr>
+    <tr><td><strong>AI 의존도</strong></td><td>Claude Code 스킬 오케스트레이션</td><td>로컬 NLP 모델 (CPU 최적화)</td><td>LLM 기반 분석 + 번역</td></tr>
+    <tr><td><strong>비용 구조</strong></td><td>NLM 무료 10회/일</td><td>API 비용 $0 (로컬)</td><td>번역/LLM 비용 발생</td></tr>
+    <tr><td><strong>저장소</strong></td><td>파일 시스템 (JSON+MD)</td><td>Parquet ZSTD + SQLite FTS5</td><td>파일 기반 (JSON+MD+HTML)</td></tr>
+    <tr><td><strong>성숙도</strong></td><td><span class="badge badge--green">프로덕션</span></td><td><span class="badge badge--amber">설계 완료</span></td><td><span class="badge badge--amber">설계 완료</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- 2. 프로젝트별 핵심 요약 -->
+<div class="section">
+<h2><span class="sec-num">02</span> 프로젝트별 핵심 요약</h2>
+
+<div class="proj-card sermon">
+  <div class="proj-title">My-Sermon-Editor</div>
+  <div class="proj-oneliner">성경 본문 입력 → 설교 DNA 기반 기본틀 → 원고 → 이미지 → DOCX → PPT 자동 생성 AI 콘텐츠 파이프라인</div>
+  <div class="proj-arch">
+    <ul>
+      <li><strong>슬롯 JSON 중심 설계</strong> — slots.json이 파이프라인 전체의 SSoT</li>
+      <li><strong>Claude Code 스킬 오케스트레이션</strong> — 9개 스킬 자연어 라우팅 자동 호출</li>
+      <li><strong>NLM 6벌 병렬 이미지</strong> — 하나의 비주얼 브리프에서 6가지 스타일 병렬 생성</li>
+      <li><strong>멀티 포맷 출력</strong> — HTML 미리보기 + DOCX 인쇄본 + PPTX 슬라이드</li>
+      <li><strong>재사용 패턴 7개</strong> — 슬롯 파이프라인, 병렬생성+선택, 양방향 동기화, 검증 게이트 등</li>
+    </ul>
+  </div>
+  <div class="proj-tech">
+    <span>Python</span><span>Pillow</span><span>python-pptx</span><span>python-docx</span><span>Streamlit</span><span>uharfbuzz</span><span>NLM CLI</span>
+  </div>
+</div>
+
+<div class="proj-card news">
+  <div class="proj-title">GlobalNews-Crawling-AgenticWorkflow</div>
+  <div class="proj-oneliner">116개 글로벌 뉴스 사이트에서 페이월 우회 수집 → 56개 NLP 분석 → 5-Layer 신호 체계 압축 Staged Monolith 빅데이터 시스템</div>
+  <div class="proj-arch">
+    <ul>
+      <li><strong>BaseSiteAdapter 패턴</strong> — 450+ LOC 공통 모듈, 116개 어댑터는 CSS 선택자만 오버라이드</li>
+      <li><strong>7-Tier DynamicBypassEngine</strong> — 딜레이 → 쿠키 → Patchright → 핑거프린트 → CSS 4단계 → Never-Abandon → Claude 에스컬레이션</li>
+      <li><strong>56개 NLP + 5-Layer 신호</strong> — Kiwi/spaCy → SBERT → KoBERT/RoBERTa → HDBSCAN → STL/PELT → Granger/PCMCI</li>
+      <li><strong>로컬 CPU 최적화</strong> — Model2Vec 500x 가속, SQLite FTS5+vec, API 비용 $0</li>
+    </ul>
+  </div>
+  <div class="proj-tech">
+    <span>Python</span><span>httpx</span><span>Patchright</span><span>SBERT</span><span>KoBERT</span><span>HDBSCAN</span><span>UMAP</span><span>BERTopic</span><span>Model2Vec</span><span>SQLite</span><span>DuckDB</span><span>Parquet</span><span>Streamlit</span>
+  </div>
+</div>
+
+<div class="proj-card scan">
+  <div class="proj-title">EnvironmentScan-system-main-v4</div>
+  <div class="proj-oneliner">4개 독립 워크플로우로 약신호 수집·분류·평가 → STEEPs 프레임워크 통합 → EN/KO 이중언어 보고서 + D3.js 대시보드</div>
+  <div class="proj-arch">
+    <ul>
+      <li><strong>4중 워크플로우 분리</strong> — WF1(일반), WF2(arXiv), WF3(네이버), WF4(다국어뉴스), 통합은 병합 계층에서만</li>
+      <li><strong>STEEPs 분류 + 5-Layer 약신호</strong> — FSSF/Three Horizons/Tipping Point/Anomaly 평가</li>
+      <li><strong>145+ 품질 게이트</strong> — SOT 68 + QC 14 + PG2 9 + 타임라인 11 + 서사 5 + CG 10 + DB 6</li>
+      <li><strong>YAML 구동 설정</strong> — 코드 수정 없이 소스/정책 변경 가능</li>
+    </ul>
+  </div>
+  <div class="proj-tech">
+    <span>Python</span><span>D3.js</span><span>YAML</span><span>LLM API</span><span>크롤링 모듈</span>
+  </div>
+</div>
+</div>
+
+<!-- 3. 재사용 가능 기술자산 목록 -->
+<div class="section">
+<h2><span class="sec-num">03</span> 재사용 가능 기술자산</h2>
+
+<h3>코드 자산 (직접 재사용 가능)</h3>
+<table class="asset-table">
+  <thead><tr><th>#</th><th>자산</th><th>원본</th><th>재사용 형태</th></tr></thead>
+  <tbody>
+    <tr><td>C1</td><td>generate_text_slides.py</td><td><span class="badge badge--blue">설교에디터</span></td><td>텍스트→PNG 렌더러 (1280x720, HarfBuzz RTL)</td></tr>
+    <tr><td>C2</td><td>pptx_text_native.py</td><td><span class="badge badge--blue">설교에디터</span></td><td>PowerPoint 네이티브 텍스트 슬라이드 빌더</td></tr>
+    <tr><td>C3</td><td>md_to_docx_v2.py</td><td><span class="badge badge--blue">설교에디터</span></td><td>MD→DOCX 변환기 (디자인 토큰 + OXML)</td></tr>
+    <tr><td>C4</td><td>md_preview.py</td><td><span class="badge badge--blue">설교에디터</span></td><td>MD→HTML 미리보기 (base64 인라인, TOC, 줌)</td></tr>
+    <tr><td>C5</td><td>image_selector.py</td><td><span class="badge badge--blue">설교에디터</span></td><td>Streamlit 다중 후보 이미지 선택 대시보드</td></tr>
+    <tr><td>C6</td><td>validate_*.py 시리즈</td><td><span class="badge badge--blue">설교에디터</span></td><td>종료코드 기반 파이프라인 품질 게이트</td></tr>
+    <tr><td>C7</td><td>BaseSiteAdapter</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>450+ LOC 공통 크롤링 기반 (3-Tier)</td></tr>
+    <tr><td>C8</td><td>DynamicBypassEngine</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>7-Tier 안티블록 에스컬레이션 엔진</td></tr>
+    <tr><td>C9</td><td>BrowserRenderer</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>Patchright 서브프로세스 헤드리스 렌더러</td></tr>
+    <tr><td>C10</td><td>dedup.py 3단계</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>URL normalize → Title Jaccard → SimHash</td></tr>
+    <tr><td>C11</td><td>5-Layer 신호 판정</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>L1 Fad ~ L5 Singularity + 2-of-3 합의</td></tr>
+    <tr><td>C12</td><td>Staged Monolith 메모리</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>모델 로드→연산→del→gc.collect()</td></tr>
+    <tr><td>C13</td><td>VEV 3-Layer 검증</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>구조→기능→품질 검증 (실패 정책 단계화)</td></tr>
+    <tr><td>C14</td><td>워크플로우 레지스트리</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>YAML 기반 WF 등록/실행/검증 분리</td></tr>
+    <tr><td>C15</td><td>EN/KO 이중언어 보고서</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>원문(EN)→번역(KO) + 용어 보존 파이프라인</td></tr>
+  </tbody>
+</table>
+
+<h3>아키텍처 패턴 (설계 재사용)</h3>
+<table class="asset-table">
+  <thead><tr><th>#</th><th>패턴</th><th>원본</th><th>핵심 원리</th></tr></thead>
+  <tbody>
+    <tr><td>P1</td><td>슬롯 기반 콘텐츠 파이프라인</td><td><span class="badge badge--blue">설교에디터</span></td><td>원고→슬롯 JSON(SSoT)→이미지/텍스트 분기→선택→문서 변환</td></tr>
+    <tr><td>P2</td><td>다중 스타일 병렬 생성+선택</td><td><span class="badge badge--blue">설교에디터</span></td><td>1 브리프→N 스타일 병렬→대시보드 최적 선택</td></tr>
+    <tr><td>P3</td><td>양방향 비파괴 동기화</td><td><span class="badge badge--blue">설교에디터</span></td><td>소스A↔B + .bak 백업 + --dry-run</td></tr>
+    <tr><td>P4</td><td>파일 기반 비동기 이벤트</td><td><span class="badge badge--blue">설교에디터</span></td><td>UI→_trigger.json→백엔드 감지→처리→삭제</td></tr>
+    <tr><td>P5</td><td>디자인 토큰 중앙 관리</td><td><span class="badge badge--blue">설교에디터</span></td><td>단일 style.py에 COLOR/SIZE/FONT/PAGE 집중</td></tr>
+    <tr><td>P6</td><td>부서 분기 + 공용 엔진</td><td><span class="badge badge--blue">설교에디터</span></td><td>부서별 디자인 상수 분리, 핵심 엔진 공유</td></tr>
+    <tr><td>P7</td><td>BaseSiteAdapter 상속</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>공통 추출 체인 + 사이트별 최소 오버라이드</td></tr>
+    <tr><td>P8</td><td>7-Tier 에스컬레이션</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>저비용→고비용 순서로 단계적 시도</td></tr>
+    <tr><td>P9</td><td>Never-Abandon + Fairness Yield</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>실패해도 포기 안 함 + 스레드 양보 후 재진입</td></tr>
+    <tr><td>P10</td><td>5-Layer 신호 계층</td><td><span class="badge badge--cyan">공통</span></td><td>L1 일시 → L5 특이점, 다중 경로 합의</td></tr>
+    <tr><td>P11</td><td>Staged Monolith</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>단계별 메모리 격리 + gc.collect()</td></tr>
+    <tr><td>P12</td><td>워크플로우 독립 + 병합 통합</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>WF간 상호 무지, 병합 계층에서만 통합</td></tr>
+    <tr><td>P13</td><td>YAML 구동 설정 분리</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>소스/도메인/임계값 YAML, 코드 수정 불필요</td></tr>
+    <tr><td>P14</td><td>VEV 3-Layer 사후 검증</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>구조→기능→품질, 실패 시 단계적 재실행</td></tr>
+    <tr><td>P15</td><td>AgenticWorkflow DNA 상속</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>R→P→I 3단계 + SOT + QA + Context Preservation</td></tr>
+  </tbody>
+</table>
+
+<h3>인프라 자산</h3>
+<table class="asset-table">
+  <thead><tr><th>#</th><th>자산</th><th>원본</th><th>재사용 가치</th></tr></thead>
+  <tbody>
+    <tr><td>I1</td><td>Claude Code 스킬 체계</td><td><span class="badge badge--blue">설교에디터</span></td><td>자연어→스킬 라우팅, SKILL.md 정의 패턴</td></tr>
+    <tr><td>I2</td><td>NLM CLI 통합</td><td><span class="badge badge--blue">설교에디터</span></td><td>노트북LM 병렬 생성, 인증 자동 갱신</td></tr>
+    <tr><td>I3</td><td>Streamlit 대시보드 패턴</td><td><span class="badge badge--cyan">공통</span></td><td>선택기/탐색기/시각화 앱 구조</td></tr>
+    <tr><td>I4</td><td>SQLite FTS5 + sqlite-vec</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>외부 DB 없이 전문 검색 + 벡터 유사도</td></tr>
+    <tr><td>I5</td><td>Parquet ZSTD + DuckDB</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>컬럼 지향 저장 + SQL 즉시 분석</td></tr>
+    <tr><td>I6</td><td>Patchright 서브프로세스 격리</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>이벤트 루프 충돌 방지, JS 렌더링</td></tr>
+    <tr><td>I7</td><td>Model2Vec CPU 가속</td><td><span class="badge badge--green">글로벌뉴스</span></td><td>GPU 없이 500x 가속</td></tr>
+    <tr><td>I8</td><td>D3.js 시그널 맵</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>STEEPs x Impact 인터랙티브 시각화</td></tr>
+    <tr><td>I9</td><td>YAML 워크플로우 레지스트리</td><td><span class="badge badge--purple">환경스캐닝</span></td><td>WF 등록/실행/검증을 설정 파일로 관리</td></tr>
+    <tr><td>I10</td><td>HarfBuzz + freetype-py RTL</td><td><span class="badge badge--blue">설교에디터</span></td><td>PIL 환경에서 히브리어/아랍어 정확 렌더</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- 4. 크로스프로젝트 시너지 -->
+<div class="section">
+<h2><span class="sec-num">04</span> 크로스프로젝트 시너지</h2>
+
+<div class="synergy-matrix">
+  <div class="synergy-cell">
+    <div class="syn-id">S1</div>
+    <div class="syn-title">글로벌뉴스 크롤링 → 설교 리서치 자동화</div>
+    <div class="syn-desc">BaseSiteAdapter + NLP로 설교 본문 관련 최신 뉴스/논문 자동 수집</div>
+    <div class="syn-diff"><span class="badge badge--amber">난이도 중</span></div>
+  </div>
+  <div class="synergy-cell">
+    <div class="syn-id">S2</div>
+    <div class="syn-title">PPT 엔진 → 글로벌뉴스 보고서</div>
+    <div class="syn-desc">sermon_pptx.py + md_to_docx_v2.py로 경영진용 PPT/DOCX 자동 변환</div>
+    <div class="syn-diff"><span class="badge badge--amber">난이도 중</span> <span class="badge badge--green">ROI 높음</span></div>
+  </div>
+  <div class="synergy-cell">
+    <div class="syn-id">S3</div>
+    <div class="syn-title">STEEPs → 설교 기획 보조</div>
+    <div class="syn-desc">STEEPs 약신호 중 Spirituality/Social 카테고리를 설교 기획 보조 데이터로 활용</div>
+    <div class="syn-diff"><span class="badge badge--green">난이도 낮</span></div>
+  </div>
+  <div class="synergy-cell">
+    <div class="syn-id">S4</div>
+    <div class="syn-title">다국어 렌더링 → 환경스캐닝 PPT</div>
+    <div class="syn-desc">HarfBuzz RTL + 다국어 폰트 렌더링으로 환경스캐닝 보고서를 다국어 PPT로 확장</div>
+    <div class="syn-diff"><span class="badge badge--amber">난이도 중</span></div>
+  </div>
+  <div class="synergy-cell">
+    <div class="syn-id">S5</div>
+    <div class="syn-title">로컬 NLP → 환경스캐닝 비용 절감</div>
+    <div class="syn-desc">Model2Vec 500x CPU 가속 + SBERT 다국어 임베딩으로 LLM API 비용 절감</div>
+    <div class="syn-diff"><span class="badge badge--red">난이도 높</span> <span class="badge badge--green">ROI 높음</span></div>
+  </div>
+  <div class="synergy-cell">
+    <div class="syn-id">S6</div>
+    <div class="syn-title">WF 분리 패턴 → 글로벌뉴스 확장</div>
+    <div class="syn-desc">WF1~WF4 독립 패턴을 지역별/언어별 워크플로우로 적용, 장애 격리</div>
+    <div class="syn-diff"><span class="badge badge--red">난이도 높</span></div>
+  </div>
+</div>
+
+<h3>시너지 우선순위</h3>
+<table class="pri-table">
+  <thead><tr><th>순위</th><th>시너지</th><th>가치</th><th>ROI</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><strong>S2</strong> PPT/DOCX 엔진 → 글로벌뉴스 보고서</td><td><span class="badge badge--green">높음</span></td><td style="color:var(--green);">높음</td></tr>
+    <tr><td>2</td><td><strong>S5</strong> 로컬 NLP → 환경스캐닝 비용 절감</td><td><span class="badge badge--green">높음</span></td><td style="color:var(--amber);">중~높</td></tr>
+    <tr><td>3</td><td><strong>S1</strong> 크롤링 → 설교 리서치</td><td><span class="badge badge--amber">중</span></td><td style="color:var(--amber);">중</td></tr>
+    <tr><td>4</td><td><strong>S4</strong> 다국어 렌더링 → 환경스캐닝 PPT</td><td><span class="badge badge--amber">중</span></td><td style="color:var(--amber);">중</td></tr>
+    <tr><td>5</td><td><strong>S3</strong> STEEPs → 설교 기획 보조</td><td><span class="badge badge--amber">낮~중</span></td><td style="color:var(--amber);">중</td></tr>
+    <tr><td>6</td><td><strong>S6</strong> WF 독립 패턴 → 글로벌뉴스 확장</td><td><span class="badge badge--green">높음</span></td><td style="color:var(--amber);">중</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- 5. 향후 활용 제안 -->
+<div class="section">
+<h2><span class="sec-num">05</span> 향후 활용 제안</h2>
+
+<div class="proposal-group">
+  <div class="pg-label pg-short">단기 (즉시 ~ 1개월)</div>
+  <div class="proposal-card">
+    <div class="pc-num">제안 1</div>
+    <div class="pc-title">공용 유틸리티 라이브러리 추출</div>
+    <div class="pc-desc">3개 프로젝트 공통 코드를 <code>javis-common</code> 패키지로 추출. doc_gen / pptx_gen / preview / validation / text_render 모듈 포함. 버그 수정이 모든 프로젝트에 전파.</div>
+  </div>
+  <div class="proposal-card">
+    <div class="pc-num">제안 2</div>
+    <div class="pc-title">Streamlit 선택기 범용화</div>
+    <div class="pc-desc"><code>image_selector.py</code>를 "다중 후보 선택기" 프레임워크로 범용화. 이미지(설교), 기사 품질(글로벌뉴스), 시그널 큐레이션(환경스캐닝) 모드 지원.</div>
+  </div>
+  <div class="proposal-card">
+    <div class="pc-num">제안 3</div>
+    <div class="pc-title">검증 게이트 표준화</div>
+    <div class="pc-desc">3개 프로젝트의 검증 패턴을 <code>QualityGate</code> 통합 프레임워크로 표준화. validate() → 0=통과, 1=경고, 2=차단.</div>
+  </div>
+</div>
+
+<div class="proposal-group">
+  <div class="pg-label pg-mid">중기 (1~3개월)</div>
+  <div class="proposal-card" style="border-left-color:var(--amber);">
+    <div class="pc-num" style="color:var(--amber);">제안 4</div>
+    <div class="pc-title">글로벌뉴스 NLP → 환경스캐닝 이식 (S5)</div>
+    <div class="pc-desc">Model2Vec 500x 가속으로 LLM API 비용 절감. SBERT 다국어 임베딩으로 Cross-WF 유사도 비교 고도화. SQLite FTS5+vec로 시그널 DB 즉시 검색.</div>
+  </div>
+  <div class="proposal-card" style="border-left-color:var(--amber);">
+    <div class="pc-num" style="color:var(--amber);">제안 5</div>
+    <div class="pc-title">PPT/DOCX 보고서 자동 생성 (S2)</div>
+    <div class="pc-desc">글로벌뉴스 분석 결과 → 슬롯 JSON → <code>sermon_pptx.py</code>로 경영진용 PPT. 환경스캐닝 보고서 → <code>md_to_docx_v2.py</code>로 인쇄용 DOCX.</div>
+  </div>
+  <div class="proposal-card" style="border-left-color:var(--amber);">
+    <div class="pc-num" style="color:var(--amber);">제안 6</div>
+    <div class="pc-title">AgenticWorkflow DNA 확산</div>
+    <div class="pc-desc">R→P→I 3단계 프로세스 → 설교에디터 전자동 강화. Context Preservation → 세션 중단/재개 복원력. Safety Hooks → 파괴적 명령 사전 차단.</div>
+  </div>
+</div>
+
+<div class="proposal-group">
+  <div class="pg-label pg-long">장기 (3개월+)</div>
+  <div class="proposal-card" style="border-left-color:var(--purple);">
+    <div class="pc-num" style="color:var(--purple);">제안 7</div>
+    <div class="pc-title">통합 대시보드 플랫폼</div>
+    <div class="pc-desc">설교 워크플로우 + 글로벌 뉴스 트렌드 + 환경스캐닝 시그널 맵 + 크로스프로젝트 인사이트를 단일 Streamlit 대시보드로 통합.</div>
+  </div>
+  <div class="proposal-card" style="border-left-color:var(--purple);">
+    <div class="pc-num" style="color:var(--purple);">제안 8</div>
+    <div class="pc-title">Javis 스킬 생태계</div>
+    <div class="pc-desc">재사용 패턴을 Claude Code 스킬로 패키징: <code>pptx-gen</code>, <code>docx-gen</code>, <code>news-crawl</code>, <code>signal-detect</code>, <code>env-scan</code>, <code>quality-gate</code>.</div>
+  </div>
+  <div class="proposal-card" style="border-left-color:var(--purple);">
+    <div class="pc-num" style="color:var(--purple);">제안 9</div>
+    <div class="pc-title">재귀적 자기개선(RSI) 적용</div>
+    <div class="pc-desc">RSI 5단계(검색→패턴추출→평가→영속저장→스킬발전)를 기술자산에 적용. 각 패턴의 업계 최신 베스트 프랙티스 조사 → 기존 스킬 업그레이드.</div>
+  </div>
+</div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  Javis Fleet v2 · Worker1 · 2026-06-16 · 원본 프로젝트 수정 없음
+</div>
+
+</div>
+</body>
+</html>
