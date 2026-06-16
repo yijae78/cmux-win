@@ -295,11 +295,12 @@ export class AppStateStore extends EventEmitter {
       }
       case 'panel.split': {
         const { panelId, direction, newPanelType, url } = action.payload;
-        // Master 패널 분할 방지: surface label이 'Master'인 패널은 split 차단
+        // Master 패널 분할 방지: surface label이 'Master'인 패널은 터미널 split 차단
+        // (browser/markdown 등 비터미널 패널 추가는 허용)
         const masterSurface = draft.surfaces.find(
           (s) => s.panelId === panelId && s.label === 'Master',
         );
-        if (masterSurface) break;
+        if (masterSurface && newPanelType === 'terminal') break;
         const ws = draft.workspaces.find((w) => findLeaf(w.panelLayout, panelId) !== null);
         if (!ws) break;
         const newPanelId = crypto.randomUUID();
