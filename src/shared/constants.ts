@@ -34,12 +34,6 @@ export const DEFAULT_SETTINGS: SettingsState = {
     orchestrationMode: 'auto',
     autoStartClaude: true,
   },
-  telegram: {
-    enabled: false,
-    chatId: '',
-    forwardNotifications: true,
-    remoteControl: true,
-  },
   telemetry: { enabled: true },
   updates: { autoCheck: true, channel: 'stable' },
   accessibility: { screenReaderMode: false, reducedMotion: false },

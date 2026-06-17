@@ -8,8 +8,10 @@ Anti-flicker: components.html() 단일 iframe 렌더링
 """
 from __future__ import annotations
 
+import html as _html
 import http.client
 import json
+import logging
 import math
 import re
 import socket as _socket
@@ -17,12 +19,63 @@ import ssl
 import threading
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 import streamlit.components.v1 as components
+
+# ━━━━━━━ Logging ━━━━━━━
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s")
+_log = logging.getLogger("javis-dashboard")
+
+# ━━━━━━━ Thread-safe lock ━━━━━━━
+_cache_lock = threading.Lock()
+
+# ━━━━━━━ Typed Data Contracts ━━━━━━━
+@dataclass
+class PaneData:
+    surface: dict[str, Any]
+    config: dict[str, str]
+    content: str
+    status: str           # live | done | idle | error | offline
+    activity: str
+    preview: list[str]
+    ctx_warn: str | None  # critical | warning | None
+
+
+@dataclass
+class UsageData:
+    hourly_in: int = 0
+    hourly_out: int = 0
+    daily_in: int = 0
+    daily_out: int = 0
+    monthly_total: int = 0
+    sessions: int = 0
+    messages: int = 0
+    sparkline: list[int] = field(default_factory=list)
+
+
+@dataclass
+class RateLimitData:
+    session_pct: float = 0
+    session_reset: str = ""
+    session_status: str = "unknown"
+    weekly_pct: float = 0
+    weekly_reset: str = ""
+    weekly_status: str = "unknown"
+
+
+@dataclass
+class SystemMetrics:
+    cpu: float = 0
+    mem_pct: float = 0
+    mem_used: float = 0
+    mem_total: float = 0
+
 
 # ━━━━━━━ Config ━━━━━━━
 SOCKET_TOKEN_FILE = Path.home() / "AppData" / "Roaming" / "cmux-win" / "socket-token"
@@ -69,6 +122,8 @@ FLEET = [
     {"key": "Worker1(claude)", "icon": "A", "color": C_AGY, "ai": "Claude", "desc": "작업 수행"},
     {"key": "Worker2(AGY)", "icon": "G", "color": C_AGY2, "ai": "AGY", "desc": "리뷰"},
     {"key": "Worker3(Codex)", "icon": "X", "color": C_CODEX, "ai": "Codex", "desc": "검수"},
+    {"key": "Worker4(Claude)", "icon": "4", "color": "#ec4899", "ai": "Claude", "desc": "병렬 작업"},
+    {"key": "Worker5(AGY)", "icon": "5", "color": "#a78bfa", "ai": "AGY", "desc": "교차 리뷰"},
 ]
 
 # ━━━━━━━ Page config ━━━━━━━
@@ -91,7 +146,8 @@ section[data-testid="stSidebar"]{display:none!important;}
 def _get_token() -> str:
     try:
         return SOCKET_TOKEN_FILE.read_text().strip().split("\n")[0].strip()
-    except Exception:
+    except (FileNotFoundError, OSError, IndexError) as e:
+        _log.debug("Socket token read failed: %s", e)
         return ""
 
 
@@ -107,10 +163,20 @@ def _recv_line(s):
             return json.loads(buf[:idx].decode("utf-8"))
 
 
+_fleet_data_cache: dict[str, Any] = {"ts": 0, "data": ([], [])}
+_FLEET_CACHE_SEC = 2  # 2초 캐시 — JS fetch 5초보다 짧게
+
+
 def gather_fleet_data():
+    now = time.time()
+    with _cache_lock:
+        if _fleet_data_cache["data"][0] and now - _fleet_data_cache["ts"] < _FLEET_CACHE_SEC:
+            return _fleet_data_cache["data"]
+
     token = _get_token()
     if not token:
         return [], []
+    s = None
     try:
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         s.settimeout(8)
@@ -122,35 +188,48 @@ def gather_fleet_data():
                                 "params": {}}) + "\n").encode())
         resp = _recv_line(s)
         surfaces = resp.get("result", {}).get("surfaces", [])
-        terminals = [sf for sf in surfaces if sf.get("surfaceType") == "terminal"][:5]
+        terminals = [sf for sf in surfaces if sf.get("surfaceType") == "terminal"]
         contents = []
         for i, sf in enumerate(terminals):
+            sid = sf.get("id", "")
+            if not sid:
+                contents.append("")
+                continue
             s.sendall((json.dumps({"jsonrpc": "2.0", "id": i + 10,
                                     "method": "surface.read",
-                                    "params": {"surfaceId": sf["id"], "lines": 20}
+                                    "params": {"surfaceId": sid, "lines": 20}
                                     }) + "\n").encode())
             r = _recv_line(s)
             contents.append(r.get("result", {}).get("content", ""))
-        s.close()
-        return terminals, contents
-    except Exception:
-        return [], []
+        result = (terminals, contents)
+        with _cache_lock:
+            _fleet_data_cache["ts"] = now
+            _fleet_data_cache["data"] = result
+        return result
+    except (OSError, ConnectionError, _socket.error, _socket.timeout,
+            json.JSONDecodeError, ValueError) as e:
+        _log.warning("Fleet data gather failed: %s", e)
+        return _fleet_data_cache.get("data", ([], []))
+    finally:
+        if s:
+            try:
+                s.close()
+            except OSError:
+                pass
 
 
 # ━━━━━━━ Rate Limit API (실제 한도 조회) ━━━━━━━
-_rate_limit_cache = {"ts": 0, "data": None}
+_rate_limit_cache: dict[str, Any] = {"ts": 0, "data": None}
 
 
-def get_rate_limits():
-    """Anthropic API 최소 호출로 실제 rate limit 헤더 추출 (캐시 60초)."""
+def get_rate_limits() -> RateLimitData:
+    """Anthropic API 최소 호출로 실제 rate limit 헤더 추출 (캐시 15초)."""
     now = time.time()
-    if _rate_limit_cache["data"] and now - _rate_limit_cache["ts"] < RATE_LIMIT_CACHE_SEC:
-        return _rate_limit_cache["data"]
+    with _cache_lock:
+        if _rate_limit_cache["data"] and now - _rate_limit_cache["ts"] < RATE_LIMIT_CACHE_SEC:
+            return _rate_limit_cache["data"]
 
-    default = {
-        "session_pct": 0, "session_reset": "", "session_status": "unknown",
-        "weekly_pct": 0, "weekly_reset": "", "weekly_status": "unknown",
-    }
+    default = RateLimitData()
     try:
         cred_path = Path.home() / ".claude" / ".credentials.json"
         if not cred_path.exists():
@@ -167,43 +246,46 @@ def get_rate_limits():
         })
         ctx = ssl.create_default_context()
         conn = http.client.HTTPSConnection("api.anthropic.com", context=ctx, timeout=8)
-        conn.request("POST", "/v1/messages", body, {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
-            "User-Agent": "claude-code/2.1.94",
-        })
-        resp = conn.getresponse()
-        resp.read()  # drain body
+        try:
+            conn.request("POST", "/v1/messages", body, {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+                "User-Agent": "claude-code/2.1.94",
+            })
+            resp = conn.getresponse()
+            resp.read()  # drain body
 
-        headers = {k.lower(): v for k, v in resp.getheaders()}
+            headers = {k.lower(): v for k, v in resp.getheaders()}
 
-        # 5h session
-        s5_util = float(headers.get("anthropic-ratelimit-unified-5h-utilization", 0))
-        s5_reset_ts = int(headers.get("anthropic-ratelimit-unified-5h-reset", 0))
-        s5_status = headers.get("anthropic-ratelimit-unified-5h-status", "unknown")
-        s5_reset = datetime.fromtimestamp(s5_reset_ts).strftime("%H:%M") if s5_reset_ts else ""
+            # 5h session
+            s5_util = float(headers.get("anthropic-ratelimit-unified-5h-utilization", 0))
+            s5_reset_ts = int(headers.get("anthropic-ratelimit-unified-5h-reset", 0))
+            s5_status = headers.get("anthropic-ratelimit-unified-5h-status", "unknown")
+            s5_reset = datetime.fromtimestamp(s5_reset_ts).strftime("%H:%M") if s5_reset_ts else ""
 
-        # 7d weekly
-        w7_util = float(headers.get("anthropic-ratelimit-unified-7d-utilization", 0))
-        w7_reset_ts = int(headers.get("anthropic-ratelimit-unified-7d-reset", 0))
-        w7_status = headers.get("anthropic-ratelimit-unified-7d-status", "unknown")
-        w7_reset = datetime.fromtimestamp(w7_reset_ts).strftime("%m/%d %H:%M") if w7_reset_ts else ""
+            # 7d weekly
+            w7_util = float(headers.get("anthropic-ratelimit-unified-7d-utilization", 0))
+            w7_reset_ts = int(headers.get("anthropic-ratelimit-unified-7d-reset", 0))
+            w7_status = headers.get("anthropic-ratelimit-unified-7d-status", "unknown")
+            w7_reset = datetime.fromtimestamp(w7_reset_ts).strftime("%m/%d %H:%M") if w7_reset_ts else ""
+        finally:
+            conn.close()
 
-        conn.close()
-
-        result = {
-            "session_pct": round(s5_util * 100, 1),
-            "session_reset": s5_reset,
-            "session_status": s5_status,
-            "weekly_pct": round(w7_util * 100, 1),
-            "weekly_reset": w7_reset,
-            "weekly_status": w7_status,
-        }
+        result = RateLimitData(
+            session_pct=round(s5_util * 100, 1),
+            session_reset=s5_reset,
+            session_status=s5_status,
+            weekly_pct=round(w7_util * 100, 1),
+            weekly_reset=w7_reset,
+            weekly_status=w7_status,
+        )
         _rate_limit_cache["ts"] = now
         _rate_limit_cache["data"] = result
         return result
-    except Exception:
+    except (OSError, ssl.SSLError, http.client.HTTPException,
+            json.JSONDecodeError, ValueError, KeyError) as e:
+        _log.warning("Rate limit API failed: %s", e)
         return _rate_limit_cache.get("data") or default
 
 
@@ -317,7 +399,7 @@ def get_claude_contexts():
                     size = p.stat().st_size
                     if size > 1000:
                         jsonls.append((mtime, p))
-                except Exception:
+                except OSError:
                     pass
         jsonls.sort(key=lambda x: x[0], reverse=True)
 
@@ -334,9 +416,10 @@ def get_claude_contexts():
                             u = data.get("message", {}).get("usage", {})
                             if u and u.get("input_tokens") is not None:
                                 last_usage = u
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError):
                             pass
-            except Exception:
+            except OSError as e:
+                _log.debug("JSONL read failed %s: %s", jf, e)
                 continue
             if last_usage:
                 session_count += 1
@@ -354,20 +437,22 @@ def get_claude_contexts():
             return [{"label": "cmux-win", "project": "cmux-win",
                       "ctx": ctx, "limit": limit, "pct": pct,
                       "sessions": session_count}]
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        _log.warning("Context data read failed: %s", e)
     return []
 
 
-_token_usage_cache = {"ts": 0, "data": None}
-_TOKEN_USAGE_CACHE_SEC = 5  # 5초마다 갱신
+_token_usage_cache: dict[str, Any] = {"ts": 0, "data": None}
+_TOKEN_USAGE_CACHE_SEC = 10  # 10초마다 갱신 (C: 증분 캐시로 빈도 낮춤)
+_jsonl_file_cache: dict[str, tuple[float, dict]] = {}  # path → (mtime, parsed_result)
 
 
-def get_token_usage():
+def get_token_usage() -> UsageData:
     """JSONL 파싱으로 시간별/일별/월별 토큰 사용량 집계."""
     now_ts = time.time()
-    if _token_usage_cache["data"] and now_ts - _token_usage_cache["ts"] < _TOKEN_USAGE_CACHE_SEC:
-        return _token_usage_cache["data"]
+    with _cache_lock:
+        if _token_usage_cache["data"] and now_ts - _token_usage_cache["ts"] < _TOKEN_USAGE_CACHE_SEC:
+            return _token_usage_cache["data"]
     projects_dir = Path.home() / ".claude" / "projects"
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
@@ -396,47 +481,54 @@ def get_token_usage():
                     for model, tokens in d.get("tokensByModel", {}).items():
                         monthly_in += tokens
 
-        # JSONL for today's detailed data
+        # JSONL for today's detailed data (C: 증분 파싱 — mtime 변경 시만 재파싱)
         for jf in projects_dir.rglob("*.jsonl"):
-            if "subagent" in str(jf):
+            jf_str = str(jf)
+            if "subagent" in jf_str:
                 continue
             try:
-                mtime = jf.stat().st_mtime
+                stat = jf.stat()
+                mtime = stat.st_mtime
                 if datetime.fromtimestamp(mtime) < today_start:
                     continue
+
+                # 증분 캐시: mtime 동일하면 이전 파싱 결과 재사용
+                cached = _jsonl_file_cache.get(jf_str)
+                if cached and cached[0] == mtime:
+                    file_data = cached[1]
+                else:
+                    file_data = {"msgs": []}
+                    with open(jf, "r", encoding="utf-8", errors="replace") as fh:
+                        for line in fh:
+                            try:
+                                d = json.loads(line)
+                                ts_str = d.get("timestamp", "")
+                                usage = d.get("message", {}).get("usage", {})
+                                if not usage or not ts_str:
+                                    continue
+                                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+                                inp = usage.get("input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
+                                out = usage.get("output_tokens", 0)
+                                file_data["msgs"].append((ts, inp, out))
+                            except (json.JSONDecodeError, TypeError, ValueError):
+                                pass
+                    _jsonl_file_cache[jf_str] = (mtime, file_data)
+
                 session_count += 1
-                with open(jf, "r", encoding="utf-8", errors="replace") as fh:
-                    for line in fh:
-                        try:
-                            d = json.loads(line)
-                            ts_str = d.get("timestamp", "")
-                            usage = d.get("message", {}).get("usage", {})
-                            if not usage or not ts_str:
-                                continue
-                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
-                            inp = usage.get("input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
-                            out = usage.get("output_tokens", 0)
-                            message_count += 1
-
-                            # daily
-                            if ts >= today_start:
-                                daily_in += inp
-                                daily_out += out
-
-                            # hourly (last 1h)
-                            if ts >= hour_ago:
-                                hourly_in += inp
-                                hourly_out += out
-
-                            # hourly buckets for sparkline (로컬 시간 기준)
-                            bucket = ts.strftime("%H")
-                            hourly_buckets[bucket] += inp + out
-                        except Exception:
-                            pass
-            except Exception:
+                for ts, inp, out in file_data["msgs"]:
+                    message_count += 1
+                    if ts >= today_start:
+                        daily_in += inp
+                        daily_out += out
+                    if ts >= hour_ago:
+                        hourly_in += inp
+                        hourly_out += out
+                    bucket = ts.strftime("%H")
+                    hourly_buckets[bucket] += inp + out
+            except OSError:
                 pass
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        _log.warning("Token usage calculation failed: %s", e)
 
     # Build sparkline data (last 12 hours)
     sparkline = []
@@ -444,28 +536,29 @@ def get_token_usage():
         h = (now - timedelta(hours=11 - i)).strftime("%H")
         sparkline.append(hourly_buckets.get(h, 0))
 
-    result = {
-        "hourly_in": hourly_in, "hourly_out": hourly_out,
-        "daily_in": daily_in, "daily_out": daily_out,
-        "monthly_total": monthly_in + daily_in,
-        "sessions": session_count, "messages": message_count,
-        "sparkline": sparkline,
-    }
+    result = UsageData(
+        hourly_in=hourly_in, hourly_out=hourly_out,
+        daily_in=daily_in, daily_out=daily_out,
+        monthly_total=monthly_in + daily_in,
+        sessions=session_count, messages=message_count,
+        sparkline=sparkline,
+    )
     _token_usage_cache["ts"] = now_ts
     _token_usage_cache["data"] = result
     return result
 
 
-def get_system_metrics():
+def get_system_metrics() -> SystemMetrics:
     try:
         import psutil
         cpu = psutil.cpu_percent(interval=0.3)
         mem = psutil.virtual_memory()
-        return {"cpu": cpu, "mem_pct": mem.percent,
-                "mem_used": round(mem.used / (1024**3), 1),
-                "mem_total": round(mem.total / (1024**3), 1)}
-    except Exception:
-        return {"cpu": 0, "mem_pct": 0, "mem_used": 0, "mem_total": 0}
+        return SystemMetrics(cpu=cpu, mem_pct=mem.percent,
+                             mem_used=round(mem.used / (1024**3), 1),
+                             mem_total=round(mem.total / (1024**3), 1))
+    except (ImportError, OSError, AttributeError) as e:
+        _log.debug("System metrics unavailable: %s", e)
+        return SystemMetrics()
 
 
 # ━━━━━━━ SVG Uptime Circle ━━━━━━━
@@ -580,225 +673,187 @@ def _fmt_tokens(n):
 
 # ━━━━━━━ HTML builder ━━━━━━━
 def _esc(t):
-    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """HTML 특수문자 이스케이프 — 외부 데이터 삽입 시 XSS 방지."""
+    return _html.escape(str(t))
 
 
 DATA_PORT = 8501
 
+# D: 데이터 서버 인증 토큰 (프로세스 시작 시 1회 생성, JS fetch에서 사용)
+import secrets as _secrets
+_DATA_AUTH_TOKEN = _secrets.token_urlsafe(16)
 
-def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, body_only=False):
-    now = datetime.now()
-    n_live = sum(1 for _, _, _, s, _, _, _ in pane_data if s == "live")
-    n_total = len(pane_data)
-    elapsed = now - start_time
-    h, rem = divmod(int(elapsed.total_seconds()), 3600)
-    m, sec = divmod(rem, 60)
-    is_live = n_live > 0
 
-    css = f"""
-    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-    *{{margin:0;padding:0;box-sizing:border-box;}}
-    html,body{{height:100%;overflow-y:auto;overflow-x:hidden;}}
-    body{{background:{BG_VOID};color:#e2e8f0;
-         font-family:'Pretendard Variable','Inter',-apple-system,'Noto Sans KR',sans-serif;
-         padding:12px 14px;width:100%;word-break:keep-all;-webkit-font-smoothing:antialiased;
-         font-size:14px;}}
+_DYNAMIC_COLORS = ["#ec4899", "#a78bfa", "#06b6d4", "#f97316", "#84cc16", "#e879f9", "#fb923c", "#2dd4bf"]
+_dynamic_color_idx = 0
 
-    /* ── Live Pulse (Red) ── */
-    .live-pulse{{width:10px;height:10px;border-radius:50%;background:{RED};flex-shrink:0;
-                 animation:red-pulse 0.8s ease-in-out infinite;
-                 box-shadow:0 0 8px {RED},0 0 16px rgba(239,68,68,0.5);}}
-    @keyframes red-pulse{{
-      0%,100%{{opacity:1;box-shadow:0 0 8px {RED},0 0 20px rgba(239,68,68,0.6);transform:scale(1);}}
-      50%{{opacity:0.3;box-shadow:0 0 2px {RED};transform:scale(0.8);}}
-    }}
 
-    /* ── Glass Card ── */
-    .glass{{background:rgba(255,255,255,0.05);backdrop-filter:blur(16px) saturate(1.3);
-            border:1px solid rgba(255,255,255,0.10);border-radius:12px;padding:14px;
-            transition:all 0.25s cubic-bezier(0.22,1,0.36,1);}}
-    .glass:hover{{background:rgba(255,255,255,0.08);}}
-    .glass--accent{{border-top:3px solid {ACCENT_LIGHT};}}
+def _match_fleet_config(label: str, label_map: dict) -> dict:
+    """surface 라벨을 FLEET 설정에 매칭. 미등록 워커는 자동 색상/아이콘 할당."""
+    cfg = label_map.get(label)
+    if cfg:
+        return cfg
+    label_base = label.split("(")[0].strip().lower()
+    for k, v in label_map.items():
+        k_base = k.split("(")[0].strip().lower()
+        if k_base == label_base or k.lower() in label.lower() or label.lower() in k.lower():
+            return v
+    # 미등록 워커 자동 등록 — 동적 색상·아이콘 할당
+    global _dynamic_color_idx
+    color = _DYNAMIC_COLORS[_dynamic_color_idx % len(_DYNAMIC_COLORS)]
+    _dynamic_color_idx += 1
+    # 라벨에서 AI 이름 추출: "Worker6(Claude)" → "Claude"
+    ai = label.split("(")[1].rstrip(")") if "(" in label else "?"
+    icon = label[0].upper() if label else "?"
+    # 숫자가 있으면 숫자를 아이콘으로
+    nums = re.findall(r"\d+", label)
+    if nums:
+        icon = nums[0]
+    auto_cfg = {"key": label, "icon": icon, "color": color, "ai": ai, "desc": "auto"}
+    # label_map에 캐싱하여 같은 라벨 재할당 방지
+    label_map[label] = auto_cfg
+    return auto_cfg
 
-    /* ── Header ── */
-    .hdr{{display:flex;align-items:center;gap:10px;margin-bottom:12px;}}
-    .hdr-title{{font-size:clamp(18px,4vw,26px);font-weight:800;letter-spacing:-.5px;color:#fff;}}
-    .hdr-badge{{font-size:11px;font-weight:700;padding:3px 10px;border-radius:9999px;}}
-    .hdr-time{{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;
-               color:#cbd5e1;margin-left:auto;}}
 
-    /* ── KPI Section: Radar on top, 3 cards below ── */
-    .kpi-section{{text-align:center;margin-bottom:12px;}}
-    .kpi-radar{{display:flex;justify-content:center;margin-bottom:10px;}}
-    .kpi-row{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}}
-    .kpi{{text-align:center;padding:10px 8px;}}
-    .kpi-val{{font-family:'JetBrains Mono',monospace;font-size:clamp(18px,3vw,28px);font-weight:700;line-height:1.1;}}
-    .kpi-lbl{{font-size:13px;font-weight:700;color:#ffffff;margin-top:5px;letter-spacing:0.03em;}}
+# ━━━━━━━ CSS Module Constant (B: 매 호출 f-string 재생성 방지) ━━━━━━━
+_CSS = f"""
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;}}
+html,body{{height:100%;overflow-y:auto;overflow-x:hidden;}}
+body{{background:{BG_VOID};color:#e2e8f0;
+     font-family:'Pretendard Variable','Inter',-apple-system,'Noto Sans KR',sans-serif;
+     padding:12px 14px;width:100%;word-break:keep-all;-webkit-font-smoothing:antialiased;
+     font-size:14px;}}
+.live-pulse{{width:10px;height:10px;border-radius:50%;background:{RED};flex-shrink:0;
+             animation:red-pulse 0.8s ease-in-out infinite;
+             box-shadow:0 0 8px {RED},0 0 16px rgba(239,68,68,0.5);}}
+@keyframes red-pulse{{
+  0%,100%{{opacity:1;box-shadow:0 0 8px {RED},0 0 20px rgba(239,68,68,0.6);transform:scale(1);}}
+  50%{{opacity:0.3;box-shadow:0 0 2px {RED};transform:scale(0.8);}}
+}}
+.glass{{background:rgba(255,255,255,0.05);backdrop-filter:blur(16px) saturate(1.3);
+        border:1px solid rgba(255,255,255,0.10);border-radius:12px;padding:14px;
+        transition:all 0.25s cubic-bezier(0.22,1,0.36,1);}}
+.glass:hover{{background:rgba(255,255,255,0.08);}}
+.glass--accent{{border-top:3px solid {ACCENT_LIGHT};}}
+.hdr{{display:flex;align-items:center;gap:10px;margin-bottom:12px;}}
+.hdr-title{{font-size:clamp(18px,4vw,26px);font-weight:800;letter-spacing:-.5px;color:#fff;}}
+.hdr-badge{{font-size:11px;font-weight:700;padding:3px 10px;border-radius:9999px;}}
+.hdr-time{{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#cbd5e1;margin-left:auto;}}
+.kpi-section{{text-align:center;margin-bottom:12px;}}
+.kpi-radar{{display:flex;justify-content:center;margin-bottom:10px;}}
+.kpi-row{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}}
+.kpi{{text-align:center;padding:10px 8px;}}
+.kpi-val{{font-family:'JetBrains Mono',monospace;font-size:clamp(18px,3vw,28px);font-weight:700;line-height:1.1;}}
+.kpi-lbl{{font-size:13px;font-weight:700;color:#ffffff;margin-top:5px;letter-spacing:0.03em;}}
+.sec{{font-size:15px;font-weight:800;color:#ffffff;margin:16px 0 8px 0;letter-spacing:0.3px;}}
+.fleet-list{{display:flex;flex-direction:column;gap:5px;}}
+.fleet-card{{display:flex;align-items:center;gap:6px;padding:8px 10px;}}
+.fleet-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
+.ag-icon{{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+          font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;
+          border:2px solid var(--ac);background:rgba(0,0,0,0.3);}}
+.ag-body{{flex:1;min-width:0;}}
+.ag-top{{display:flex;align-items:center;gap:6px;}}
+.ag-name{{font-size:13px;font-weight:700;color:var(--ac);}}
+.ag-ai{{font-size:9px;font-weight:600;padding:2px 6px;border-radius:9999px;background:rgba(255,255,255,0.08);color:#cbd5e1;}}
+.ag-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
+.ag-dot{{width:7px;height:7px;border-radius:50%;}}
+.ag-dot--live{{background:{GREEN};animation:blink 1.4s ease-in-out infinite;box-shadow:0 0 6px {GREEN};}}
+.ag-dot--done{{background:{BLUE};box-shadow:0 0 6px {BLUE};}}
+.ag-dot--idle{{background:#94a3b8;}}
+.ag-dot--err{{background:{RED};animation:blink 0.8s ease-in-out infinite;box-shadow:0 0 6px {RED};}}
+.ag-dot--off{{background:#475569;}}
+.ag-stlbl{{font-size:9px;font-weight:700;padding:2px 6px;border-radius:9999px;}}
+.ag-stlbl--live{{background:rgba(34,197,94,0.15);color:#4ade80;}}
+.ag-stlbl--done{{background:rgba(59,130,246,0.15);color:#60a5fa;}}
+.ag-stlbl--idle{{background:rgba(148,163,184,0.15);color:#94a3b8;}}
+.ag-stlbl--err{{background:rgba(239,68,68,0.15);color:#f87171;}}
+.ag-stlbl--off{{background:rgba(71,85,105,0.15);color:#64748b;}}
+.ag-act{{font-size:11px;color:#e2e8f0;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;}}
+.ctx-warn{{font-size:8px;font-weight:800;padding:1px 5px;border-radius:9999px;margin-left:auto;margin-right:4px;animation:blink 1s ease-in-out infinite;}}
+.ctx-warn--critical{{background:rgba(239,68,68,0.25);color:#f87171;border:1px solid rgba(239,68,68,0.4);}}
+.ctx-warn--warning{{background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);}}
+.bar-row{{display:flex;align-items:center;gap:8px;margin:4px 0;}}
+.bar-lbl{{font-size:12px;color:#cbd5e1;flex-shrink:0;min-width:40px;font-weight:600;}}
+.bar-tk{{flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;position:relative;}}
+.bar-fl{{height:100%;border-radius:4px;transition:width 0.5s ease;}}
+.bar-v{{font-family:'JetBrains Mono',monospace;font-size:11px;color:#e2e8f0;font-weight:600;text-align:right;flex-shrink:0;min-width:65px;}}
+.usage-band{{display:flex;gap:0;border-radius:10px;overflow:hidden;margin-bottom:8px;}}
+.usage-item{{flex:1;text-align:center;padding:10px 6px;position:relative;}}
+.usage-item+.usage-item{{border-left:1px solid rgba(255,255,255,0.06);}}
+.usage-item .usage-lbl-top{{font-size:11px;font-weight:700;color:rgba(255,255,255,0.55);margin-bottom:6px;letter-spacing:0.04em;}}
+.usage-val{{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}}
+.usage-sub{{font-size:10px;color:#cbd5e1;margin-top:3px;}}
+.sparkline-row{{display:flex;align-items:center;gap:8px;margin-top:8px;}}
+.sparkline-lbl{{font-size:10px;color:#94a3b8;flex-shrink:0;}}
+.foot{{font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px;padding-top:8px;
+       border-top:1px solid rgba(255,255,255,0.08);text-align:center;}}
+@keyframes fadeUp{{from{{opacity:0;transform:translateY(12px);}}to{{opacity:1;transform:translateY(0);}}}}
+@keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:0.3;}}}}
+@keyframes pulse-glow{{0%,100%{{box-shadow:0 0 8px rgba(0,168,255,0.15);}}50%{{box-shadow:0 0 20px rgba(0,168,255,0.35);}}}}
+@keyframes barFlow{{0%{{background-position:0% 50%;}}100%{{background-position:200% 50%;}}}}
+@keyframes radar-spin{{0%{{transform:rotate(0deg);}}100%{{transform:rotate(360deg);}}}}
+@keyframes rp-out{{0%{{r:0;opacity:0.4;stroke-width:1.5;}}100%{{r:60;opacity:0;stroke-width:0.3;}}}}
+@keyframes wave-rot{{0%{{stroke-dashoffset:0;}}100%{{stroke-dashoffset:-60;}}}}
+@keyframes neon-p{{0%,100%{{filter:drop-shadow(0 0 4px rgba(0,212,255,0.25));}}50%{{filter:drop-shadow(0 0 12px rgba(0,212,255,0.65));}}}}
+@keyframes shimmer{{0%{{background-position:-200% 0;}}100%{{background-position:200% 0;}}}}
+@keyframes pulse-glow-bar{{0%,100%{{opacity:1;filter:brightness(1);}}50%{{opacity:0.7;filter:brightness(1.4);}}}}
+::-webkit-scrollbar{{width:6px;}}
+::-webkit-scrollbar-track{{background:transparent;}}
+::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.12);border-radius:4px;}}
+::-webkit-scrollbar-thumb:hover{{background:rgba(255,255,255,0.22);}}
+@media(prefers-reduced-motion:reduce){{*,*::before,*::after{{animation-duration:0.01ms!important;transition-duration:0.01ms!important;}}}}
+@media(max-width:350px){{body{{padding:8px 10px;font-size:12px;}}.hdr-title{{font-size:16px;}}.kpi-val{{font-size:16px!important;}}.kpi-lbl{{font-size:9px;}}.agent{{padding:6px 8px;gap:8px;}}.ag-icon{{width:22px;height:22px;font-size:9px;}}.ag-name{{font-size:11px;}}.usage-val{{font-size:14px;}}.sec{{font-size:11px;}}.bar-lbl,.bar-v{{font-size:10px;}}}}
+@media(max-width:220px){{.kpi-row{{grid-template-columns:1fr;}}.usage-grid{{grid-template-columns:1fr;}}.ag-act{{display:none;}}}}
+"""
 
-    /* ── Section Title ── */
-    .sec{{font-size:15px;font-weight:800;color:#ffffff;margin:16px 0 8px 0;letter-spacing:0.3px;}}
 
-    /* ── Fleet List (세로 스택) ── */
-    .fleet-list{{display:flex;flex-direction:column;gap:5px;}}
-    .fleet-card{{display:flex;align-items:center;gap:6px;padding:8px 10px;}}
-    .fleet-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
-    .ag-icon{{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-              font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;
-              border:2px solid var(--ac);background:rgba(0,0,0,0.3);}}
-    .ag-body{{flex:1;min-width:0;}}
-    .ag-top{{display:flex;align-items:center;gap:6px;}}
-    .ag-name{{font-size:13px;font-weight:700;color:var(--ac);}}
-    .ag-ai{{font-size:9px;font-weight:600;padding:2px 6px;border-radius:9999px;
-            background:rgba(255,255,255,0.08);color:#cbd5e1;}}
-    .ag-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
-    .ag-dot{{width:7px;height:7px;border-radius:50%;}}
-    .ag-dot--live{{background:{GREEN};animation:blink 1.4s ease-in-out infinite;box-shadow:0 0 6px {GREEN};}}
-    .ag-dot--done{{background:{BLUE};box-shadow:0 0 6px {BLUE};}}
-    .ag-dot--idle{{background:#94a3b8;}}
-    .ag-dot--err{{background:{RED};animation:blink 0.8s ease-in-out infinite;box-shadow:0 0 6px {RED};}}
-    .ag-dot--off{{background:#475569;}}
-    .ag-stlbl{{font-size:9px;font-weight:700;padding:2px 6px;border-radius:9999px;}}
-    .ag-stlbl--live{{background:rgba(34,197,94,0.15);color:#4ade80;}}
-    .ag-stlbl--done{{background:rgba(59,130,246,0.15);color:#60a5fa;}}
-    .ag-stlbl--idle{{background:rgba(148,163,184,0.15);color:#94a3b8;}}
-    .ag-stlbl--err{{background:rgba(239,68,68,0.15);color:#f87171;}}
-    .ag-stlbl--off{{background:rgba(71,85,105,0.15);color:#64748b;}}
-    .ag-act{{font-size:11px;color:#e2e8f0;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;}}
-    .ctx-warn{{font-size:8px;font-weight:800;padding:1px 5px;border-radius:9999px;margin-left:auto;margin-right:4px;animation:blink 1s ease-in-out infinite;}}
-    .ctx-warn--critical{{background:rgba(239,68,68,0.25);color:#f87171;border:1px solid rgba(239,68,68,0.4);}}
-    .ctx-warn--warning{{background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);}}
+# ━━━━━━━ HTML Sub-builders (A: build_full_html 분할) ━━━━━━━
+_STATUS_DOT = {"live": "live", "done": "done", "idle": "idle", "error": "err"}
+_STATUS_LABEL = {"live": "작업중", "done": "작업완료", "idle": "대기", "error": "오류", "offline": "죽음"}
 
-    /* ── Progress Bar ── */
-    .bar-row{{display:flex;align-items:center;gap:8px;margin:4px 0;}}
-    .bar-lbl{{font-size:12px;color:#cbd5e1;flex-shrink:0;min-width:40px;font-weight:600;}}
-    .bar-tk{{flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;position:relative;}}
-    .bar-fl{{height:100%;border-radius:4px;transition:width 0.5s ease;}}
-    .bar-v{{font-family:'JetBrains Mono',monospace;font-size:11px;color:#e2e8f0;font-weight:600;
-            text-align:right;flex-shrink:0;min-width:65px;}}
 
-    /* ── Usage Section (밴드형) ── */
-    .usage-band{{display:flex;gap:0;border-radius:10px;overflow:hidden;margin-bottom:8px;}}
-    .usage-item{{flex:1;text-align:center;padding:10px 6px;position:relative;}}
-    .usage-item+.usage-item{{border-left:1px solid rgba(255,255,255,0.06);}}
-    .usage-item .usage-lbl-top{{font-size:11px;font-weight:700;color:rgba(255,255,255,0.55);margin-bottom:6px;letter-spacing:0.04em;}}
-    .usage-val{{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}}
-    .usage-sub{{font-size:10px;color:#cbd5e1;margin-top:3px;}}
-    .sparkline-row{{display:flex;align-items:center;gap:8px;margin-top:8px;}}
-    .sparkline-lbl{{font-size:10px;color:#94a3b8;flex-shrink:0;}}
-
-    /* ── Footer ── */
-    .foot{{font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px;padding-top:8px;
-           border-top:1px solid rgba(255,255,255,0.08);text-align:center;}}
-
-    /* ── Animations ── */
-    @keyframes fadeUp{{from{{opacity:0;transform:translateY(12px);}}to{{opacity:1;transform:translateY(0);}}}}
-    @keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:0.3;}}}}
-    @keyframes pulse-glow{{
-      0%,100%{{box-shadow:0 0 8px rgba(0,168,255,0.15);}}
-      50%{{box-shadow:0 0 20px rgba(0,168,255,0.35);}}
-    }}
-    @keyframes barFlow{{0%{{background-position:0% 50%;}}100%{{background-position:200% 50%;}}}}
-    @keyframes radar-spin{{0%{{transform:rotate(0deg);}}100%{{transform:rotate(360deg);}}}}
-    @keyframes rp-out{{0%{{r:0;opacity:0.4;stroke-width:1.5;}}100%{{r:60;opacity:0;stroke-width:0.3;}}}}
-    @keyframes wave-rot{{0%{{stroke-dashoffset:0;}}100%{{stroke-dashoffset:-60;}}}}
-    @keyframes neon-p{{
-      0%,100%{{filter:drop-shadow(0 0 4px rgba(0,212,255,0.25));}}
-      50%{{filter:drop-shadow(0 0 12px rgba(0,212,255,0.65));}}
-    }}
-    /* arc-breathe 제거 — SVG 원호 발광은 구현 불가 */
-    @keyframes shimmer{{0%{{background-position:-200% 0;}}100%{{background-position:200% 0;}}}}
-    @keyframes pulse-glow-bar{{
-      0%,100%{{opacity:1;filter:brightness(1);}}
-      50%{{opacity:0.7;filter:brightness(1.4);}}
-    }}
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar{{width:6px;}}
-    ::-webkit-scrollbar-track{{background:transparent;}}
-    ::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.12);border-radius:4px;}}
-    ::-webkit-scrollbar-thumb:hover{{background:rgba(255,255,255,0.22);}}
-
-    /* ── Reduced motion ── */
-    @media(prefers-reduced-motion:reduce){{
-      *,*::before,*::after{{animation-duration:0.01ms!important;transition-duration:0.01ms!important;}}
-    }}
-
-    /* ── Responsive ── */
-    @media(max-width:350px){{
-      body{{padding:8px 10px;font-size:12px;}}
-      .hdr-title{{font-size:16px;}}
-      .kpi-val{{font-size:16px!important;}}
-      .kpi-lbl{{font-size:9px;}}
-      .agent{{padding:6px 8px;gap:8px;}}
-      .ag-icon{{width:22px;height:22px;font-size:9px;}}
-      .ag-name{{font-size:11px;}}
-      .usage-val{{font-size:14px;}}
-      .sec{{font-size:11px;}}
-      .bar-lbl,.bar-v{{font-size:10px;}}
-    }}
-    @media(max-width:220px){{
-      .kpi-row{{grid-template-columns:1fr;}}
-      .usage-grid{{grid-template-columns:1fr;}}
-      .ag-act{{display:none;}}
-    }}
-    """
-
-    body = []
-
-    # ── Header ──
+def _build_header(now: datetime, is_live: bool) -> str:
     mode_label = "LIVE" if is_live else "IDLE"
-    body.append(f'''
+    return f'''
     <div class="hdr">
       <span class="live-pulse"></span>
       <span class="hdr-title">JARVIS Control Center</span>
       <span class="hdr-badge" style="color:{RED};background:rgba(239,68,68,0.15);">{mode_label}</span>
       <span class="hdr-time">{now.strftime('%Y.%m.%d')} <span style="color:rgba(255,255,255,0.6);margin:0 6px;">|</span> <span id="live-clock">{now.strftime('%H:%M:%S')}</span></span>
-    </div>''')
+    </div>'''
 
-    # ── KPI: Radar on top, 3 cards below (가동시간 / 세션 5h / 주간 7d) ──
+
+def _build_kpi(n_live: int, n_total: int, h: int, m: int, sec: int) -> str:
     radar = _radar_svg(n_live, n_total, size=130)
-    daily_total = usage_data["daily_in"] + usage_data["daily_out"]
-
-    # Rate limit 데이터
-    s_pct = rate_limits["session_pct"]
-    s_reset = rate_limits["session_reset"]
-    w_pct = rate_limits["weekly_pct"]
-    w_reset = rate_limits["weekly_reset"]
-
-    # 색상: 60% 이상 경고, 80% 이상 위험
-    s_color = RED if s_pct >= 80 else AMBER if s_pct >= 60 else GREEN
-    w_color = RED if w_pct >= 80 else AMBER if w_pct >= 60 else GREEN
-
     uptime_circle = _uptime_svg(h, m, sec, size=130)
-
-    body.append(f'''
+    return f'''
     <div class="kpi-section">
       <div style="display:flex;justify-content:center;gap:16px;">
         <div style="display:inline-block;">{radar}</div>
         <div style="display:inline-block;">{uptime_circle}</div>
       </div>
-    </div>''')
+    </div>'''
 
-    # ── Fleet Agents (세로 스택) ──
-    body.append('<div class="sec">플릿 현황</div>')
-    body.append('<div class="fleet-list">')
-    for idx, (sf, cfg, content, status, activity, preview, ctx_warn) in enumerate(pane_data):
-        color = cfg["color"]
-        dot_cls = {"live": "live", "done": "done", "idle": "idle", "error": "err"}.get(status, "off")
-        st_label = {"live": "작업중", "done": "작업완료", "idle": "대기", "error": "오류", "offline": "죽음"}.get(status, "?")
-        short_name = cfg["key"].split("(")[0].strip()
-        act_text = _esc(activity[:60]) if activity else ""
-        # 컨텍스트 경고 표시
+
+def _build_fleet(pane_data: list[PaneData]) -> str:
+    parts = ['<div class="sec">플릿 현황</div>', '<div class="fleet-list">']
+    for p in pane_data:
+        color = p.config["color"]
+        dot_cls = _STATUS_DOT.get(p.status, "off")
+        st_label = _STATUS_LABEL.get(p.status, "?")
+        short_name = _esc(p.config["key"].split("(")[0].strip())
+        icon = _esc(p.config["icon"])
         ctx_html = ""
-        if ctx_warn == "critical":
-            ctx_html = f'<span class="ctx-warn ctx-warn--critical">CTX!</span>'
-        elif ctx_warn == "warning":
-            ctx_html = f'<span class="ctx-warn ctx-warn--warning">CTX</span>'
-
-        body.append(f'''
+        if p.ctx_warn == "critical":
+            ctx_html = '<span class="ctx-warn ctx-warn--critical">CTX!</span>'
+        elif p.ctx_warn == "warning":
+            ctx_html = '<span class="ctx-warn ctx-warn--warning">CTX</span>'
+        parts.append(f'''
         <div class="fleet-card glass" style="border-left:3px solid {color};">
-          <div class="ag-icon" style="border-color:{color};">{cfg["icon"]}</div>
+          <div class="ag-icon" style="border-color:{color};">{icon}</div>
           <span class="ag-name" style="color:{color};">{short_name}</span>
           {ctx_html}
           <span class="fleet-status">
@@ -806,107 +861,109 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
             <span class="ag-stlbl ag-stlbl--{dot_cls}">{st_label}</span>
           </span>
         </div>''')
-    body.append('</div>')
+    parts.append('</div>')
+    return "".join(parts)
 
-    # ── Token Usage (밴드형: 세션 / 주간 / 오늘 실사용) ──
-    hourly_total = usage_data["hourly_in"] + usage_data["hourly_out"]
 
-    body.append('<div class="sec">토큰 사용량</div>')
-    body.append('<div class="glass" style="padding:0;">')
+def _bar_gradient(pct: float, normal_colors: str, warn_colors: str, crit_colors: str) -> str:
+    if pct >= 80:
+        return crit_colors
+    if pct >= 60:
+        return warn_colors
+    return normal_colors
 
-    # 프로그레스 바 색상
-    s_bar_color = f"linear-gradient(90deg, {ACCENT}, {ACCENT_LIGHT})"
-    w_bar_color = f"linear-gradient(90deg, {BLUE}, {CYAN})"
-    if s_pct >= 80:
-        s_bar_color = f"linear-gradient(90deg, {RED}, #f87171)"
-    elif s_pct >= 60:
-        s_bar_color = f"linear-gradient(90deg, {AMBER}, #fbbf24)"
-    if w_pct >= 80:
-        w_bar_color = f"linear-gradient(90deg, {RED}, #f87171)"
-    elif w_pct >= 60:
-        w_bar_color = f"linear-gradient(90deg, {AMBER}, #fbbf24)"
 
-    body.append(f'''
+def _build_token_usage(now: datetime, usage_data: UsageData, rate_limits: RateLimitData) -> str:
+    s_pct = rate_limits.session_pct
+    s_reset = rate_limits.session_reset
+    w_pct = rate_limits.weekly_pct
+    w_reset = rate_limits.weekly_reset
+    hourly_total = usage_data.hourly_in + usage_data.hourly_out
+    daily_total = usage_data.daily_in + usage_data.daily_out
+
+    s_bar = _bar_gradient(s_pct,
+        f"linear-gradient(90deg, {ACCENT}, {ACCENT_LIGHT})",
+        f"linear-gradient(90deg, {AMBER}, #fbbf24)",
+        f"linear-gradient(90deg, {RED}, #f87171)")
+    w_bar = _bar_gradient(w_pct,
+        f"linear-gradient(90deg, {BLUE}, {CYAN})",
+        f"linear-gradient(90deg, {AMBER}, #fbbf24)",
+        f"linear-gradient(90deg, {RED}, #f87171)")
+
+    sparkline = _sparkline_svg(usage_data.sparkline)
+    hours_labels = " ".join(
+        f'<span style="flex:1;text-align:center;">{(now - timedelta(hours=11-i)).strftime("%H")}</span>'
+        for i in range(0, 12, 3))
+
+    return f'''<div class="sec">토큰 사용량</div>
+    <div class="glass" style="padding:0;">
     <div style="padding:16px 14px 10px;">
       <div class="bar-row" style="margin:6px 0;">
         <div class="bar-lbl">세션</div>
-        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(s_pct,100):.0f}%;background:{s_bar_color};"></div></div>
+        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(s_pct,100):.0f}%;background:{s_bar};"></div></div>
         <div class="bar-v" style="font-size:13px;">{s_pct:.0f}%</div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:2px 0 12px 48px;">
-        <span>5시간 윈도우</span><span>리셋 {s_reset}</span>
+        <span>5시간 윈도우</span><span>리셋 {_esc(s_reset)}</span>
       </div>
       <div class="bar-row" style="margin:6px 0;">
         <div class="bar-lbl">주간</div>
-        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(w_pct,100):.0f}%;background:{w_bar_color};"></div></div>
+        <div class="bar-tk" style="height:12px;"><div class="bar-fl" style="width:{min(w_pct,100):.0f}%;background:{w_bar};"></div></div>
         <div class="bar-v" style="font-size:13px;">{w_pct:.0f}%</div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:2px 0 6px 48px;">
-        <span>전체 모델</span><span>리셋 {w_reset}</span>
+        <span>전체 모델</span><span>리셋 {_esc(w_reset)}</span>
       </div>
     </div>
     <div class="usage-band">
       <div class="usage-item">
         <div class="usage-lbl-top">최근 1시간</div>
         <div class="usage-val" style="color:{ACCENT_LIGHT};">{_fmt_tokens(hourly_total)}</div>
-        <div class="usage-sub">입력 {_fmt_tokens(usage_data["hourly_in"])} · 출력 {_fmt_tokens(usage_data["hourly_out"])}</div>
+        <div class="usage-sub">입력 {_fmt_tokens(usage_data.hourly_in)} · 출력 {_fmt_tokens(usage_data.hourly_out)}</div>
       </div>
       <div class="usage-item">
         <div class="usage-lbl-top">오늘 소비</div>
         <div class="usage-val" style="color:{GREEN};">{_fmt_tokens(daily_total)}</div>
-        <div class="usage-sub">입력 {_fmt_tokens(usage_data["daily_in"])} · 출력 {_fmt_tokens(usage_data["daily_out"])}</div>
+        <div class="usage-sub">입력 {_fmt_tokens(usage_data.daily_in)} · 출력 {_fmt_tokens(usage_data.daily_out)}</div>
       </div>
       <div class="usage-item">
         <div class="usage-lbl-top">세션 수</div>
-        <div class="usage-val" style="color:{AMBER};">{usage_data["sessions"]}</div>
-        <div class="usage-sub">메시지 {usage_data["messages"]}건</div>
+        <div class="usage-val" style="color:{AMBER};">{usage_data.sessions}</div>
+        <div class="usage-sub">메시지 {usage_data.messages}건</div>
       </div>
-    </div>''')
-
-    # Sparkline
-    sparkline = _sparkline_svg(usage_data["sparkline"])
-    hours_labels = " ".join(f'<span style="flex:1;text-align:center;">{(now - timedelta(hours=11-i)).strftime("%H")}</span>'
-                           for i in range(0, 12, 3))
-    body.append(f'''
+    </div>
     <div class="sparkline-row">
       <span class="sparkline-lbl">12h</span>
       {sparkline}
     </div>
     <div style="display:flex;margin-left:28px;font-size:11px;color:rgba(255,255,255,0.6);font-family:'JetBrains Mono',monospace;font-weight:600;">{hours_labels}</div>
-    ''')
-    body.append('</div>')
+    </div>'''
 
-    # ── System ──
-    body.append('<div class="sec">시스템</div>')
-    body.append('<div class="glass" style="padding:10px;">')
-    cpu_c = GREEN if metrics["cpu"] < 60 else AMBER if metrics["cpu"] < 80 else RED
-    mem_c = GREEN if metrics["mem_pct"] < 70 else AMBER if metrics["mem_pct"] < 90 else RED
-    body.append(f'''
+
+def _build_system(metrics: SystemMetrics) -> str:
+    cpu_c = GREEN if metrics.cpu < 60 else AMBER if metrics.cpu < 80 else RED
+    mem_c = GREEN if metrics.mem_pct < 70 else AMBER if metrics.mem_pct < 90 else RED
+    return f'''<div class="sec">시스템</div>
+    <div class="glass" style="padding:10px;">
     <div class="bar-row">
       <div class="bar-lbl">CPU</div>
-      <div class="bar-tk"><div class="bar-fl" style="width:{metrics["cpu"]:.0f}%;background:{cpu_c};"></div></div>
-      <div class="bar-v">{metrics["cpu"]:.0f}%</div>
+      <div class="bar-tk"><div class="bar-fl" style="width:{metrics.cpu:.0f}%;background:{cpu_c};"></div></div>
+      <div class="bar-v">{metrics.cpu:.0f}%</div>
     </div>
     <div class="bar-row">
       <div class="bar-lbl">MEM</div>
-      <div class="bar-tk"><div class="bar-fl" style="width:{metrics["mem_pct"]:.0f}%;background:{mem_c};"></div></div>
-      <div class="bar-v">{metrics["mem_used"]:.1f}/{metrics["mem_total"]:.0f}G</div>
-    </div>''')
-    body.append('</div>')
+      <div class="bar-tk"><div class="bar-fl" style="width:{metrics.mem_pct:.0f}%;background:{mem_c};"></div></div>
+      <div class="bar-v">{metrics.mem_used:.1f}/{metrics.mem_total:.0f}G</div>
+    </div>
+    </div>'''
 
-    # ── Footer ──
-    body.append(f'<div class="foot">자비스 플릿 v2 &middot; {REFRESH_SEC}초 새로고침 &middot; {now.strftime("%Y-%m-%d %H:%M:%S")}</div>')
 
-    body_html = "".join(body)
-    if body_only:
-        return body_html
-
-    # JS 자체 새로고침 + 1초 시계 업데이트
-    js_refresh = f"""
+def _build_js(elapsed_sec: int) -> str:
+    return f"""
     <script>
     async function refreshDashboard() {{
         try {{
-            const resp = await fetch('http://localhost:{DATA_PORT}/');
+            const resp = await fetch('http://localhost:{DATA_PORT}/?token={_DATA_AUTH_TOKEN}');
             if (resp.ok) {{
                 const root = document.getElementById('dash-root');
                 root.innerHTML = await resp.text();
@@ -914,12 +971,9 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
         }} catch(e) {{}}
     }}
     setInterval(refreshDashboard, {REFRESH_SEC * 1000});
-
-    // 1초마다 시계 + 가동시간 업데이트
-    var _uptimeStart = Date.now() - {int(elapsed.total_seconds()) * 1000};
+    var _uptimeStart = Date.now() - {elapsed_sec * 1000};
     setInterval(function() {{
         var now = new Date();
-        // 시계
         var el = document.getElementById('live-clock');
         if (el) {{
             var hh = String(now.getHours()).padStart(2,'0');
@@ -927,7 +981,6 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
             var ss = String(now.getSeconds()).padStart(2,'0');
             el.textContent = hh + ':' + mm + ':' + ss;
         }}
-        // 가동시간
         var uel = document.getElementById('uptime-val');
         if (uel) {{
             var elapsed = Math.floor((Date.now() - _uptimeStart) / 1000);
@@ -939,9 +992,32 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
     }}, 1000);
     </script>
     """
+
+
+def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, body_only=False):
+    now = datetime.now()
+    n_live = sum(1 for p in pane_data if p.status == "live")
+    n_total = len(pane_data)
+    elapsed = now - start_time
+    h, rem = divmod(int(elapsed.total_seconds()), 3600)
+    m, sec = divmod(rem, 60)
+    is_live = n_live > 0
+
+    body_html = "".join([
+        _build_header(now, is_live),
+        _build_kpi(n_live, n_total, h, m, sec),
+        _build_fleet(pane_data),
+        _build_token_usage(now, usage_data, rate_limits),
+        _build_system(metrics),
+        f'<div class="foot">자비스 플릿 v2 &middot; {REFRESH_SEC}초 새로고침 &middot; {now.strftime("%Y-%m-%d %H:%M:%S")}</div>',
+    ])
+
+    if body_only:
+        return body_html
+
     return f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>{css}</style>{js_refresh}</head>
+<style>{_CSS}</style>{_build_js(int(elapsed.total_seconds()))}</head>
 <body><div id="dash-root">{body_html}</div></body></html>'''
 
 
@@ -981,22 +1057,15 @@ def _gather_and_render_body():
     pane_data = []
     for i, sf in enumerate(terminals):
         label = sf.get("label") or sf.get("title", "Terminal")
-        cfg = label_map.get(label)
-        if not cfg:
-            label_base = label.split("(")[0].strip().lower()
-            for k, v in label_map.items():
-                k_base = k.split("(")[0].strip().lower()
-                if k_base == label_base or k.lower() in label.lower() or label.lower() in k.lower():
-                    cfg = v
-                    break
-        if not cfg:
-            cfg = {"key": label, "icon": "?", "color": "#888", "ai": "?", "desc": ""}
+        cfg = _match_fleet_config(label, label_map)
         content = contents[i] if i < len(contents) else ""
         status = detect_status(content)
         activity = get_activity_summary(content)
         preview = get_terminal_preview(content, 3)
         ctx_warn = detect_context_warning(content)
-        pane_data.append((sf, cfg, content, status, activity, preview, ctx_warn))
+        pane_data.append(PaneData(surface=sf, config=cfg, content=content,
+                                   status=status, activity=activity,
+                                   preview=preview, ctx_warn=ctx_warn))
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()
@@ -1006,12 +1075,26 @@ def _gather_and_render_body():
 
 class _DataHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        body = _gather_and_render_body()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body.encode("utf-8"))
+        # D: 토큰 검증 — ?token=xxx 파라미터 필수
+        from urllib.parse import urlparse, parse_qs
+        query = parse_qs(urlparse(self.path).query)
+        token = query.get("token", [""])[0]
+        if token != _DATA_AUTH_TOKEN:
+            self.send_error(403, "Forbidden")
+            return
+        try:
+            body = _gather_and_render_body()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "http://localhost:8500")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+        except (OSError, ConnectionError) as e:
+            _log.warning("Data handler error: %s", e)
+            try:
+                self.send_error(500, _esc(str(e)))
+            except OSError:
+                pass
 
     def log_message(self, *_a):
         pass  # suppress logs
@@ -1026,8 +1109,8 @@ def _start_data_server():
     try:
         srv = _ReusableHTTPServer(("127.0.0.1", DATA_PORT), _DataHandler)
         srv.serve_forever()
-    except Exception:
-        pass
+    except OSError as e:
+        _log.error("Data server failed to start on port %d: %s", DATA_PORT, e)
 
 
 # ━━━━━━━ Main ━━━━━━━
@@ -1048,22 +1131,15 @@ else:
     pane_data = []
     for i, sf in enumerate(terminals):
         label = sf.get("label") or sf.get("title", "Terminal")
-        cfg = label_map.get(label)
-        if not cfg:
-            label_base = label.split("(")[0].strip().lower()
-            for k, v in label_map.items():
-                k_base = k.split("(")[0].strip().lower()
-                if k_base == label_base or k.lower() in label.lower() or label.lower() in k.lower():
-                    cfg = v
-                    break
-        if not cfg:
-            cfg = {"key": label, "icon": "?", "color": "#888", "ai": "?", "desc": ""}
+        cfg = _match_fleet_config(label, label_map)
         content = contents[i] if i < len(contents) else ""
         status = detect_status(content)
         activity = get_activity_summary(content)
         preview = get_terminal_preview(content, 3)
         ctx_warn = detect_context_warning(content)
-        pane_data.append((sf, cfg, content, status, activity, preview, ctx_warn))
+        pane_data.append(PaneData(surface=sf, config=cfg, content=content,
+                                   status=status, activity=activity,
+                                   preview=preview, ctx_warn=ctx_warn))
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()

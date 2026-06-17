@@ -30,8 +30,7 @@ process.on('uncaughtException', (err) => {
   // Re-throw non-ConPTY errors so they still crash as expected
   throw err;
 });
-// C2: Single-instance lock — prevent 409 Conflict on Telegram polling
-// and general race conditions with socket/PTY resources.
+// C2: Single-instance lock — prevent race conditions with socket/PTY resources.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -77,8 +76,6 @@ import { createUpdateConfig, initAutoUpdater } from './updates/update-manager';
 import { registerPtyHandlers, writeToPty, killAllPty, ptyEvents } from './terminal/pty-manager';
 import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
-import { TelegramBotService } from './notifications/telegram-bot';
-import { loadBotToken } from './notifications/telegram-token-store';
 import { BridgeWatcher } from './bridge-watcher';
 
 // Module-level bridgeWatcher — initialized inside whenReady, used in before-quit
@@ -97,7 +94,7 @@ if (persisted) {
   const migrated = migrateState(persisted, sessionFilePath);
   // BUG-14: Save last window geometry before clearing
   lastWindowGeometry = migrated.state.windows[0]?.geometry;
-  // T1: Backfill missing settings sections from DEFAULT_SETTINGS (e.g., telegram)
+  // T1: Backfill missing settings sections from DEFAULT_SETTINGS
   const mergedSettings = { ...DEFAULT_SETTINGS, ...migrated.state.settings };
   // BUG-14: Clear transient state — windows, agents, workspaces, panels, surfaces
   // Every app start begins fresh with one workspace created by App.tsx
@@ -197,9 +194,6 @@ const windowManager = new WindowManager();
 // Module-level tray reference for side-effect handler (assigned in app.whenReady)
 let appTray: Tray | null = null;
 
-// Module-level Telegram bot service (initialized in app.whenReady)
-const telegramBot = new TelegramBotService(store);
-
 store.on(
   'side-effect',
   (effect: {
@@ -225,14 +219,6 @@ store.on(
         const unread = computeUnreadCount(store.getState().notifications);
         appTray.setToolTip(formatTrayTitle(unread));
       }
-
-      // H1: Forward to Telegram (fire-and-forget with .catch)
-      telegramBot
-        .sendNotification(title, body, {
-          workspaceId: effect.workspaceId as string | undefined,
-          surfaceId: effect.surfaceId as string | undefined,
-        })
-        .catch((err: Error) => console.warn('[telegram] send failed:', err.message));
     }
   },
 );
@@ -269,7 +255,7 @@ registerWorkspaceHandlers(router, store);
 registerPanelHandlers(router, store);
 registerSurfaceHandlers(router, store);
 registerAgentHandlers(router, store);
-registerNotificationHandlers(router, store, app.getPath('userData'));
+registerNotificationHandlers(router, store);
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 registerWorkflowHandlers(router, store);
@@ -468,25 +454,6 @@ app.whenReady().then(async () => {
       return { cancelled: true };
     }
     return { path: result.filePaths[0] };
-  });
-
-  // Telegram bot initialization
-  const telegramAppDataDir = app.getPath('userData');
-  const telegramSettings = store.getState().settings.telegram;
-  const telegramToken = loadBotToken(telegramAppDataDir);
-  void telegramBot.configure(telegramSettings, telegramToken).catch((err: Error) => {
-    console.error('[telegram] Failed to start bot:', err.message);
-  });
-
-  // Re-configure Telegram bot when settings change
-  store.on('change', (action: { type?: string }) => {
-    if (action?.type === 'settings.update') {
-      const newSettings = store.getState().settings.telegram;
-      const token = loadBotToken(telegramAppDataDir);
-      void telegramBot.configure(newSettings, token).catch((err: Error) => {
-        console.error('[telegram] Failed to reconfigure bot:', err.message);
-      });
-    }
   });
 
   // Cowork Bridge Watcher initialization
@@ -725,8 +692,6 @@ store.on('change', (action: { type?: string; payload?: { surfaceId?: string } })
 // Scrollback sync save before quit
 // ---------------------------------------------------------------------------
 app.on('before-quit', () => {
-  // C3: Stop Telegram bot polling BEFORE quit to prevent process hang
-  telegramBot.stop();
   bridgeWatcher?.stop();
 
   // 토큰 파일 삭제 (stale token 방지)

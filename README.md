@@ -112,7 +112,6 @@ echo '{"id":"t1","target_panel":0,"prompt":"hello","mode":"direct","timeout_sec"
 터미널:   surface.send_text / surface.read / surface.list
 워크스페이스: workspace.list / workspace.create / workspace.set_layout
 에이전트:  agent.spawn (패널 + CLI 자동 실행)
-텔레그램:  telegram.set_token / telegram.test
 ```
 
 ### tmux-shim (Claude Agent Teams 호환)
@@ -263,7 +262,7 @@ src/
     sot/store.ts     — 상태 관리 (immer)
     terminal/        — PTY 관리, 자동 승인
     socket/          — JSON-RPC 서버, 핸들러
-    notifications/   — Windows toast, Telegram bot
+    notifications/   — Windows toast
   preload/           — IPC 브릿지 (ptyBridge, cmuxFile 등)
   renderer/          — React UI
     App.tsx          — 메인 레이아웃
@@ -293,7 +292,7 @@ scripts/
 | 상태 관리 | immer |
 | 번들러 | esbuild |
 | 테스트 | Vitest |
-| 알림 | grammY (Telegram), Windows Toast |
+| 알림 | Windows Toast |
 | 보안 | Electron safeStorage, 소켓 토큰 인증, hostname lock |
 
 ## 개발 로드맵
@@ -320,9 +319,8 @@ scripts/
 
 ```
 1. Claude Desktop Dispatch → Claude CLI → tmux-shim → 씨윈 패널 제어
-2. Telegram Bot → /send, /agents, /approve, /task → 소켓 API
-3. Socket API (TCP 19840) → JSON-RPC 2.0 직접 제어
-4. Cowork Bridge → 파일시스템 우편함 (inbox/outbox) ← 비동기 + OneDrive 호환
+2. Socket API (TCP 19840) → JSON-RPC 2.0 직접 제어
+3. Cowork Bridge → 파일시스템 우편함 (inbox/outbox) ← 비동기 + OneDrive 호환
 ```
 
 ### cmux(macOS) 대비 호환성

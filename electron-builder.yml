@@ -1,10 +1,16 @@
+npmRebuild: false
 appId: com.cmux-win.app
 productName: cmux-win
 icon: resources/icon.png
 win:
-  target: nsis
+  target:
+    - target: nsis
+      arch:
+        - x64
   icon: resources/icon.ico
-  sign: false
+nsis:
+  oneClick: true
+  allowToChangeInstallationDirectory: false
 publish:
   provider: github
   owner: manaflow-ai

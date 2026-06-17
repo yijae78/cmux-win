@@ -114,7 +114,7 @@ src/
     sot/store.ts  — 상태 관리 (immer)
     terminal/     — PTY 관리, 자동 승인
     socket/       — JSON-RPC 서버, 핸들러
-    notifications/ — Windows toast, Telegram bot
+    notifications/ — Windows toast
   preload/        — IPC 브릿지 (ptyBridge, cmuxFile 등)
   renderer/       — React UI
     App.tsx       — 메인 레이아웃

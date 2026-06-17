@@ -86,19 +86,12 @@
 - 사이드바에서 🧠Claude.ai / 💎Gemini / 🤖ChatGPT 클릭 → 브라우저 패널 열기
 - claude.ai는 모바일 UA로 반응형 적용
 
-### 7. 텔레그램 봇 연동
-- 알림 전달 (outbound) + 원격 제어 (inbound)
-- /status, /agents, /approve, /reject 명령
-- /send gemini "작업" — 특정 에이전트에 텍스트 전송
-- /task "작업" — Claude 리더에게 작업 지시
-- Bot token은 Electron safeStorage로 암호화 저장
-
-### 8. Claude CLI 자동 실행
+### 7. Claude CLI 자동 실행
 - 앱 시작 시 첫 번째 터미널에 Claude CLI 자동 실행
 - Claude Desktop Dispatch 대상이 항상 존재
 - 원격(핸드폰)에서 Dispatch → Claude CLI → tmux-shim → 다른 에이전트 제어
 
-### 9. Cowork Bridge (파일시스템 우편함)
+### 8. Cowork Bridge (파일시스템 우편함)
 - 외부에서 `%USERPROFILE%/cmux-bridge/inbox/`에 task.json 드롭
 - 씨윈이 자동 감지 → 지정 패널에 명령 전송 → 결과를 outbox/에 기록
 - heartbeat.json으로 씨윈 생존 확인 가능 (30초 주기)
@@ -114,7 +107,7 @@ src/
     sot/store.ts  — 상태 관리 (immer)
     terminal/     — PTY 관리, 자동 승인
     socket/       — JSON-RPC 서버, 핸들러
-    notifications/ — Windows toast, Telegram bot
+    notifications/ — Windows toast
   preload/        — IPC 브릿지 (ptyBridge, cmuxFile 등)
   renderer/       — React UI
     App.tsx       — 메인 레이아웃
