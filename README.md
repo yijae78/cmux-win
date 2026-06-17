@@ -138,6 +138,85 @@ tmux list-panes                   # 패널 목록
 - `/task <text>` — Claude 리더에게 작업 지시
 - Bot token은 Electron safeStorage로 암호화 저장
 
+## Javis — AI 비서 Fleet 시스템
+
+cmux-win 위에서 동작하는 다중 AI 에이전트 오케스트레이션 시스템.
+
+### Fleet 구성 (6-pane)
+
+```
+┌──────────┬──────────┬──────────┐
+│ Master   │ CSO      │ Worker1  │
+│ (Claude) │ (Claude) │ (Claude) │
+├──────────┼──────────┼──────────┤
+│ Worker2  │ Worker3  │Dashboard │
+│ (AGY)    │ (Codex)  │ (8500)   │
+└──────────┴──────────┴──────────┘
+```
+
+| 역할 | AI | 책임 |
+|------|-----|------|
+| **Master** | Claude | 총지휘·관리·감독·모니터링 |
+| **CSO** | Claude | 시스템 운영·컨텍스트 관리 |
+| **Worker1** | Claude | 실제 작업 수행 |
+| **Worker2** | AGY (Gemini) | 리뷰·비평·디자인 피드백 |
+| **Worker3** | Codex | 코드 검수·기술 비판 |
+| **Dashboard** | Streamlit | 실시간 Fleet 현황 모니터링 |
+
+### 부트스트랩
+
+Master에게 **"너는 마스터다"**를 입력하면 자동으로:
+1. 대시보드 실행 (`http://localhost:8500`)
+2. 5개 패널 생성 (CSO + Worker1~3 + Dashboard)
+3. 각 워커에 역할 헌장 주입
+4. 패널 라벨 설정 + 균등 분할
+
+```bash
+bash /c/dev/cmux-win/javis/scripts/bootstrap_fleet.sh
+```
+
+### Javis Fleet Dashboard
+
+Streamlit 기반 실시간 대시보드 (`javis/dashboard.py`):
+
+- **플릿 현황** — 5가지 상태: 대기 / 작업중 / 작업완료 / 오류 / 죽음
+- **컨텍스트 경고** — 워커 컨텍스트 부족 시 CTX/CTX! 배지 표시
+- **토큰 사용량** — 시간별/일별 집계 + 스파크라인
+- **Rate Limit** — Anthropic API 5h 세션 / 7d 주간 사용률
+- **시스템 메트릭** — CPU, 메모리, 디스크
+- **가동 시간** — Fleet 시작 후 경과 시간
+
+데이터 서버(port 8501)가 5초마다 JS fetch로 anti-flicker 업데이트.
+
+### 재귀적 자기개선 (RSI)
+
+워커들이 인터넷 검색을 통해 직전보다 더 나은 방법론을 스스로 찾고 적용하는 5단계 사이클:
+
+1. **검색·탐색** — 더 나은 것을 찾아 배운다
+2. **패턴·철학 추출** — 새로운 패턴과 철학을 추출
+3. **객관적 평가** — 직전보다 낫다는 근거 있는 평가
+4. **영속 저장** — 문서·지침에 기록
+5. **Skill/Harness 제작** — 재사용 가능한 스킬로 발전
+
+산출물은 `javis/rsi/`에 영구 보존.
+
+### Javis 디렉토리 구조
+
+```
+javis/
+  dashboard.py          — Fleet Dashboard (Streamlit)
+  SESSION_STATE.md      — 세션 상태 자동 저장/복원
+  fleet_mapping.env     — 패널-워커 매핑
+  directives/
+    CSO_DIRECTIVE.md    — CSO 절대지침
+    WORKER_DIRECTIVE.md — 워커 절대지침
+  scripts/
+    bootstrap_fleet.sh  — 6-pane Fleet 자동 구축
+  rsi/
+    vibe-design/        — 바이브디자인 RSI 산출물
+    cmux-api/           — cmux-win API RSI 산출물
+```
+
 ## 빌드 & 실행
 
 ```bash
@@ -233,6 +312,9 @@ scripts/
 - **Claude CLI 자동 실행** — 앱 시작 시 Dispatch 대상 확보
 - **Cowork Bridge Watcher** — 파일시스템 우편함, hostname lock
 - **사이드바 토글** — absolute wrapper로 레이아웃 보존, ▶ 호버 바
+- **Javis Fleet Dashboard** — Streamlit 기반 실시간 모니터링 (5상태, CTX 경고, 토큰, Rate Limit)
+- **Javis 부트스트랩** — "너는 마스터다" 트리거로 6-pane Fleet 자동 구축
+- **RSI 프레임워크** — 재귀적 자기개선 5단계 사이클 (vibe-design, cmux-api)
 
 ### 원격 접속 경로
 
