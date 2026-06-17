@@ -76,6 +76,8 @@ import { createUpdateConfig, initAutoUpdater } from './updates/update-manager';
 import { registerPtyHandlers, writeToPty, killAllPty, ptyEvents } from './terminal/pty-manager';
 import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
+import { KakaoTalkService } from './notifications/kakao-talk';
+import { loadTokens as loadKakaoTokens } from './notifications/kakao-token-store';
 import { BridgeWatcher } from './bridge-watcher';
 
 // Module-level bridgeWatcher — initialized inside whenReady, used in before-quit
@@ -194,6 +196,9 @@ const windowManager = new WindowManager();
 // Module-level tray reference for side-effect handler (assigned in app.whenReady)
 let appTray: Tray | null = null;
 
+// KakaoTalk notification service (appDataDir set in app.whenReady)
+const kakaoTalk = new KakaoTalkService('');
+
 store.on(
   'side-effect',
   (effect: {
@@ -219,6 +224,14 @@ store.on(
         const unread = computeUnreadCount(store.getState().notifications);
         appTray.setToolTip(formatTrayTitle(unread));
       }
+
+      // Forward to KakaoTalk (fire-and-forget)
+      kakaoTalk
+        .sendNotification(title, body, {
+          workspaceId: effect.workspaceId,
+          surfaceId: effect.surfaceId,
+        })
+        .catch((err: Error) => console.warn('[kakao] send failed:', err.message));
     }
   },
 );
@@ -255,7 +268,7 @@ registerWorkspaceHandlers(router, store);
 registerPanelHandlers(router, store);
 registerSurfaceHandlers(router, store);
 registerAgentHandlers(router, store);
-registerNotificationHandlers(router, store);
+registerNotificationHandlers(router, store, app.getPath('userData'), kakaoTalk);
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 registerWorkflowHandlers(router, store);
@@ -455,6 +468,15 @@ app.whenReady().then(async () => {
     }
     return { path: result.filePaths[0] };
   });
+
+  // KakaoTalk initialization
+  const kakaoAppDataDir = app.getPath('userData');
+  kakaoTalk.setAppDataDir(kakaoAppDataDir);
+  const kakaoTokens = loadKakaoTokens(kakaoAppDataDir);
+  if (kakaoTokens) {
+    kakaoTalk.configure(kakaoTokens);
+    console.warn('[kakao] Configured with existing tokens');
+  }
 
   // Cowork Bridge Watcher initialization
   bridgeWatcher = new BridgeWatcher(store);
