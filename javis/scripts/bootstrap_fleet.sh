@@ -17,72 +17,65 @@ mkdir -p "$LOG_DIR"
 
 log() { echo "[$(date '+%H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
 
-# ── Socket API helper ──
+# ── Socket API 설정 (함수보다 먼저 선언) ──
 SOCKET_TOKEN_FILE="$HOME/AppData/Roaming/cmux-win/socket-token"
 SOCKET_PORT=19840
 
-cmux_api() {
-    local method="$1"
-    local params="$2"
-    local token
-    token=$(cat "$SOCKET_TOKEN_FILE" 2>/dev/null || echo "")
-    if [ -z "$token" ]; then
-        log "  [WARN] socket-token 없음 — 라벨 설정 건너뜀"
-        return 1
-    fi
-    # Auth handshake + method call
-    python3 -c "
-import socket, json, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(5)
-try:
-    s.connect(('127.0.0.1', $SOCKET_PORT))
-    # Auth
-    auth = json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':'$token'}})
-    s.sendall((auth + '\n').encode())
-    s.recv(4096)
-    # API call
-    req = json.dumps({'jsonrpc':'2.0','id':1,'method':'$method','params':$params})
-    s.sendall((req + '\n').encode())
-    resp = s.recv(4096).decode()
-    print(resp)
-except Exception as e:
-    print(f'ERROR: {e}', file=sys.stderr)
-finally:
-    s.close()
-" 2>/dev/null
-}
+# ── 패널 균등 분할 함수 (workspace.set_layout — 수평/수직 모두 균등화) ──
+equalize_panels() {
+    sleep 1
+    PYTHONIOENCODING=utf-8 python3 << 'EQUALIZE_EOF'
+import socket, json, pathlib, os, time, sys
 
-set_label() {
-    local surface_id="$1"
-    local label="$2"
-    cmux_api "surface.rename" "{\"surfaceId\":\"$surface_id\",\"label\":\"$label\"}" >/dev/null 2>&1 || true
-}
-
-get_surface_ids() {
-    # 모든 surface ID를 순서대로 반환
-    local token
-    token=$(cat "$SOCKET_TOKEN_FILE" 2>/dev/null || echo "")
-    if [ -z "$token" ]; then return 1; fi
-    python3 -c "
-import socket, json
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(5)
+token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 try:
-    s.connect(('127.0.0.1', $SOCKET_PORT))
-    auth = json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':'$token'}})
-    s.sendall((auth + '\n').encode())
-    s.recv(4096)
-    req = json.dumps({'jsonrpc':'2.0','id':1,'method':'surface.list','params':{}})
-    s.sendall((req + '\n').encode())
-    resp = json.loads(s.recv(8192).decode())
-    for sf in resp.get('result',{}).get('surfaces',[]):
-        print(sf['id'])
+    token = token_path.read_text().strip().split('\n')[0].strip()
 except:
-    pass
+    print("equalize: token read fail", file=sys.stderr)
+    sys.exit(1)
+
+def equalize_ratios(node):
+    """기존 레이아웃 트리의 방향(horizontal/vertical)은 보존하고, 모든 ratio를 균등화"""
+    if node.get('type') == 'leaf':
+        return node
+    children = node.get('children', [])
+    if len(children) != 2:
+        return node
+    left_leaves = count_leaves(children[0])
+    right_leaves = count_leaves(children[1])
+    total = left_leaves + right_leaves
+    node['ratio'] = left_leaves / total  # 리프 수에 비례한 균등 비율
+    node['children'] = [equalize_ratios(c) for c in children]
+    return node
+
+def count_leaves(node):
+    if node.get('type') == 'leaf':
+        return 1
+    return sum(count_leaves(c) for c in node.get('children', []))
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(10)
+try:
+    s.connect(('127.0.0.1', 19840))
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
+    time.sleep(0.5); s.recv(4096)
+    # 현재 레이아웃 읽기
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':2,'method':'workspace.list','params':{}}) + '\n').encode())
+    time.sleep(0.5); ws = json.loads(s.recv(32768).decode('utf-8')).get('result',{}).get('workspaces',[])
+    if ws:
+        layout = ws[0].get('panelLayout', {})
+        n = count_leaves(layout)
+        if n <= 1:
+            sys.exit(0)
+        equalized = equalize_ratios(layout)
+        s.sendall((json.dumps({'jsonrpc':'2.0','id':3,'method':'workspace.set_layout','params':{'workspaceId':ws[0]['id'],'panelLayout':equalized}}) + '\n').encode())
+        time.sleep(0.5); s.recv(4096)
+        print(f'equalized {n} panels (preserved directions)')
+except Exception as e:
+    print(f'equalize ERROR: {e}', file=sys.stderr)
 finally:
     s.close()
-" 2>/dev/null
+EQUALIZE_EOF
 }
 
 # ── 멱등성 가드 ──
@@ -137,7 +130,7 @@ except Exception as e:
 GHOST_CLEANUP
 
 log "=== Javis Fleet Bootstrap 시작 (총 6-pane 구성: 5터미널 + 1대시보드) ==="
-log "패널 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) → Dashboard(browser)"
+log "패널 순서: 마스터 → CSO → Worker1(Claude) → Worker2(AGY) → Worker3(Codex) → Dashboard"
 
 # ── 0. 대시보드 실행 (가장 먼저) ──
 log "[0] Javis Dashboard 실행..."
@@ -162,13 +155,15 @@ tmux split-window -h "claude --dangerously-skip-permissions"
 sleep 1
 CSO_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  CSO pane: $CSO_PANE"
+equalize_panels
 
-# ── 2. Worker1(AGY) pane (3번) ──
-log "[2/4] Worker1(AGY) pane 생성 (Claude Code)..."
+# ── 2. Worker1(Claude) pane (3번) ──
+log "[2/4] Worker1(Claude) pane 생성..."
 tmux split-window -h "claude --dangerously-skip-permissions"
 sleep 1
 AGY_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  Worker1(AGY) pane: $AGY_PANE"
+log "  Worker1(Claude) pane: $AGY_PANE"
+equalize_panels
 
 # ── 3. Worker2(AGY) pane (4번) ──
 log "[3/4] Worker2(AGY) pane 생성..."
@@ -176,6 +171,7 @@ tmux split-window -h "agy"
 sleep 1
 AGY2_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  Worker2(AGY) pane: $AGY2_PANE"
+equalize_panels
 
 # ── 4. Worker3(Codex) pane (5번) ──
 log "[4/4] Worker3(Codex) pane 생성..."
@@ -183,33 +179,55 @@ tmux split-window -h "codex -a never --no-alt-screen"
 sleep 1
 CODEX_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 log "  Worker3(Codex) pane: $CODEX_PANE"
+equalize_panels
 
-# ── 라벨 설정 (Socket API) ──
+# ── 라벨 설정 (panel.list → surface.rename 직접 호출) ──
 log "=== 패널 라벨 설정 ==="
-sleep 2  # 패널 생성 안정화 대기
+sleep 3  # 패널 생성 안정화 대기
 
-SURFACE_IDS=($(get_surface_ids)) || true
-SURFACE_COUNT=${#SURFACE_IDS[@]}
-log "  Surface 수: $SURFACE_COUNT"
+python3 << 'LABEL_EOF'
+import socket, json, pathlib, os, time, sys
 
-if [ "$SURFACE_COUNT" -ge 5 ]; then
-    set_label "${SURFACE_IDS[0]}" "마스터(claude)"
-    set_label "${SURFACE_IDS[1]}" "CSO(claude)"
-    set_label "${SURFACE_IDS[2]}" "Worker1(AGY)"
-    set_label "${SURFACE_IDS[3]}" "Worker2(AGY)"
-    set_label "${SURFACE_IDS[4]}" "Worker3(Codex)"
-    log "  라벨 설정 완료: 마스터(claude), CSO(claude), Worker1(AGY), Worker2(AGY), Worker3(Codex)"
-elif [ "$SURFACE_COUNT" -gt 0 ]; then
-    LABELS=("마스터(claude)" "CSO(claude)" "Worker1(AGY)" "Worker2(AGY)" "Worker3(Codex)")
-    for i in "${!SURFACE_IDS[@]}"; do
-        if [ "$i" -lt "${#LABELS[@]}" ]; then
-            set_label "${SURFACE_IDS[$i]}" "${LABELS[$i]}"
-        fi
-    done
-    log "  라벨 설정 완료 (${SURFACE_COUNT}개)"
-else
-    log "  [WARN] Surface 조회 실패 — 라벨 수동 설정 필요"
-fi
+token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
+try:
+    token = token_path.read_text().strip().split('\n')[0].strip()
+except:
+    print("ERROR: socket-token 읽기 실패", file=sys.stderr)
+    sys.exit(1)
+
+labels = ["Master", "CSO", "Worker1(Claude)", "Worker2(AGY)", "Worker3(Codex)"]
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(10)
+try:
+    s.connect(('127.0.0.1', 19840))
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
+    time.sleep(0.5); s.recv(4096)
+
+    s.sendall((json.dumps({'jsonrpc':'2.0','id':1,'method':'panel.list','params':{}}) + '\n').encode())
+    time.sleep(0.5); data = s.recv(16384).decode('utf-8')
+    panels = json.loads(data).get('result',{}).get('panels',[])
+
+    ok_count = 0
+    for i, p in enumerate(panels):
+        if i < len(labels):
+            # BUG FIX: surfaceId는 panelId가 아니라 activeSurfaceId를 사용해야 함
+            surface_id = p.get('activeSurfaceId', p['id'])
+            req = json.dumps({'jsonrpc':'2.0','id':i+10,'method':'surface.rename','params':{'surfaceId':surface_id,'label':labels[i]}})
+            s.sendall((req + '\n').encode())
+            time.sleep(0.3); r = s.recv(4096).decode('utf-8')
+            if 'true' in r:
+                ok_count += 1
+                print(f"  [{i}] '{labels[i]}' OK (surface={surface_id[:12]})")
+            else:
+                print(f"  [{i}] '{labels[i]}' FAIL: {r[:60]}", file=sys.stderr)
+    print(f"label {ok_count}/{len(labels)} done")
+except Exception as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+finally:
+    s.close()
+LABEL_EOF
+log "  라벨 설정 단계 완료"
 
 # ── 6번째 패널: 대시보드 (브라우저) ──
 log "[5/5] Dashboard 브라우저 패널 생성..."
@@ -283,11 +301,12 @@ else
     log "  [WARN] Dashboard 미응답 — 외부 브라우저로 대체"
     start "" "http://localhost:8500"
 fi
+equalize_panels
 
 # ── 매핑 저장 ──
 cat > "$MAPPING_FILE" << EOF
 # Javis Fleet Mapping — $(date '+%Y-%m-%d %H:%M:%S')
-# 순서: Master → CSO → Worker1(AGY) → Worker2(AGY) → Worker3(Codex) → Dashboard
+# 순서: 마스터 → CSO → Worker1(Claude) → Worker2(AGY) → Worker3(Codex) → Dashboard
 # 대시보드: http://localhost:8500
 CSO=$CSO_PANE
 AGY=$AGY_PANE
@@ -296,34 +315,10 @@ CODEX=$CODEX_PANE
 DASHBOARD=browser:8500
 EOF
 
-# ── 패널 균등 크기 조정 ──
-log "=== 패널 균등 크기 조정 ==="
-sleep 1
-python3 << 'PYEOF'
-import socket, json, pathlib, os, time
-token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
-token = token_path.read_text().strip().split('\n')[0].strip()
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(10)
-s.connect(('127.0.0.1', 19840))
-s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
-time.sleep(0.3)
-s.recv(4096)
-s.sendall((json.dumps({'jsonrpc':'2.0','id':1,'method':'panel.list','params':{}}) + '\n').encode())
-time.sleep(0.3)
-data = s.recv(16384).decode('utf-8')
-resp = json.loads(data)
-panels = resp.get('result',{}).get('panels',[])
-ratio = round(1.0 / max(len(panels), 1), 4)
-for i, p in enumerate(panels):
-    req = json.dumps({'jsonrpc':'2.0','id':i+10,'method':'panel.resize','params':{'panelId':p['id'],'ratio':ratio}})
-    s.sendall((req + '\n').encode())
-    time.sleep(0.2)
-    s.recv(4096)
-s.close()
-print(f"Equalized {len(panels)} panels at ratio {ratio}")
-PYEOF
-log "  패널 균등화 완료"
+# ── 최종 균등 분할 (안정화 후 재시도) ──
+log "=== 최종 균등 분할 ==="
+sleep 3
+equalize_panels
 
 log "=== Fleet Bootstrap 완료 (총 6-pane: 5터미널 + 1대시보드 브라우저) ==="
 log "매핑 저장: $MAPPING_FILE"
