@@ -11,13 +11,14 @@ const { execSync } = require('child_process');
 const net = require('net');
 
 const REST_API_KEY = process.argv[2];
+const CLIENT_SECRET = process.argv[3] || '';
 if (!REST_API_KEY) {
-  console.error('Usage: node scripts/kakao-setup.js <REST_API_KEY>');
+  console.error('Usage: node scripts/kakao-setup.js <REST_API_KEY> [CLIENT_SECRET]');
   process.exit(1);
 }
 
 const REDIRECT_URI = 'http://localhost:3939/callback';
-const AUTH_URL = `https://kauth.kakao.com/oauth/authorize?client_id=${REST_API_KEY}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=talk_message`;
+const AUTH_URL = `https://kauth.kakao.com/oauth/authorize?client_id=${REST_API_KEY}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code`;
 
 async function main() {
   console.log('\n=== 카카오톡 알림 초기 설정 ===\n');
@@ -55,6 +56,7 @@ async function main() {
       client_id: REST_API_KEY,
       redirect_uri: REDIRECT_URI,
       code,
+      ...(CLIENT_SECRET ? { client_secret: CLIENT_SECRET } : {}),
     }),
   });
 
@@ -73,7 +75,22 @@ async function main() {
     expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
   };
 
-  // Find socket token for cmux-win
+  // Save tokens to pending file (app will encrypt on next startup)
+  const pendingPaths = [
+    path.join(process.env.APPDATA || '', 'cmux-win', 'kakao-tokens-pending.json'),
+    path.join(process.env.APPDATA || '', 'Electron', 'kakao-tokens-pending.json'),
+  ];
+
+  for (const p of pendingPaths) {
+    try {
+      const dir = path.dirname(p);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(p, JSON.stringify(tokens, null, 2));
+      console.log(`토큰 저장: ${p}`);
+    } catch {}
+  }
+
+  // Also try socket API (works if cmux-win has new code)
   const socketTokenPaths = [
     path.join(process.env.APPDATA || '', 'cmux-win', 'socket-token'),
     path.join(process.env.APPDATA || '', 'Electron', 'socket-token'),
@@ -88,33 +105,23 @@ async function main() {
   }
 
   if (socketToken) {
-    // Connect to cmux-win socket and save tokens
     const client = new net.Socket();
     let id = 0;
 
     client.connect(19840, '127.0.0.1', () => {
-      // Auth
       client.write(JSON.stringify({
         jsonrpc: '2.0', id: id++,
         method: 'auth.handshake', token: socketToken,
       }) + '\n');
-      // Set tokens
       setTimeout(() => {
         client.write(JSON.stringify({
           jsonrpc: '2.0', id: id++,
           method: 'kakao.set_tokens', params: tokens,
         }) + '\n');
-        // Test
         setTimeout(() => {
-          client.write(JSON.stringify({
-            jsonrpc: '2.0', id: id++,
-            method: 'kakao.test',
-          }) + '\n');
-          setTimeout(() => {
-            console.log('\n설정 완료! 카카오톡에서 테스트 메시지를 확인하세요.');
-            client.destroy();
-            process.exit(0);
-          }, 2000);
+          console.log('\n설정 완료! 씨윈 재시작 시 카카오톡 알림이 활성화됩니다.');
+          client.destroy();
+          process.exit(0);
         }, 1000);
       }, 500);
     });
@@ -124,22 +131,18 @@ async function main() {
       for (const line of lines) {
         try {
           const msg = JSON.parse(line);
-          if (msg.error) console.error('Socket error:', msg.error);
+          if (msg.error) console.warn('Socket:', msg.error.message);
           else console.log('Socket OK:', JSON.stringify(msg.result));
         } catch {}
       }
     });
 
     client.on('error', () => {
-      console.error('소켓 연결 실패. 씨윈이 실행 중인지 확인하세요.');
-      console.log('\n수동 설정용 토큰:');
-      console.log(JSON.stringify(tokens, null, 2));
-      process.exit(1);
+      console.log('\n토큰 파일 저장 완료. 씨윈 재시작 시 자동 로드됩니다.');
+      process.exit(0);
     });
   } else {
-    console.log('\n씨윈 소켓 토큰을 찾을 수 없습니다.');
-    console.log('씨윈 실행 후 아래 토큰을 kakao.set_tokens로 전달하세요:');
-    console.log(JSON.stringify(tokens, null, 2));
+    console.log('\n토큰 파일 저장 완료. 씨윈 재시작 시 자동 로드됩니다.');
   }
 }
 

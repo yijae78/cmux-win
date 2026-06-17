@@ -472,7 +472,24 @@ app.whenReady().then(async () => {
   // KakaoTalk initialization
   const kakaoAppDataDir = app.getPath('userData');
   kakaoTalk.setAppDataDir(kakaoAppDataDir);
-  const kakaoTokens = loadKakaoTokens(kakaoAppDataDir);
+  let kakaoTokens = loadKakaoTokens(kakaoAppDataDir);
+  // Check for pending tokens from setup script (plain JSON → encrypt + delete)
+  if (!kakaoTokens) {
+    const pendingPath = path.join(kakaoAppDataDir, 'kakao-tokens-pending.json');
+    try {
+      if (fs.existsSync(pendingPath)) {
+        const raw = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+        const { saveTokens: saveKakaoTokens } = await import('./notifications/kakao-token-store');
+        if (saveKakaoTokens(kakaoAppDataDir, raw)) {
+          kakaoTokens = raw;
+          fs.unlinkSync(pendingPath);
+          console.warn('[kakao] Migrated pending tokens to encrypted store');
+        }
+      }
+    } catch (err) {
+      console.warn('[kakao] Failed to migrate pending tokens:', err);
+    }
+  }
   if (kakaoTokens) {
     kakaoTalk.configure(kakaoTokens);
     console.warn('[kakao] Configured with existing tokens');
