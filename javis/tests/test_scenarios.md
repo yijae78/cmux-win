@@ -177,6 +177,56 @@ cp <바탕화면>/Office-Monitor/README.md /c/dev/cmux-win/javis/tests/workspace
 
 ---
 
+## 시나리오 4: 자비스 자가진화 — 풀스택 구축 + 장애 복구 + RSI 3R ★★★★★
+
+**패널 수**: 8개 (6-pane 기본 + Worker4 + Worker5)
+**구축 대상**: `javis/watchdog/` — Fleet Auto-Recovery Watchdog (9개 .py 파일)
+**소요 시간**: 약 80분 (1시간 20분)
+
+### 목적
+**보고서가 아닌 실제 작동하는 코드**를 5명의 워커가 의존성 체인으로 구축하고, 중간에 장애를 주입하여 복구 능력을 검증하며, RSI 3라운드로 코드 품질을 측정 가능하게 개선
+
+### 이전 시나리오와의 차별점
+- 산출물 = 실제 Python 코드 (보고서 X)
+- 워커 간 의존성 체인 (A→B→C)
+- 의도적 장애 주입 4회 (Chaos Engineering)
+- pytest 자동 실행으로 Pass/Fail 판정
+- 구축한 코드가 실제 플릿에서 작동하는지 실전 검증
+
+### 5 Phase 요약
+
+| Phase | 내용 | 시간 | 핵심 난관 |
+|-------|------|------|-----------|
+| 0 | 8-pane 준비 | 5분 | - |
+| 1 | 아키텍처 논쟁 + 합의 | 15분 | 5워커 토론→합의 도출 |
+| 2 | 병렬 구현 | 25분 | 의존성 체인 동기화 |
+| 3 | 장애 주입 (Phase 2 중) | - | 워커 종료/컨텍스트 소진/대시보드 종료 |
+| 4 | 통합 + RSI 3라운드 | 20분 | pytest 통과율 단조 증가 |
+| 5 | 실전 검증 | 10분 | 워치독이 실제 장애 감지 |
+
+### 성공 기준 (전부 충족)
+- [ ] `javis/watchdog/` 9개 .py 파일 생성
+- [ ] `python -m pytest` 전체 통과
+- [ ] `python -m javis.watchdog --help` 정상 출력
+- [ ] RSI 3라운드 점수 단조 증가 (Baseline < R1 < R2 < Final)
+- [ ] 장애 주입 4건 중 3건 이상 5분 내 복구
+- [ ] 핸드오프 문서 2건 이상 생성
+- [ ] Phase 5 실전 검증에서 "dead" 감지 성공
+
+### 상세 설계
+- `javis/tests/output/scenario4/scenario4_design.md` 참조
+
+### 산출물
+- `javis/watchdog/` — 워치독 패키지 (9개 .py 파일)
+- `javis/tests/output/scenario4/scenario4_design.md` — 설계 문서
+- `javis/tests/output/scenario4/design_final.md` — 합의된 아키텍처
+- `javis/tests/output/scenario4/rsi_r1_review.md` — RSI Round 1
+- `javis/tests/output/scenario4/rsi_r2_review.md` — RSI Round 2
+- `javis/tests/output/scenario4/rsi_r3_cross_review.md` — RSI Round 3
+- `javis/tests/output/scenario4/final_report.md` — 최종 보고서
+
+---
+
 ## 공통 검증 항목
 
 모든 시나리오에서 반드시 확인할 사항:
@@ -212,5 +262,6 @@ cp <바탕화면>/Office-Monitor/README.md /c/dev/cmux-win/javis/tests/workspace
 └── output/                    ← 테스트 산출물
     ├── scenario1/
     ├── scenario2/
-    └── scenario3/
+    ├── scenario3/
+    └── scenario4/
 ```
