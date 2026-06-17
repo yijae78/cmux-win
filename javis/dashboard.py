@@ -28,7 +28,7 @@ import streamlit.components.v1 as components
 SOCKET_TOKEN_FILE = Path.home() / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 SOCKET_PORT = 19840
 REFRESH_SEC = 5
-RATE_LIMIT_CACHE_SEC = 60  # Rate limit API 호출 캐시 (60초마다 갱신)
+RATE_LIMIT_CACHE_SEC = 15  # Rate limit API 호출 캐시 (15초마다 갱신)
 
 # ━━━━━━━ Design Tokens (신교수님 디자인 시스템) ━━━━━━━
 BG_VOID = "#0a0a0a"
@@ -234,18 +234,24 @@ def detect_status(content):
                                 "deciphering", "contemplating", "pondering",
                                 "pontificating", "cogitating", "ruminating",
                                 "meditating", "deliberating", "musing",
+                                "waddling", "combobulating", "crunching", "brewing",
+                                "brewed for", "loading", "computing", "reasoning",
+                                "considering", "investigating", "gathering",
+                                "esc to interrupt", "esc to cancel",
                                 "분석 중", "작업 중", "모니터링", "읽는 중", "작성 중",
                                 "zigzagging", "shenaniganing", "cooked"]):
         return "live"
-    # idle 감지
+    # 작업완료 감지 (idle보다 먼저)
+    if any(k in last for k in ["분석 완료", "작업 완료", "완료했습니다", "보고합니다",
+                                "각성 완료", "awakened", "worked for",
+                                "작업이 완료", "결과를 보고", "산출물"]):
+        return "done"
+    # 대기 감지
     if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ", "ps c:\\",
                                 "what would you like", "how can i help",
                                 "대기합니다", "지시를 대기", "명령을 대기",
-                                "분석 완료", "작업 완료", "완료했습니다", "보고합니다",
-                                "try \"", "bypass permissions",
-                                "type your message", "run /review",
-                                "각성 완료", "awakened", "worked for",
-                                "? for shortcuts"]):
+                                "try \"",
+                                "type your message", "run /review"]):
         return "idle"
     return "idle"
 
@@ -271,6 +277,25 @@ def get_terminal_preview(content, n=3):
         return []
     lines = [_strip(l).strip() for l in content.strip().split("\n") if _strip(l).strip()]
     return lines[-n:] if lines else []
+
+
+def detect_context_warning(content):
+    """워커 화면에서 컨텍스트 부족 경고 감지. 반환: 'critical'|'warning'|None"""
+    if not content:
+        return None
+    text = _strip(content).lower()
+    # critical: 자동 compact 발동 또는 context 거의 소진
+    if any(k in text for k in ["auto-compacting", "compacting conversation",
+                                 "context window is full", "out of context",
+                                 "context limit reached", "0% context",
+                                 "1% context", "2% context", "3% context"]):
+        return "critical"
+    # warning: compact 메시지 감지 또는 context low 표시
+    if any(k in text for k in ["compacted", "context low", "context is getting",
+                                 "running low on context", "5% context",
+                                 "consider using /compact", "/compact"]):
+        return "warning"
+    return None
 
 
 def get_claude_contexts():
@@ -334,8 +359,15 @@ def get_claude_contexts():
     return []
 
 
+_token_usage_cache = {"ts": 0, "data": None}
+_TOKEN_USAGE_CACHE_SEC = 5  # 5초마다 갱신
+
+
 def get_token_usage():
     """JSONL 파싱으로 시간별/일별/월별 토큰 사용량 집계."""
+    now_ts = time.time()
+    if _token_usage_cache["data"] and now_ts - _token_usage_cache["ts"] < _TOKEN_USAGE_CACHE_SEC:
+        return _token_usage_cache["data"]
     projects_dir = Path.home() / ".claude" / "projects"
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
@@ -381,21 +413,22 @@ def get_token_usage():
                             usage = d.get("message", {}).get("usage", {})
                             if not usage or not ts_str:
                                 continue
-                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
                             inp = usage.get("input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
                             out = usage.get("output_tokens", 0)
                             message_count += 1
 
                             # daily
-                            daily_in += inp
-                            daily_out += out
+                            if ts >= today_start:
+                                daily_in += inp
+                                daily_out += out
 
                             # hourly (last 1h)
                             if ts >= hour_ago:
                                 hourly_in += inp
                                 hourly_out += out
 
-                            # hourly buckets for sparkline
+                            # hourly buckets for sparkline (로컬 시간 기준)
                             bucket = ts.strftime("%H")
                             hourly_buckets[bucket] += inp + out
                         except Exception:
@@ -411,13 +444,16 @@ def get_token_usage():
         h = (now - timedelta(hours=11 - i)).strftime("%H")
         sparkline.append(hourly_buckets.get(h, 0))
 
-    return {
+    result = {
         "hourly_in": hourly_in, "hourly_out": hourly_out,
         "daily_in": daily_in, "daily_out": daily_out,
         "monthly_total": monthly_in + daily_in,
         "sessions": session_count, "messages": message_count,
         "sparkline": sparkline,
     }
+    _token_usage_cache["ts"] = now_ts
+    _token_usage_cache["data"] = result
+    return result
 
 
 def get_system_metrics():
@@ -552,7 +588,7 @@ DATA_PORT = 8501
 
 def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, body_only=False):
     now = datetime.now()
-    n_live = sum(1 for _, _, _, s, _, _ in pane_data if s == "live")
+    n_live = sum(1 for _, _, _, s, _, _, _ in pane_data if s == "live")
     n_total = len(pane_data)
     elapsed = now - start_time
     h, rem = divmod(int(elapsed.total_seconds()), 3600)
@@ -618,15 +654,20 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
     .ag-status{{margin-left:auto;display:flex;align-items:center;gap:4px;}}
     .ag-dot{{width:7px;height:7px;border-radius:50%;}}
     .ag-dot--live{{background:{GREEN};animation:blink 1.4s ease-in-out infinite;box-shadow:0 0 6px {GREEN};}}
+    .ag-dot--done{{background:{BLUE};box-shadow:0 0 6px {BLUE};}}
     .ag-dot--idle{{background:#94a3b8;}}
     .ag-dot--err{{background:{RED};animation:blink 0.8s ease-in-out infinite;box-shadow:0 0 6px {RED};}}
-    .ag-dot--off{{background:#4a5568;}}
+    .ag-dot--off{{background:#475569;}}
     .ag-stlbl{{font-size:9px;font-weight:700;padding:2px 6px;border-radius:9999px;}}
     .ag-stlbl--live{{background:rgba(34,197,94,0.15);color:#4ade80;}}
+    .ag-stlbl--done{{background:rgba(59,130,246,0.15);color:#60a5fa;}}
     .ag-stlbl--idle{{background:rgba(148,163,184,0.15);color:#94a3b8;}}
     .ag-stlbl--err{{background:rgba(239,68,68,0.15);color:#f87171;}}
-    .ag-stlbl--off{{background:rgba(74,85,104,0.15);color:#718096;}}
+    .ag-stlbl--off{{background:rgba(71,85,105,0.15);color:#64748b;}}
     .ag-act{{font-size:11px;color:#e2e8f0;opacity:0.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;}}
+    .ctx-warn{{font-size:8px;font-weight:800;padding:1px 5px;border-radius:9999px;margin-left:auto;margin-right:4px;animation:blink 1s ease-in-out infinite;}}
+    .ctx-warn--critical{{background:rgba(239,68,68,0.25);color:#f87171;border:1px solid rgba(239,68,68,0.4);}}
+    .ctx-warn--warning{{background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);}}
 
     /* ── Progress Bar ── */
     .bar-row{{display:flex;align-items:center;gap:8px;margin:4px 0;}}
@@ -742,17 +783,24 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
     # ── Fleet Agents (세로 스택) ──
     body.append('<div class="sec">플릿 현황</div>')
     body.append('<div class="fleet-list">')
-    for idx, (sf, cfg, content, status, activity, preview) in enumerate(pane_data):
+    for idx, (sf, cfg, content, status, activity, preview, ctx_warn) in enumerate(pane_data):
         color = cfg["color"]
-        dot_cls = {"live": "live", "idle": "idle", "error": "err"}.get(status, "off")
-        st_label = {"live": "작업중", "idle": "대기", "error": "오류", "offline": "오프라인"}.get(status, "?")
+        dot_cls = {"live": "live", "done": "done", "idle": "idle", "error": "err"}.get(status, "off")
+        st_label = {"live": "작업중", "done": "작업완료", "idle": "대기", "error": "오류", "offline": "죽음"}.get(status, "?")
         short_name = cfg["key"].split("(")[0].strip()
         act_text = _esc(activity[:60]) if activity else ""
+        # 컨텍스트 경고 표시
+        ctx_html = ""
+        if ctx_warn == "critical":
+            ctx_html = f'<span class="ctx-warn ctx-warn--critical">CTX!</span>'
+        elif ctx_warn == "warning":
+            ctx_html = f'<span class="ctx-warn ctx-warn--warning">CTX</span>'
 
         body.append(f'''
         <div class="fleet-card glass" style="border-left:3px solid {color};">
           <div class="ag-icon" style="border-color:{color};">{cfg["icon"]}</div>
           <span class="ag-name" style="color:{color};">{short_name}</span>
+          {ctx_html}
           <span class="fleet-status">
             <span class="ag-dot ag-dot--{dot_cls}"></span>
             <span class="ag-stlbl ag-stlbl--{dot_cls}">{st_label}</span>
@@ -947,7 +995,8 @@ def _gather_and_render_body():
         status = detect_status(content)
         activity = get_activity_summary(content)
         preview = get_terminal_preview(content, 3)
-        pane_data.append((sf, cfg, content, status, activity, preview))
+        ctx_warn = detect_context_warning(content)
+        pane_data.append((sf, cfg, content, status, activity, preview, ctx_warn))
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()
@@ -1013,7 +1062,8 @@ else:
         status = detect_status(content)
         activity = get_activity_summary(content)
         preview = get_terminal_preview(content, 3)
-        pane_data.append((sf, cfg, content, status, activity, preview))
+        ctx_warn = detect_context_warning(content)
+        pane_data.append((sf, cfg, content, status, activity, preview, ctx_warn))
 
     metrics = get_system_metrics()
     usage_data = get_token_usage()
