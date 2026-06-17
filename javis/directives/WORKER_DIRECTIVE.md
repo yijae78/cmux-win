@@ -84,6 +84,26 @@ Git Bash에서 tmux send-keys로 `/clear`를 전송하면 `C:/Program Files/Git/
 - `Ctrl+C` 두 번 후 `claude` 재실행
 - 또는 `//clear` (더블 슬래시로 Git Bash 경로 변환 방지)
 
+### 9-4. 파일 기반 프롬프트 전달 (시나리오3 교훈)
+**`tmux send-keys`로 장문(200자+) 프롬프트를 전달하면 Codex/AGY CLI에서 깨진다.**
+마스터가 워커에게 작업을 지시할 때:
+1. 짧은 지시(200자 이하): `tmux send-keys -t %N "지시 내용" Enter` 직접 전달
+2. 장문 지시(200자 초과): 파일 기반 전달
+   ```bash
+   # 프롬프트 파일 저장
+   echo "장문 프롬프트..." > /c/dev/cmux-win/javis/tmp/prompts/prompt_WN.txt
+   # CLI에 파일 내용 전달
+   tmux send-keys -t %N 'cat /c/dev/cmux-win/javis/tmp/prompts/prompt_WN.txt' Enter
+   ```
+3. `bootstrap_fleet.sh`의 `send_long_prompt()` 함수가 자동으로 분기 처리
+
+### 9-5. 동적 워커 생성 규칙 (시나리오3 교훈)
+시나리오 확장으로 Worker4+를 동적 추가할 때:
+1. **Claude 워커는 반드시 `--dangerously-skip-permissions`** — 미적용 시 파일 권한 프롬프트 발생, 무인 환경에서 7분+ 멈춤
+2. **2단계 생성 방식 필수** — `tmux split-window -h` (쉘 열기) → `tmux send-keys -t %N "명령" Enter` (명령 전송). 인라인 방식(`split-window -h "agy"`) 금지
+3. 동적 생성 후 반드시 **패널 균등분할** + **라벨 설정** 실행
+4. `spawn_dynamic_worker()` 함수 사용 권장: `bash -c 'source bootstrap_fleet.sh && spawn_dynamic_worker "Worker4(Claude)" claude "프롬프트"'`
+
 ## 10. 막힘 즉시 보고 (hang 방지)
 
 이미지 생성·빌드 등이 막히면 무리한 재시도 금지 — 즉시 master에 '막힘' push. 한 작업 5분 초과 시 상태 보고.

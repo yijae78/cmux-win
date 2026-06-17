@@ -160,7 +160,9 @@ else
     log "  [WARN] 대시보드 프로세스 시작 실패 — 로그 확인: $LOG_DIR/dashboard.log"
 fi
 
-# ── 워커 생성 + 검증 함수 (시나리오2 교훈: CLI 시작 실패 대응) ──
+# ── 워커 생성 + 검증 함수 (시나리오2+3 교훈 반영) ──
+# 시나리오3 Fix: 인라인 명령(tmux split-window -h "cmd") 대신
+#   2단계 방식(쉘 열기 → send-keys 명령 전송)으로 AGY/Codex 자동 시작 실패 해결
 spawn_worker() {
     local STEP="$1"
     local TOTAL="$2"
@@ -173,17 +175,24 @@ spawn_worker() {
         ATTEMPT=$((ATTEMPT + 1))
         log "[$STEP/$TOTAL] $NAME 생성 (시도 $ATTEMPT/$MAX_RETRY)..."
         BEFORE=$(tmux list-panes -F '#{pane_id}' | wc -l)
-        tmux split-window -h "$CMD"
-        sleep 2
+
+        # [시나리오3 Fix] 2단계 방식: 빈 쉘 열기 → send-keys로 명령 전송
+        # 인라인 방식(split-window -h "agy")은 Git Bash에서 간헐 실패
+        tmux split-window -h
+        sleep 1
         AFTER=$(tmux list-panes -F '#{pane_id}' | wc -l)
         NEW_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
 
         if [ "$AFTER" -gt "$BEFORE" ]; then
-            # 패널 생성 확인 — CLI 로딩 대기 (최대 10초)
+            # 쉘이 열렸으면 명령 전송
+            tmux send-keys -t "$NEW_PANE" "$CMD" Enter
+            sleep 2
+
+            # CLI 로딩 대기 (최대 15초 — AGY는 초기화가 느림)
             CLI_OK=0
-            for i in $(seq 1 10); do
+            for i in $(seq 1 15); do
                 SCREEN=$(tmux capture-pane -t "$NEW_PANE" -p 2>/dev/null | tail -5)
-                if echo "$SCREEN" | grep -qiE "(claude|agy|codex|gemini|what would|how can|type your|>|\\$)"; then
+                if echo "$SCREEN" | grep -qiE "(claude|agy|codex|gemini|what would|how can|type your|>|\\$|tips for)"; then
                     CLI_OK=1
                     break
                 fi
@@ -205,6 +214,78 @@ spawn_worker() {
     log "  [ERROR] $NAME 생성 $MAX_RETRY회 실패"
     echo ""
     return 1
+}
+
+# ── 파일 기반 장문 프롬프트 전달 (시나리오3 Fix: Codex/AGY send-keys 장문 실패 해결) ──
+# 사용법: send_long_prompt <pane_id> <prompt_text>
+# 200자 이하 → 직접 send-keys, 초과 → 파일 → cat으로 전달
+PROMPT_DIR="$JAVIS_DIR/tmp/prompts"
+mkdir -p "$PROMPT_DIR"
+
+send_long_prompt() {
+    local PANE="$1"
+    local PROMPT="$2"
+    local PROMPT_LEN=${#PROMPT}
+
+    if [ "$PROMPT_LEN" -le 200 ]; then
+        # 짧은 프롬프트: 직접 전송
+        tmux send-keys -t "$PANE" "$PROMPT" Enter
+    else
+        # 장문 프롬프트: 파일 기반 전달
+        local PROMPT_FILE="$PROMPT_DIR/prompt_$(date +%s)_$$.txt"
+        printf '%s' "$PROMPT" > "$PROMPT_FILE"
+        log "  장문 프롬프트 파일: $PROMPT_FILE ($PROMPT_LEN chars)"
+        # CLI에 cat 파이프로 전달 (Codex/AGY 모두 표준입력 지원)
+        tmux send-keys -t "$PANE" "cat \"$PROMPT_FILE\"" Enter
+        sleep 1
+        # 파일 정리는 세션 종료 시 (tmp/prompts/ 전체 삭제)
+    fi
+}
+
+# ── 동적 워커 생성 함수 (시나리오3+ 확장 시 사용) ──
+# 사용법: spawn_dynamic_worker <name> <ai_type> [prompt]
+# ai_type: claude | agy | codex
+spawn_dynamic_worker() {
+    local NAME="$1"
+    local AI_TYPE="$2"
+    local PROMPT="${3:-}"
+    local CMD=""
+    local PANE_COUNT=$(tmux list-panes -F '#{pane_id}' | wc -l)
+    local STEP=$((PANE_COUNT + 1))
+
+    case "$AI_TYPE" in
+        claude)
+            # [시나리오3 Fix] Claude 워커는 반드시 --dangerously-skip-permissions
+            CMD="claude --dangerously-skip-permissions"
+            ;;
+        agy)
+            CMD="agy"
+            ;;
+        codex)
+            CMD="codex -a full-auto --no-alt-screen"
+            ;;
+        *)
+            log "[ERROR] 미지원 AI 타입: $AI_TYPE"
+            return 1
+            ;;
+    esac
+
+    local NEW_PANE=$(spawn_worker "$STEP" "$STEP" "$NAME" "$CMD")
+    if [ -z "$NEW_PANE" ]; then
+        log "[ERROR] 동적 워커 $NAME 생성 실패"
+        return 1
+    fi
+
+    equalize_panels
+
+    # 프롬프트가 있으면 전달
+    if [ -n "$PROMPT" ]; then
+        sleep 2
+        send_long_prompt "$NEW_PANE" "$PROMPT"
+    fi
+
+    echo "$NEW_PANE"
+    return 0
 }
 
 # ── 1. CSO pane ──
