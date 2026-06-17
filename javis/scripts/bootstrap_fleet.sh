@@ -278,6 +278,10 @@ spawn_dynamic_worker() {
 
     equalize_panels
 
+    # 자동 라벨 설정 (대시보드 반영)
+    sleep 1
+    _set_pane_label "$NEW_PANE" "$NAME"
+
     # 프롬프트가 있으면 전달
     if [ -n "$PROMPT" ]; then
         sleep 2
@@ -286,6 +290,53 @@ spawn_dynamic_worker() {
 
     echo "$NEW_PANE"
     return 0
+}
+
+# ── 패널 라벨 자동 설정 (Socket API surface.rename) ──
+# 사용법: _set_pane_label <pane_id> <label>
+# 전략: surface.list에서 라벨 미설정(빈 문자열) 터미널 중 마지막 것을 대상으로 함
+_set_pane_label() {
+    local PANE_ID="$1"
+    local LABEL="$2"
+    python3 << LABELEOF
+import socket, json, pathlib, os, time
+token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
+try:
+    lines = token_path.read_text().strip().split("\\n")
+    token, port = lines[0].strip(), int(lines[1].strip())
+except Exception:
+    exit(1)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(10)
+try:
+    s.connect(("127.0.0.1", port))
+    s.sendall((json.dumps({"jsonrpc":"2.0","id":0,"method":"auth.handshake","params":{"token":token}}) + "\\n").encode())
+    time.sleep(0.3); s.recv(4096)
+    # surface.list로 라벨 미설정 터미널 찾기
+    s.sendall((json.dumps({"jsonrpc":"2.0","id":1,"method":"surface.list","params":{}}) + "\\n").encode())
+    time.sleep(0.3); data = s.recv(32768).decode("utf-8")
+    surfaces = json.loads(data).get("result",{}).get("surfaces",[])
+    # 라벨이 비어있는 터미널 중 마지막 것 = 방금 생성된 패널
+    unlabeled = [sf for sf in surfaces
+                 if sf.get("surfaceType") == "terminal" and not sf.get("label")]
+    if unlabeled:
+        sid = unlabeled[-1]["id"]
+    else:
+        # fallback: 전체 터미널 중 마지막
+        terms = [sf for sf in surfaces if sf.get("surfaceType") == "terminal"]
+        sid = terms[-1]["id"] if terms else None
+    if sid:
+        s.sendall((json.dumps({"jsonrpc":"2.0","id":2,"method":"surface.rename",
+                   "params":{"surfaceId":sid,"label":"${LABEL}"}}) + "\\n").encode())
+        time.sleep(0.3); r = s.recv(4096).decode("utf-8")
+        print(f"  Label '${LABEL}' -> {'OK' if 'true' in r else 'FAIL'}")
+    else:
+        print(f"  Label '${LABEL}' -> no target surface found")
+except Exception as e:
+    print(f"  Label set error: {e}")
+finally:
+    s.close()
+LABELEOF
 }
 
 # ── 1. CSO pane ──
