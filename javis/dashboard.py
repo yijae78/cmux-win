@@ -79,7 +79,6 @@ class SystemMetrics:
 
 # ━━━━━━━ Config ━━━━━━━
 SOCKET_TOKEN_FILE = Path.home() / "AppData" / "Roaming" / "cmux-win" / "socket-token"
-SOCKET_PORT = 19840
 REFRESH_SEC = 5
 RATE_LIMIT_CACHE_SEC = 15  # Rate limit API 호출 캐시 (15초마다 갱신)
 
@@ -143,12 +142,24 @@ section[data-testid="stSidebar"]{display:none!important;}
 
 
 # ━━━━━━━ Socket API ━━━━━━━
-def _get_token() -> str:
+def _read_socket_config() -> tuple[str, int]:
+    """socket-token 파일에서 토큰(line1)과 포트(line2)를 동적으로 읽는다."""
     try:
-        return SOCKET_TOKEN_FILE.read_text().strip().split("\n")[0].strip()
-    except (FileNotFoundError, OSError, IndexError) as e:
-        _log.debug("Socket token read failed: %s", e)
-        return ""
+        lines = SOCKET_TOKEN_FILE.read_text().strip().split("\n")
+        token = lines[0].strip() if lines else ""
+        port = int(lines[1].strip()) if len(lines) > 1 else 19840
+        return token, port
+    except (FileNotFoundError, OSError, IndexError, ValueError) as e:
+        _log.debug("Socket config read failed: %s", e)
+        return "", 19840
+
+
+def _get_token() -> str:
+    return _read_socket_config()[0]
+
+
+def _get_port() -> int:
+    return _read_socket_config()[1]
 
 
 def _recv_line(s):
@@ -180,7 +191,7 @@ def gather_fleet_data():
     try:
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         s.settimeout(8)
-        s.connect(("127.0.0.1", SOCKET_PORT))
+        s.connect(("127.0.0.1", _get_port()))
         s.sendall((json.dumps({"jsonrpc": "2.0", "id": 0, "method": "auth.handshake",
                                 "params": {"token": token}}) + "\n").encode())
         _recv_line(s)
@@ -302,8 +313,10 @@ def detect_status(content):
         return "offline"
     last = _strip("\n".join(content.strip().split("\n")[-8:])).lower()
     # 에러 감지 (최우선)
-    error_kws = ["traceback", "exception", "crash", "fatal error", "panic"]
-    noise_kws = ["mcp server failed", "mcp server", "settings issue", "/doctor", "/mcp"]
+    error_kws = ["traceback", "exception", "crash", "fatal error", "panic",
+                 "error:", "errno", "segfault", "killed"]
+    noise_kws = ["mcp server failed", "mcp server", "settings issue", "/doctor", "/mcp",
+                 "error handling", "error_handler", "errorcount"]
     has_error = any(k in last for k in error_kws)
     is_noise = any(k in last for k in noise_kws)
     if has_error and not is_noise:
@@ -320,20 +333,33 @@ def detect_status(content):
                                 "brewed for", "loading", "computing", "reasoning",
                                 "considering", "investigating", "gathering",
                                 "esc to interrupt", "esc to cancel",
+                                # AGY (Gemini) 상태 패턴
+                                "calling tool", "executing", "reading", "writing",
+                                "applying patch", "searching codebase",
+                                # Codex 상태 패턴
+                                "codex is thinking", "applying changes", "reviewing",
+                                # 한국어 상태
                                 "분석 중", "작업 중", "모니터링", "읽는 중", "작성 중",
+                                "검토 중", "리뷰 중", "수정 중", "생성 중", "실행 중",
+                                # compact 진행 중
+                                "compacting", "auto-compact",
                                 "zigzagging", "shenaniganing", "cooked"]):
         return "live"
     # 작업완료 감지 (idle보다 먼저)
     if any(k in last for k in ["분석 완료", "작업 완료", "완료했습니다", "보고합니다",
                                 "각성 완료", "awakened", "worked for",
-                                "작업이 완료", "결과를 보고", "산출물"]):
+                                "작업이 완료", "결과를 보고", "산출물",
+                                "saved to", "저장했습니다", "저장 완료",
+                                "report generated", "보고서 작성 완료"]):
         return "done"
     # 대기 감지
     if any(k in last for k in ["waiting", "idle", "$ ", "> ", ">>> ", "ps c:\\",
                                 "what would you like", "how can i help",
                                 "대기합니다", "지시를 대기", "명령을 대기",
                                 "try \"",
-                                "type your message", "run /review"]):
+                                "type your message", "run /review",
+                                # AGY/Codex 대기 패턴
+                                "enter a prompt", "what can i do", "ready"]):
         return "idle"
     return "idle"
 
@@ -370,12 +396,16 @@ def detect_context_warning(content):
     if any(k in text for k in ["auto-compacting", "compacting conversation",
                                  "context window is full", "out of context",
                                  "context limit reached", "0% context",
-                                 "1% context", "2% context", "3% context"]):
+                                 "1% context", "2% context", "3% context",
+                                 "4% context", "5% context",
+                                 "context is almost full"]):
         return "critical"
     # warning: compact 메시지 감지 또는 context low 표시
     if any(k in text for k in ["compacted", "context low", "context is getting",
-                                 "running low on context", "5% context",
-                                 "consider using /compact", "/compact"]):
+                                 "running low on context",
+                                 "10% context", "15% context", "20% context",
+                                 "consider using /compact", "/compact",
+                                 "conversation is getting long"]):
         return "warning"
     return None
 

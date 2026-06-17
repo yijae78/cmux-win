@@ -19,7 +19,14 @@ log() { echo "[$(date '+%H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
 
 # ── Socket API 설정 (함수보다 먼저 선언) ──
 SOCKET_TOKEN_FILE="$HOME/AppData/Roaming/cmux-win/socket-token"
-SOCKET_PORT=19840
+# 포트를 socket-token 파일 line 2에서 동적 읽기 (하드코딩 금지)
+if [ -f "$SOCKET_TOKEN_FILE" ] && [ "$(wc -l < "$SOCKET_TOKEN_FILE")" -ge 2 ]; then
+    SOCKET_PORT=$(sed -n '2p' "$SOCKET_TOKEN_FILE" | tr -d '[:space:]')
+else
+    SOCKET_PORT=19840
+fi
+export SOCKET_PORT  # Python 내장 스크립트에서 os.environ으로 접근
+log "Socket port: $SOCKET_PORT"
 
 # ── 패널 균등 분할 함수 (workspace.set_layout — 수평/수직 모두 균등화) ──
 equalize_panels() {
@@ -29,7 +36,9 @@ import socket, json, pathlib, os, time, sys
 
 token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 try:
-    token = token_path.read_text().strip().split('\n')[0].strip()
+    lines = token_path.read_text().strip().split('\n')
+    token = lines[0].strip()
+    port = int(lines[1].strip()) if len(lines) > 1 else int(os.environ.get('SOCKET_PORT', '19840'))
 except:
     print("equalize: token read fail", file=sys.stderr)
     sys.exit(1)
@@ -56,7 +65,7 @@ def count_leaves(node):
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(10)
 try:
-    s.connect(('127.0.0.1', 19840))
+    s.connect(('127.0.0.1', port))
     s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
     time.sleep(0.5); s.recv(4096)
     # 현재 레이아웃 읽기
@@ -91,14 +100,16 @@ python3 << 'GHOST_CLEANUP'
 import socket, json, pathlib, os, time
 token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 try:
-    token = token_path.read_text().strip().split('\n')[0].strip()
+    lines = token_path.read_text().strip().split('\n')
+    token = lines[0].strip()
+    port = int(lines[1].strip()) if len(lines) > 1 else int(os.environ.get('SOCKET_PORT', '19840'))
 except:
     print("token 없음 — 건너뜀")
     exit(0)
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(5)
 try:
-    s.connect(('127.0.0.1', 19840))
+    s.connect(('127.0.0.1', port))
     s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
     time.sleep(0.3); s.recv(4096)
     # 패널 목록
@@ -149,36 +160,67 @@ else
     log "  [WARN] 대시보드 프로세스 시작 실패 — 로그 확인: $LOG_DIR/dashboard.log"
 fi
 
-# ── 1. CSO pane (2번 — 마스터 바로 옆) ──
-log "[1/4] CSO pane 생성 (Claude Code)..."
-tmux split-window -h "claude --dangerously-skip-permissions"
-sleep 1
-CSO_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  CSO pane: $CSO_PANE"
+# ── 워커 생성 + 검증 함수 (시나리오2 교훈: CLI 시작 실패 대응) ──
+spawn_worker() {
+    local STEP="$1"
+    local TOTAL="$2"
+    local NAME="$3"
+    local CMD="$4"
+    local MAX_RETRY=3
+    local ATTEMPT=0
+
+    while [ "$ATTEMPT" -lt "$MAX_RETRY" ]; do
+        ATTEMPT=$((ATTEMPT + 1))
+        log "[$STEP/$TOTAL] $NAME 생성 (시도 $ATTEMPT/$MAX_RETRY)..."
+        BEFORE=$(tmux list-panes -F '#{pane_id}' | wc -l)
+        tmux split-window -h "$CMD"
+        sleep 2
+        AFTER=$(tmux list-panes -F '#{pane_id}' | wc -l)
+        NEW_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
+
+        if [ "$AFTER" -gt "$BEFORE" ]; then
+            # 패널 생성 확인 — CLI 로딩 대기 (최대 10초)
+            CLI_OK=0
+            for i in $(seq 1 10); do
+                SCREEN=$(tmux capture-pane -t "$NEW_PANE" -p 2>/dev/null | tail -5)
+                if echo "$SCREEN" | grep -qiE "(claude|agy|codex|gemini|what would|how can|type your|>|\\$)"; then
+                    CLI_OK=1
+                    break
+                fi
+                sleep 1
+            done
+            if [ "$CLI_OK" = "1" ]; then
+                log "  $NAME pane: $NEW_PANE (CLI 확인됨)"
+                echo "$NEW_PANE"
+                return 0
+            else
+                log "  [WARN] $NAME CLI 로딩 미확인 — 패널은 생성됨: $NEW_PANE"
+                echo "$NEW_PANE"
+                return 0
+            fi
+        fi
+        log "  [RETRY] $NAME 패널 생성 실패 — 재시도 $ATTEMPT/$MAX_RETRY"
+        sleep 2
+    done
+    log "  [ERROR] $NAME 생성 $MAX_RETRY회 실패"
+    echo ""
+    return 1
+}
+
+# ── 1. CSO pane ──
+CSO_PANE=$(spawn_worker 1 4 "CSO(Claude)" "claude --dangerously-skip-permissions")
 equalize_panels
 
-# ── 2. Worker1(Claude) pane (3번) ──
-log "[2/4] Worker1(Claude) pane 생성..."
-tmux split-window -h "claude --dangerously-skip-permissions"
-sleep 1
-AGY_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  Worker1(Claude) pane: $AGY_PANE"
+# ── 2. Worker1(Claude) pane ──
+W1_PANE=$(spawn_worker 2 4 "Worker1(Claude)" "claude --dangerously-skip-permissions")
 equalize_panels
 
-# ── 3. Worker2(AGY) pane (4번) ──
-log "[3/4] Worker2(AGY) pane 생성..."
-tmux split-window -h "agy"
-sleep 1
-AGY2_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  Worker2(AGY) pane: $AGY2_PANE"
+# ── 3. Worker2(AGY) pane ──
+AGY_PANE=$(spawn_worker 3 4 "Worker2(AGY)" "agy")
 equalize_panels
 
-# ── 4. Worker3(Codex) pane (5번) ──
-log "[4/4] Worker3(Codex) pane 생성..."
-tmux split-window -h "codex -a never --no-alt-screen"
-sleep 1
-CODEX_PANE=$(tmux list-panes -F '#{pane_id}' | tail -1)
-log "  Worker3(Codex) pane: $CODEX_PANE"
+# ── 4. Worker3(Codex) pane ──
+CODEX_PANE=$(spawn_worker 4 4 "Worker3(Codex)" "codex -a never --no-alt-screen")
 equalize_panels
 
 # ── 라벨 설정 (panel.list → surface.rename 직접 호출) ──
@@ -190,7 +232,9 @@ import socket, json, pathlib, os, time, sys
 
 token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
 try:
-    token = token_path.read_text().strip().split('\n')[0].strip()
+    lines = token_path.read_text().strip().split('\n')
+    token = lines[0].strip()
+    port = int(lines[1].strip()) if len(lines) > 1 else int(os.environ.get('SOCKET_PORT', '19840'))
 except:
     print("ERROR: socket-token 읽기 실패", file=sys.stderr)
     sys.exit(1)
@@ -200,7 +244,7 @@ labels = ["Master", "CSO", "Worker1(Claude)", "Worker2(AGY)", "Worker3(Codex)"]
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(10)
 try:
-    s.connect(('127.0.0.1', 19840))
+    s.connect(('127.0.0.1', port))
     s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
     time.sleep(0.5); s.recv(4096)
 
@@ -248,11 +292,13 @@ if [ "$DASH_READY" = "1" ]; then
     python3 << 'PYEOF'
 import socket, json, pathlib, os, time
 token_path = pathlib.Path(os.path.expanduser("~")) / "AppData" / "Roaming" / "cmux-win" / "socket-token"
-token = token_path.read_text().strip().split('\n')[0].strip()
+lines = token_path.read_text().strip().split('\n')
+token = lines[0].strip()
+port = int(lines[1].strip()) if len(lines) > 1 else int(os.environ.get('SOCKET_PORT', '19840'))
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(10)
-s.connect(('127.0.0.1', 19840))
+s.connect(('127.0.0.1', port))
 s.sendall((json.dumps({'jsonrpc':'2.0','id':0,'method':'auth.handshake','params':{'token':token}}) + '\n').encode())
 time.sleep(0.3)
 s.recv(4096)
@@ -309,10 +355,11 @@ cat > "$MAPPING_FILE" << EOF
 # 순서: 마스터 → CSO → Worker1(Claude) → Worker2(AGY) → Worker3(Codex) → Dashboard
 # 대시보드: http://localhost:8500
 CSO=$CSO_PANE
-AGY=$AGY_PANE
-AGY2=$AGY2_PANE
-CODEX=$CODEX_PANE
+WORKER1=$W1_PANE
+WORKER2_AGY=$AGY_PANE
+WORKER3_CODEX=$CODEX_PANE
 DASHBOARD=browser:8500
+SOCKET_PORT=$SOCKET_PORT
 EOF
 
 # ── 최종 균등 분할 (안정화 후 재시도) ──
