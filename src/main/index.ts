@@ -77,7 +77,10 @@ import { registerPtyHandlers, writeToPty, killAllPty, ptyEvents } from './termin
 import { showToast } from './notifications/windows-toast';
 import { computeUnreadCount, formatTrayTitle } from './notifications/tray-manager';
 import { KakaoTalkService } from './notifications/kakao-talk';
-import { loadTokens as loadKakaoTokens } from './notifications/kakao-token-store';
+import {
+  loadTokens as loadKakaoTokens,
+  saveTokens as saveKakaoTokens,
+} from './notifications/kakao-token-store';
 import { BridgeWatcher } from './bridge-watcher';
 
 // Module-level bridgeWatcher — initialized inside whenReady, used in before-quit
@@ -479,7 +482,6 @@ app.whenReady().then(async () => {
     try {
       if (fs.existsSync(pendingPath)) {
         const raw = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
-        const { saveTokens: saveKakaoTokens } = await import('./notifications/kakao-token-store');
         if (saveKakaoTokens(kakaoAppDataDir, raw)) {
           kakaoTokens = raw;
           fs.unlinkSync(pendingPath);

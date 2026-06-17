@@ -1,6 +1,6 @@
 import { saveTokens, KakaoTokens } from './kakao-token-store';
 
-const SEND_URL = 'https://kapi.kakao.com/v2/api/talk/memo/send';
+const SEND_URL = 'https://kapi.kakao.com/v2/api/talk/memo/default/send';
 const TOKEN_URL = 'https://kauth.kakao.com/oauth/token';
 const DEBOUNCE_MS = 3000;
 const MAX_RETRIES = 3;

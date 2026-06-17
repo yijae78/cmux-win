@@ -18,7 +18,7 @@ if (!REST_API_KEY) {
 }
 
 const REDIRECT_URI = 'http://localhost:3939/callback';
-const AUTH_URL = `https://kauth.kakao.com/oauth/authorize?client_id=${REST_API_KEY}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code`;
+const AUTH_URL = `https://kauth.kakao.com/oauth/authorize?client_id=${REST_API_KEY}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=talk_message`;
 
 async function main() {
   console.log('\n=== 카카오톡 알림 초기 설정 ===\n');
