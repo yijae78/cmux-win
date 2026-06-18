@@ -30490,6 +30490,24 @@ setInterval(() => {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+var PHONE_RELAY_DIR = path.join(
+  process.env.HOME || process.env.USERPROFILE || "",
+  "cmux-bridge"
+);
+var PHONE_RELAY_FILE = path.join(PHONE_RELAY_DIR, "phone-relay.jsonl");
+function appendPhoneMessage(from, message) {
+  try {
+    fs.mkdirSync(PHONE_RELAY_DIR, { recursive: true });
+    const entry = JSON.stringify({
+      from,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      message
+    });
+    fs.appendFileSync(PHONE_RELAY_FILE, entry + "\n", "utf-8");
+  } catch (err) {
+    console.error("[phone-relay] write failed:", err);
+  }
+}
 var client = new CmuxSocketClient();
 var RESPONSE_RULES = [
   "[MANDATORY RESPONSE RULES]",
@@ -30506,12 +30524,21 @@ var server = new McpServer(
       "\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4 MCP \uC11C\uBC84.",
       "\uC0AC\uC6A9\uC790\uAC00 \uC528\uC708/\uD130\uBBF8\uB110/\uC5D0\uC774\uC804\uD2B8 \uAD00\uB828 \uC694\uCCAD \uC2DC \uBC18\uB4DC\uC2DC cmux \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD55C\uB2E4.",
       "",
-      "\uC0AC\uC6A9 \uD750\uB984:",
+      "## \uD578\uB4DC\uD3F0 \u2194 \uB370\uC2A4\uD06C\uD1B1 \uC591\uBC29\uD5A5 \uD1B5\uC2E0 (\uCD5C\uC6B0\uC120)",
+      "\uC0AC\uC6A9\uC790\uAC00 \uD578\uB4DC\uD3F0\uC5D0\uC11C \uB2E4\uC74C\uACFC \uAC19\uC774 \uB9D0\uD558\uBA74 phone_relay\uB97C \uC0AC\uC6A9:",
+      '- "\uB9C8\uC2A4\uD130\uC5D0\uAC8C", "\uC528\uC708\uC5D0 \uC804\uB2EC", "\uD074\uB85C\uB4DC\uC5D0\uAC8C", "\uC804\uB2EC\uD574", "\uBCF4\uACE0\uD574", "\uD655\uC778\uD574"',
+      "- \uB610\uB294 \uC528\uC708/\uB9C8\uC2A4\uD130/\uB370\uC2A4\uD06C\uD1B1\uC744 \uC5B8\uAE09\uD558\uB294 \uBAA8\uB4E0 \uC9C0\uC2DC",
+      '\u2192 cmux(action:"phone_relay", task:"\uC0AC\uC6A9\uC790 \uBA54\uC2DC\uC9C0 \uC804\uBB38")',
+      "\uC774\uB807\uAC8C \uD558\uBA74 \uBA54\uC2DC\uC9C0\uAC00 \uB370\uC2A4\uD06C\uD1B1 CLI\uC5D0 \uC9C1\uC811 \uC8FC\uC785\uB418\uC5B4 \uB9C8\uC2A4\uD130\uAC00 \uC989\uC2DC \uD655\uC778\uD55C\uB2E4.",
+      "",
+      "## \uAE30\uBCF8 \uC0AC\uC6A9 \uD750\uB984",
       '- \uC0C1\uD0DC \uD655\uC778 \u2192 cmux(action:"status")',
       '- \uC791\uC5C5 \uC9C0\uC2DC \u2192 cmux(action:"send", task:"...")',
       '- \uC5D0\uC774\uC804\uD2B8 \uCD94\uAC00 \u2192 cmux(action:"spawn", agentType:"gemini")',
       '- \uD654\uBA74 \uC77D\uAE30 \u2192 cmux(action:"read")',
-      '- send_and_wait\uAC00 status="running" \u2192 get_result \uBC18\uBCF5 \uD638\uCD9C'
+      '- send_and_wait\uAC00 status="running" \u2192 get_result \uBC18\uBCF5 \uD638\uCD9C',
+      '- \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \u2192 cmux(action:"phone_relay", task:"...")',
+      '- \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uC751\uB2F5 \u2192 cmux(action:"phone_respond", task:"...")'
     ].join("\n")
   }
 );
@@ -30572,7 +30599,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | open_folder | move_window | phone_relay | phone_respond\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.\nphone_relay: \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \uB9B4\uB808\uC774 (CLI\uC5D0 \uC9C1\uC811 \uC8FC\uC785).\nphone_respond: \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uC751\uB2F5 (\uCE74\uCE74\uC624\uD1A1 \uC54C\uB9BC).',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30584,13 +30611,17 @@ server.registerTool(
         "approve",
         "notifications",
         "open_browser",
-        "move_window"
+        "open_folder",
+        "move_window",
+        "phone_relay",
+        "phone_respond"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
       agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, gemini, codex)"),
       surfaceId: external_exports3.string().optional().describe("\uC11C\uD53C\uC2A4 ID"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (read)"),
       timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF8120)"),
+      path: external_exports3.string().optional().describe("\uD3F4\uB354 \uACBD\uB85C (open_folder)"),
       url: external_exports3.string().optional().describe("URL (open_browser)"),
       x: external_exports3.number().optional().describe("\uCC3D X \uC88C\uD45C (move_window)"),
       y: external_exports3.number().optional().describe("\uCC3D Y \uC88C\uD45C (move_window)"),
@@ -30874,19 +30905,29 @@ server.registerTool(
             return text(notifData);
           }
         }
+        // ── open_folder ──
+        case "open_folder": {
+          if (!params.path)
+            return text({ error: true, message: "path \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          const folderResult = await client.call("explorer.open_folder", {
+            path: params.path,
+            surfaceId: params.surfaceId
+          });
+          return text(folderResult);
+        }
         // ── open_browser ──
         case "open_browser": {
           if (!params.url) return text({ error: true, message: "url \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
-          const tree = await client.call("system.tree");
-          const ws = (tree?.workspaces ?? [])[0];
-          const panel = ws?.panels?.[0];
-          if (!panel)
+          const panelListResult = await client.call("panel.list");
+          const allPanels = panelListResult?.panels ?? [];
+          const lastPanel = allPanels[allPanels.length - 1];
+          if (!lastPanel)
             return text({
               error: true,
               message: "\uC528\uC708\uC5D0 \uD328\uB110\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. status\uB85C \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694."
             });
           const result = await client.call("panel.split", {
-            panelId: panel.id,
+            panelId: lastPanel.id,
             direction: "horizontal",
             newPanelType: "browser",
             url: params.url
@@ -30908,6 +30949,79 @@ server.registerTool(
           if (params.height !== void 0) moveParams.height = params.height;
           const result = await client.call("window.move", moveParams);
           return text({ ok: true, bounds: result?.bounds });
+        }
+        // ── phone_relay (핸드폰 → 데스크톱 CLI → 응답 대기 → 핸드폰) ──
+        case "phone_relay": {
+          if (!params.task)
+            return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          appendPhoneMessage("phone", params.task);
+          const masterSid = await findAgentSurface("claude");
+          if (!masterSid) {
+            return text("\uB9C8\uC2A4\uD130 CLI\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC528\uC708\uC5D0\uC11C Claude\uAC00 \uC2E4\uD589 \uC911\uC778\uC9C0 \uD655\uC778\uD558\uC138\uC694.");
+          }
+          const relayMsg = `[PHONE] \uC2E0\uAD50\uC218\uB2D8 \uD578\uB4DC\uD3F0\uC5D0\uC11C: ${params.task}`;
+          try {
+            await client.call("agent.send_task", { surfaceId: masterSid, task: relayMsg });
+          } catch {
+            await client.call("surface.send_text", { surfaceId: masterSid, text: relayMsg });
+            await sleep(500);
+            await client.call("surface.send_text", { surfaceId: masterSid, text: "\r" });
+          }
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call("surface.read", { surfaceId: masterSid });
+            const baseContent = typeof baseline === "string" ? baseline : baseline?.content ?? "";
+            baselineLen = baseContent.length;
+          } catch {
+          }
+          const maxWait = params.timeout ?? 90;
+          const initialWait = 8;
+          await sleep(initialWait * 1e3);
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += 3) {
+            await sleep(3e3);
+            try {
+              const progressToken = extra._meta?.progressToken;
+              if (progressToken) {
+                await extra.sendNotification({
+                  method: "notifications/progress",
+                  params: { progressToken, progress: elapsed, total: maxWait }
+                });
+              }
+            } catch {
+            }
+            try {
+              const screen = await client.call("surface.read", { surfaceId: masterSid });
+              const content = typeof screen === "string" ? screen : screen?.content ?? "";
+              if (content.length - baselineLen < 100) continue;
+              if (isAgentIdle(content, "claude")) {
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split("\n").slice(-40).join("\n");
+                appendPhoneMessage("desktop", lastLines);
+                return text(lastLines);
+              }
+            } catch {
+            }
+          }
+          const taskId = `phone_${++taskSeq}_${Date.now()}`;
+          taskStore.set(taskId, {
+            surfaceId: masterSid,
+            agentType: "claude",
+            task: params.task,
+            status: "running",
+            startedAt: Date.now()
+          });
+          return text({
+            status: "running",
+            task_id: taskId,
+            message: "\uB9C8\uC2A4\uD130\uAC00 \uC544\uC9C1 \uC751\uB2F5 \uC911\uC785\uB2C8\uB2E4. get_result\uB85C \uD655\uC778\uD558\uC138\uC694."
+          });
+        }
+        // ── phone_respond (데스크톱 → 핸드폰, 로그 기록용) ──
+        case "phone_respond": {
+          if (!params.task)
+            return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          appendPhoneMessage("desktop", params.task);
+          return text({ ok: true, logged: true });
         }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });

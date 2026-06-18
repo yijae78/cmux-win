@@ -68,6 +68,7 @@ import { registerNotificationHandlers } from './socket/handlers/notification';
 import { registerSettingsHandlers } from './socket/handlers/settings';
 import { registerBrowserHandlers } from './socket/handlers/browser';
 import { registerWorkflowHandlers } from './socket/handlers/workflow';
+import { registerExplorerHandlers } from './socket/handlers/explorer';
 import { attachShortcutInterceptor } from './shortcuts/shortcut-interceptor';
 import { checkPidStatus } from '../shared/pid-utils';
 import { HistoryDb } from './browser/history-db';
@@ -275,6 +276,7 @@ registerNotificationHandlers(router, store, app.getPath('userData'), kakaoTalk);
 registerSettingsHandlers(router, store);
 registerBrowserHandlers(router, store);
 registerWorkflowHandlers(router, store);
+registerExplorerHandlers(router, store);
 
 const socketServer = new SocketApiServer(router, store.getState().settings.socket.mode as AuthMode);
 
@@ -463,9 +465,12 @@ app.whenReady().then(async () => {
   });
 
   // Open folder dialog IPC handler (for file explorer)
-  ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FOLDER, async () => {
-    const win = BrowserWindow.getFocusedWindow();
-    const result = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] });
+  ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FOLDER, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const options = { properties: ['openDirectory'] as 'openDirectory'[] };
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) {
       return { cancelled: true };
     }

@@ -166,7 +166,9 @@ contextBridge.exposeInMainWorld('cmuxFile', {
   },
   listDirectory(
     dirPath: string,
-  ): Promise<{ entries: Array<{ name: string; isDirectory: boolean; path: string }> } | { error: string }> {
+  ): Promise<
+    { entries: Array<{ name: string; isDirectory: boolean; path: string }> } | { error: string }
+  > {
     return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath);
   },
   openFolderDialog(): Promise<{ path: string } | { cancelled: true }> {
@@ -179,9 +181,24 @@ contextBridge.exposeInMainWorld('cmuxFile', {
     ipcRenderer.on(IPC_CHANNELS.FILE_CHANGED, handler as (...args: unknown[]) => void);
     ipcRenderer.send(IPC_CHANNELS.FILE_WATCH, filePath);
     return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.FILE_CHANGED, handler as (...args: unknown[]) => void);
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.FILE_CHANGED,
+        handler as (...args: unknown[]) => void,
+      );
       ipcRenderer.send(IPC_CHANNELS.FILE_UNWATCH, filePath);
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// cmuxExplorer — receive open-folder command from main (Socket API → renderer)
+// ---------------------------------------------------------------------------
+contextBridge.exposeInMainWorld('cmuxExplorer', {
+  onOpenFolder(callback: (folderPath: string, surfaceId?: string) => void) {
+    const handler = (_e: Electron.IpcRendererEvent, folderPath: string, surfaceId?: string) =>
+      callback(folderPath, surfaceId);
+    ipcRenderer.on(IPC_CHANNELS.OPEN_FOLDER, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.OPEN_FOLDER, handler);
   },
 });
 

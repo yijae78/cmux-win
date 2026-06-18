@@ -24,4 +24,5 @@ export const IPC_CHANNELS = {
   FILE_UNWATCH: 'cmux:file-unwatch',
   FILE_CHANGED: 'cmux:file-changed',
   DIALOG_OPEN_FOLDER: 'cmux:dialog-open-folder',
+  OPEN_FOLDER: 'cmux:open-folder',
 } as const;

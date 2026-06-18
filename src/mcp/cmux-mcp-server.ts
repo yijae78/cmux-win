@@ -491,6 +491,27 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ────────────────────────────────────────────
+//  Phone Relay (핸드폰 ↔ 데스크톱 양방향 통신)
+// ────────────────────────────────────────────
+
+const PHONE_RELAY_DIR = path.join(process.env.HOME || process.env.USERPROFILE || '', 'cmux-bridge');
+const PHONE_RELAY_FILE = path.join(PHONE_RELAY_DIR, 'phone-relay.jsonl');
+
+function appendPhoneMessage(from: 'phone' | 'desktop', message: string): void {
+  try {
+    fs.mkdirSync(PHONE_RELAY_DIR, { recursive: true });
+    const entry = JSON.stringify({
+      from,
+      timestamp: new Date().toISOString(),
+      message,
+    });
+    fs.appendFileSync(PHONE_RELAY_FILE, entry + '\n', 'utf-8');
+  } catch (err) {
+    console.error('[phone-relay] write failed:', err);
+  }
+}
+
+// ────────────────────────────────────────────
 //  MCP Server + 통합 도구 (1.5, 1.6)
 // ────────────────────────────────────────────
 
@@ -513,12 +534,21 @@ const server = new McpServer(
       '씨윈(cmux-win) 원격 제어 MCP 서버.',
       '사용자가 씨윈/터미널/에이전트 관련 요청 시 반드시 cmux 도구를 호출한다.',
       '',
-      '사용 흐름:',
+      '## 핸드폰 ↔ 데스크톱 양방향 통신 (최우선)',
+      '사용자가 핸드폰에서 다음과 같이 말하면 phone_relay를 사용:',
+      '- "마스터에게", "씨윈에 전달", "클로드에게", "전달해", "보고해", "확인해"',
+      '- 또는 씨윈/마스터/데스크톱을 언급하는 모든 지시',
+      '→ cmux(action:"phone_relay", task:"사용자 메시지 전문")',
+      '이렇게 하면 메시지가 데스크톱 CLI에 직접 주입되어 마스터가 즉시 확인한다.',
+      '',
+      '## 기본 사용 흐름',
       '- 상태 확인 → cmux(action:"status")',
       '- 작업 지시 → cmux(action:"send", task:"...")',
       '- 에이전트 추가 → cmux(action:"spawn", agentType:"gemini")',
       '- 화면 읽기 → cmux(action:"read")',
       '- send_and_wait가 status="running" → get_result 반복 호출',
+      '- 핸드폰→데스크톱 메시지 → cmux(action:"phone_relay", task:"...")',
+      '- 데스크톱→핸드폰 응답 → cmux(action:"phone_respond", task:"...")',
     ].join('\n'),
   },
 );
@@ -595,8 +625,10 @@ server.registerTool(
     description:
       '씨윈(cmux-win) 원격 제어.\n' +
       '응답규칙: "신교수님" 호칭, 이모지 금지, 3문장 이내, 테이블 금지, 추가 제안 금지.\n' +
-      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | move_window\n' +
-      '씨윈이 꺼져있어도 자동 실행된다.',
+      'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | open_folder | move_window | phone_relay | phone_respond\n' +
+      '씨윈이 꺼져있어도 자동 실행된다.\n' +
+      'phone_relay: 핸드폰→데스크톱 메시지 릴레이 (CLI에 직접 주입).\n' +
+      'phone_respond: 데스크톱→핸드폰 응답 (카카오톡 알림).',
     inputSchema: z.object({
       action: z
         .enum([
@@ -609,7 +641,10 @@ server.registerTool(
           'approve',
           'notifications',
           'open_browser',
+          'open_folder',
           'move_window',
+          'phone_relay',
+          'phone_respond',
         ])
         .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
@@ -617,6 +652,7 @@ server.registerTool(
       surfaceId: z.string().optional().describe('서피스 ID'),
       lines: z.number().optional().describe('읽을 줄 수 (read)'),
       timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본120)'),
+      path: z.string().optional().describe('폴더 경로 (open_folder)'),
       url: z.string().optional().describe('URL (open_browser)'),
       x: z.number().optional().describe('창 X 좌표 (move_window)'),
       y: z.number().optional().describe('창 Y 좌표 (move_window)'),
@@ -953,6 +989,16 @@ server.registerTool(
           }
         }
 
+        // ── open_folder ──
+        case 'open_folder': {
+          if (!params.path) return text({ error: true, message: 'path 파라미터가 필요합니다.' });
+          const folderResult = await client.call('explorer.open_folder', {
+            path: params.path,
+            surfaceId: params.surfaceId,
+          });
+          return text(folderResult);
+        }
+
         // ── open_browser ──
         case 'open_browser': {
           if (!params.url) return text({ error: true, message: 'url 파라미터가 필요합니다.' });
@@ -991,6 +1037,103 @@ server.registerTool(
           if (params.height !== undefined) moveParams.height = params.height;
           const result = await client.call('window.move', moveParams);
           return text({ ok: true, bounds: (result as any)?.bounds });
+        }
+
+        // ── phone_relay (핸드폰 → 데스크톱 CLI → 응답 대기 → 핸드폰) ──
+        case 'phone_relay': {
+          if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
+
+          // 1. 로그 파일에 기록
+          appendPhoneMessage('phone', params.task);
+
+          // 2. 마스터(Claude) CLI에 메시지 주입
+          const masterSid = await findAgentSurface('claude');
+          if (!masterSid) {
+            return text('마스터 CLI를 찾을 수 없습니다. 씨윈에서 Claude가 실행 중인지 확인하세요.');
+          }
+
+          const relayMsg = `[PHONE] 신교수님 핸드폰에서: ${params.task}`;
+
+          // 메시지 전송
+          try {
+            await client.call('agent.send_task', { surfaceId: masterSid, task: relayMsg });
+          } catch {
+            await client.call('surface.send_text', { surfaceId: masterSid, text: relayMsg });
+            await sleep(500);
+            await client.call('surface.send_text', { surfaceId: masterSid, text: '\r' });
+          }
+
+          // 3. 베이스라인 (전송 직후 버퍼 길이)
+          let baselineLen = 0;
+          try {
+            const baseline = await client.call('surface.read', { surfaceId: masterSid });
+            const baseContent = typeof baseline === 'string' ? baseline : (baseline?.content ?? '');
+            baselineLen = baseContent.length;
+          } catch {
+            /* ignore */
+          }
+
+          // 4. CLI 응답 대기 (최대 90초, 3초 간격 폴링)
+          const maxWait = params.timeout ?? 90;
+          const initialWait = 8;
+          await sleep(initialWait * 1000);
+
+          for (let elapsed = initialWait; elapsed < maxWait; elapsed += 3) {
+            await sleep(3000);
+
+            // Progress notification (MCP 타임아웃 리셋)
+            try {
+              const progressToken = extra._meta?.progressToken;
+              if (progressToken) {
+                await extra.sendNotification({
+                  method: 'notifications/progress',
+                  params: { progressToken, progress: elapsed, total: maxWait },
+                } as any);
+              }
+            } catch {
+              /* best effort */
+            }
+
+            try {
+              const screen = await client.call('surface.read', { surfaceId: masterSid });
+              const content = typeof screen === 'string' ? screen : (screen?.content ?? '');
+
+              // 충분한 새 콘텐츠가 추가되었을 때만 idle 체크
+              if (content.length - baselineLen < 100) continue;
+
+              if (isAgentIdle(content, 'claude')) {
+                const cleanResult = stripAnsi(content).trim();
+                const lastLines = cleanResult.split('\n').slice(-40).join('\n');
+                // 응답 로그 기록
+                appendPhoneMessage('desktop', lastLines);
+                return text(lastLines);
+              }
+            } catch {
+              /* 폴링 계속 */
+            }
+          }
+
+          // 타임아웃 — task_id 발급
+          const taskId = `phone_${++taskSeq}_${Date.now()}`;
+          taskStore.set(taskId, {
+            surfaceId: masterSid,
+            agentType: 'claude',
+            task: params.task,
+            status: 'running',
+            startedAt: Date.now(),
+          });
+          return text({
+            status: 'running',
+            task_id: taskId,
+            message: '마스터가 아직 응답 중입니다. get_result로 확인하세요.',
+          });
+        }
+
+        // ── phone_respond (데스크톱 → 핸드폰, 로그 기록용) ──
+        case 'phone_respond': {
+          if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
+          appendPhoneMessage('desktop', params.task);
+          return text({ ok: true, logged: true });
         }
 
         default:

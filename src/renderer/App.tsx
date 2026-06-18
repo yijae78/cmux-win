@@ -145,6 +145,30 @@ export default function App() {
     return cleanup;
   }, []);
 
+  // Listen for external open-folder commands (Socket API → main → renderer)
+  useEffect(() => {
+    if (isStandalone) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    if (!w.cmuxExplorer?.onOpenFolder) return;
+    const cleanup = w.cmuxExplorer.onOpenFolder((folderPath: string, surfaceId?: string) => {
+      setExplorerRootPath(folderPath);
+      setExplorerVisible(true);
+      setOpenedProjects((prev) => (prev.includes(folderPath) ? prev : [...prev, folderPath]));
+      const targetSid = surfaceId || appState?.focus.activeSurfaceId;
+      if (targetSid) {
+        void dispatch({
+          type: 'surface.send_text',
+          payload: {
+            surfaceId: targetSid,
+            text: `cd "${folderPath.replace(/\\/g, '/')}"\r`,
+          },
+        });
+      }
+    });
+    return cleanup;
+  }, [isStandalone, appState?.focus.activeSurfaceId, dispatch]);
+
   // Keyboard shortcuts
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
   const toggleExplorer = useCallback(() => setExplorerVisible((v) => !v), []);
@@ -163,13 +187,11 @@ export default function App() {
         return;
       }
       const panelIds = collectLeafIds(activeWs.panelLayout);
-      console.log('[equalize]', direction, 'panels:', panelIds.length, panelIds);
       if (panelIds.length <= 1) {
         console.warn('[equalize] only 1 panel, skip');
         return;
       }
       const newLayout = rebuildEqualLayout(panelIds, direction);
-      console.log('[equalize] newLayout:', JSON.stringify(newLayout));
       void dispatch({
         type: 'workspace.set_layout',
         payload: { workspaceId: activeWs.id, panelLayout: newLayout },
@@ -390,7 +412,12 @@ export default function App() {
               }}
               onExplorerOpenFolder={async () => {
                 if (!window.cmuxFile?.openFolderDialog) return;
-                const result = await window.cmuxFile.openFolderDialog();
+                let result: { cancelled: boolean } | { path: string };
+                try {
+                  result = await window.cmuxFile.openFolderDialog();
+                } catch {
+                  return;
+                }
                 if ('path' in result) {
                   const folderPath = result.path;
                   setExplorerRootPath(folderPath);
@@ -708,7 +735,12 @@ export default function App() {
                     }
                     onOpenFolder={async (targetSurfaceId: string) => {
                       if (!window.cmuxFile?.openFolderDialog) return;
-                      const result = await window.cmuxFile.openFolderDialog();
+                      let result: { cancelled: boolean } | { path: string };
+                      try {
+                        result = await window.cmuxFile.openFolderDialog();
+                      } catch {
+                        return;
+                      }
                       if ('path' in result) {
                         const folderPath = result.path;
                         setExplorerRootPath(folderPath);
@@ -778,7 +810,12 @@ export default function App() {
                     }
                     onOpenFolder={async (targetSurfaceId: string) => {
                       if (!window.cmuxFile?.openFolderDialog) return;
-                      const result = await window.cmuxFile.openFolderDialog();
+                      let result: { cancelled: boolean } | { path: string };
+                      try {
+                        result = await window.cmuxFile.openFolderDialog();
+                      } catch {
+                        return;
+                      }
                       if ('path' in result) {
                         const folderPath = result.path;
                         setExplorerRootPath(folderPath);
