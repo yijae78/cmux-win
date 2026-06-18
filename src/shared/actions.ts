@@ -104,7 +104,7 @@ export const SurfaceUpdateMetaAction = z.object({
 export const AgentSpawnAction = z.object({
   type: z.literal('agent.spawn'),
   payload: z.object({
-    agentType: z.enum(['claude', 'codex', 'gemini', 'opencode']),
+    agentType: z.enum(['claude', 'codex', 'agy', 'opencode']),
     workspaceId: z.string(),
     task: z.string().optional(),
     cwd: z.string().optional(),
@@ -114,7 +114,7 @@ export const AgentSessionStartAction = z.object({
   type: z.literal('agent.session_start'),
   payload: z.object({
     sessionId: z.string(),
-    agentType: z.enum(['claude', 'codex', 'gemini', 'opencode']),
+    agentType: z.enum(['claude', 'codex', 'agy', 'opencode']),
     workspaceId: z.string(),
     surfaceId: z.string(),
     pid: z.number().optional(),

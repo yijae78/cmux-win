@@ -2,11 +2,11 @@
 
 > **중요: 당신은 지금 cmux-win 앱 안의 터미널에서 실행 중입니다.**
 > cmux-win은 여러 AI CLI를 동시에 실행하고 협업시키는 Windows 터미널 멀티플렉서입니다.
-> 옆에 다른 터미널 패널(Gemini, Codex 등)이 있을 수 있으며, tmux-shim을 통해 제어할 수 있습니다.
+> 옆에 다른 터미널 패널(AGY, Codex 등)이 있을 수 있으며, tmux-shim을 통해 제어할 수 있습니다.
 > 소켓 API(localhost:19840)로 패널 생성, 텍스트 전송, 화면 읽기가 가능합니다.
 > 파일 승인은 앱의 Auto-Approver가 자동 처리합니다.
 
-이 프로젝트는 **cmux-win**입니다. Windows용 AI 에이전트 터미널 멀티플렉서로, 여러 AI CLI(Claude, Gemini, Codex 등)를 동시에 실행하고 협업시킬 수 있는 Electron 기반 데스크톱 앱입니다.
+이 프로젝트는 **cmux-win**입니다. Windows용 AI 에이전트 터미널 멀티플렉서로, 여러 AI CLI(Claude, AGY, Codex 등)를 동시에 실행하고 협업시킬 수 있는 Electron 기반 데스크톱 앱입니다.
 
 ## 앱 구조
 
@@ -15,11 +15,11 @@
 │ Sidebar  │  Terminal / Browser Panels           │
 │ (200px)  │  (분할 가능, 드래그 재배치)          │
 │──────────│                                      │
-│ Explorer │  [Claude CLI] [Gemini CLI] [Codex]  │
+│ Explorer │  [Claude CLI] [AGY CLI] [Codex]     │
 │ (파일)   │                                      │
 │──────────│                                      │
 │ 🧠Claude │                                      │
-│ 💎Gemini │                                      │
+│ 💎AGY    │                                      │
 │ 🤖ChatGPT│                                      │
 │+Workspace│                                      │
 └──────────┴─────────────────────────────────────┘
@@ -39,13 +39,13 @@
 | CLI | 실행 방식 | 이유 |
 |-----|----------|------|
 | **Claude** | `claude` (interactive) → `send_text`로 작업 지시 | TUI가 PTY write를 입력으로 받음 |
-| **Gemini** | `gemini -i "프롬프트" -y` (interactive + 자동승인) | `-i`로 세션 유지, send_text로 후속 작업 전송 (Enter 분리 필요) |
+| **AGY** | `agy -i "프롬프트" -y` (interactive + 자동승인) | `-i`로 세션 유지, send_text로 후속 작업 전송 (Enter 분리 필요) |
 | **Codex** | `codex --full-auto --no-alt-screen "프롬프트"` (interactive) | `--no-alt-screen`으로 scrollback 유지, 세션 지속 |
 
 ### 3. 자동 승인 (Auto-Approver)
 앱에 내장된 PTY 레벨 자동 승인기가 있습니다:
 - "Do you want to create" → 자동 Enter
-- "Apply this change" → 자동 Enter (Gemini)
+- "Apply this change" → 자동 Enter (AGY)
 - "Press enter to confirm" → 자동 Enter (Codex)
 - "requires approval" → 자동 Enter (Claude)
 - 1초 쿨다운으로 중복 방지
@@ -83,7 +83,7 @@
 - 프로젝트 탭으로 여러 폴더 전환
 
 ### 6. 브라우저 패널
-- 사이드바에서 🧠Claude.ai / 💎Gemini / 🤖ChatGPT 클릭 → 브라우저 패널 열기
+- 사이드바에서 🧠Claude.ai / 💎AGY / 🤖ChatGPT 클릭 → 브라우저 패널 열기
 - claude.ai는 모바일 UA로 반응형 적용
 
 ### 7. Claude CLI 자동 실행
@@ -169,7 +169,7 @@ npx vitest run
 ```
 
 ## 주의사항
-- Gemini: `gemini -i "prompt" -y` 형식으로 실행 (interactive + 자동승인)
+- AGY: `agy -i "prompt" -y` 형식으로 실행 (interactive + 자동승인)
 - Codex: `codex --full-auto --no-alt-screen "prompt"` 형식으로 실행
 - Claude를 여러 패널에서 중복 실행하지 말 것 — 리더 1개만 실행
 - /model 등 슬래시 명령은 해당 CLI 입력창에서만 동작 — send-keys로 전달 불가

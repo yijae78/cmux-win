@@ -1,6 +1,6 @@
 /**
  * workflow.ts — Workflow execution engine.
- * Allows any AI (including Gemini/Codex) to be a "planning leader"
+ * Allows any AI (including AGY/Codex) to be a "planning leader"
  * by generating a workflow JSON that the app executes step-by-step.
  *
  * Usage:
@@ -11,7 +11,7 @@
  *     "name": "Build website",
  *     "workspaceId": "...",
  *     "steps": [
- *       { "agent": "gemini", "task": "Create index.html", "cwd": "/path" },
+ *       { "agent": "agy", "task": "Create index.html", "cwd": "/path" },
  *       { "agent": "claude", "task": "Review and fix", "cwd": "/path" }
  *     ]
  *   }
@@ -55,14 +55,13 @@ function waitForIdle(
     const onExit = (sid: string) => {
       if (sid !== surfaceId) return;
       cleanup();
-      resolve({ idle: false, timeout: false, exited: true,
-               output: readOutput(surfaceId, 30) });
+      resolve({ idle: false, timeout: false, exited: true, output: readOutput(surfaceId, 30) });
     };
     ptyEvents.on('pty-exit', onExit);
 
     // Risk ⑤: Multiple idle patterns per agent type (version-proof)
     const idlePatterns: Record<string, string[]> = {
-      gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
+      agy: ['Type your message', 'Enter your prompt', 'What can I help'],
       codex: ['What would you like', 'Enter a prompt'],
     };
     const patterns = idlePatterns[agentType] || [];
@@ -72,8 +71,7 @@ function waitForIdle(
       // Search last 500 chars of clean text for idle patterns
       const tail = raw.slice(-500).replace(ansiRe, '');
 
-      const patternMatch = patterns.some(p => tail.includes(p))
-                           && raw.length > startLen;
+      const patternMatch = patterns.some((p) => tail.includes(p)) && raw.length > startLen;
 
       const outputStable = raw.length === lastLen && raw.length > startLen;
       if (outputStable) stableCount++;
@@ -82,8 +80,7 @@ function waitForIdle(
       // Dual condition: (pattern AND 1s stable) OR (5s stable without pattern)
       if ((patternMatch && stableCount >= 2) || stableCount >= 10) {
         cleanup();
-        resolve({ idle: true, timeout: false, exited: false,
-                 output: readOutput(surfaceId, 30) });
+        resolve({ idle: true, timeout: false, exited: false, output: readOutput(surfaceId, 30) });
       }
 
       lastLen = raw.length;
@@ -91,8 +88,7 @@ function waitForIdle(
 
     const timer = setTimeout(() => {
       cleanup();
-      resolve({ idle: false, timeout: true, exited: false,
-               output: readOutput(surfaceId, 30) });
+      resolve({ idle: false, timeout: true, exited: false, output: readOutput(surfaceId, 30) });
     }, timeoutMs);
 
     function cleanup() {
@@ -138,14 +134,21 @@ export function registerWorkflowHandlers(router: JsonRpcRouter, store: AppStateS
       const spawnResult = store.dispatch({
         type: 'agent.spawn',
         payload: {
-          agentType: step.agent as 'claude' | 'gemini' | 'codex' | 'opencode',
+          agentType: step.agent as 'claude' | 'agy' | 'codex' | 'opencode',
           workspaceId,
           task: step.task,
           cwd: step.cwd,
         },
       });
       if (!spawnResult.ok) {
-        results.push({ step: i, agent: step.agent, task: step.task, exitCode: -1, timeout: false, output: `Spawn failed: ${spawnResult.error}` });
+        results.push({
+          step: i,
+          agent: step.agent,
+          task: step.task,
+          exitCode: -1,
+          timeout: false,
+          output: `Spawn failed: ${spawnResult.error}`,
+        });
         continue;
       }
 
@@ -153,7 +156,14 @@ export function registerWorkflowHandlers(router: JsonRpcRouter, store: AppStateS
       const newPanels = store.getState().panels.slice(panelsBefore);
       const surfaceId = newPanels[0]?.activeSurfaceId;
       if (!surfaceId) {
-        results.push({ step: i, agent: step.agent, task: step.task, exitCode: -1, timeout: false, output: 'No surface created' });
+        results.push({
+          step: i,
+          agent: step.agent,
+          task: step.task,
+          exitCode: -1,
+          timeout: false,
+          output: 'No surface created',
+        });
         continue;
       }
 
@@ -163,7 +173,7 @@ export function registerWorkflowHandlers(router: JsonRpcRouter, store: AppStateS
         step: i,
         agent: step.agent,
         task: step.task,
-        exitCode: idleResult.exited ? 1 : (idleResult.idle ? 0 : null),
+        exitCode: idleResult.exited ? 1 : idleResult.idle ? 0 : null,
         timeout: idleResult.timeout,
         output: idleResult.output,
       });

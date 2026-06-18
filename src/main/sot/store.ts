@@ -306,7 +306,7 @@ export class AppStateStore extends EventEmitter {
       case 'panel.split': {
         const { panelId, direction, newPanelType, url } = action.payload;
         // Fleet 모드: Master 패널에서도 터미널/브라우저 분할 허용
-        // (CSO, AGY, Gemini, Codex 워커 패널 생성에 필요)
+        // (CSO, AGY, Codex 워커 패널 생성에 필요)
         const ws = draft.workspaces.find((w) => findLeaf(w.panelLayout, panelId) !== null);
         if (!ws) break;
         const newPanelId = crypto.randomUUID();
@@ -548,12 +548,13 @@ export class AppStateStore extends EventEmitter {
         // L2: Agent icon map for tab display
         const agentIcons: Record<string, string> = {
           claude: '\uD83E\uDDE0',
-          gemini: '\uD83D\uDC8E',
+          agy: '\uD83D\uDC8E',
           codex: '\uD83E\uDD16',
           opencode: '\uD83D\uDD27',
         };
         const agentIcon = agentIcons[agentType] || '\u26A1';
-        const agentDisplayName = agentType.charAt(0).toUpperCase() + agentType.slice(1);
+        const agentDisplayName =
+          agentType === 'agy' ? 'AGY' : agentType.charAt(0).toUpperCase() + agentType.slice(1);
 
         const newPanelId = crypto.randomUUID();
         const newSurfaceId = crypto.randomUUID();
@@ -575,7 +576,7 @@ export class AppStateStore extends EventEmitter {
         const teamArgs = `--team-name "${teamName}" --agent-name "${agentName}"`;
         // CLI-specific launch modes:
         // - Claude: interactive + team args (send_text works)
-        // - Gemini: -i (interactive) + -y (yolo auto-approve) — stays alive after task
+        // - AGY: -i (interactive) + -y (yolo auto-approve) — stays alive after task
         // - Codex: --full-auto --no-alt-screen (interactive, scrollback visible)
         // Sanitize task: collapse newlines to spaces, escape quotes for shell
         const safeTask = task
@@ -585,8 +586,8 @@ export class AppStateStore extends EventEmitter {
               .trim()
           : '';
         let agentCmd: string;
-        if (agentType === 'gemini') {
-          agentCmd = safeTask ? `gemini -i "${safeTask}" -y\r` : `gemini -y\r`;
+        if (agentType === 'agy') {
+          agentCmd = safeTask ? `agy -i "${safeTask}" -y\r` : `agy -y\r`;
         } else if (agentType === 'codex') {
           agentCmd = safeTask
             ? `codex --full-auto --no-alt-screen "${safeTask}"\r`

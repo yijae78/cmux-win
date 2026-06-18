@@ -32,7 +32,7 @@ const DEFAULT_APPROVE_PATTERNS: ApprovePatterns = {
     { includes: ['Esc to cancel', '1. Yes'] },
     { includes: ['requires approval', 'Yes'] },
   ],
-  gemini: [{ includes: ['Apply this change'] }],
+  agy: [{ includes: ['Apply this change'] }],
   codex: [{ includes: ['Press enter to confirm'] }],
 };
 

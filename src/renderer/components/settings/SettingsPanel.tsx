@@ -159,7 +159,10 @@ const SettingsPanel: FC<SettingsPanelProps> = ({ settings, onUpdate, onClose }) 
                     value={settings.terminal.fontSize}
                     onChange={(e) =>
                       onUpdate({
-                        terminal: { ...settings.terminal, fontSize: parseInt(e.target.value) || 14 },
+                        terminal: {
+                          ...settings.terminal,
+                          fontSize: parseInt(e.target.value) || 14,
+                        },
                       })
                     }
                     style={{ width: '100px', accentColor: '#569cd6' }}
@@ -270,7 +273,7 @@ const SettingsPanel: FC<SettingsPanelProps> = ({ settings, onUpdate, onClose }) 
                 <input
                   type="text"
                   value={
-                    (settings.browser as Record<string, unknown>).homepage as string ??
+                    ((settings.browser as Record<string, unknown>).homepage as string) ??
                     'about:blank'
                   }
                   onChange={(e) =>
@@ -331,12 +334,10 @@ const SettingsPanel: FC<SettingsPanelProps> = ({ settings, onUpdate, onClose }) 
                   }
                 />
               </SettingRow>
-              <SettingRow label={t('settings.geminiHooks', 'Gemini Hooks')}>
+              <SettingRow label={t('settings.agyHooks', 'AGY Hooks')}>
                 <ToggleSwitch
-                  checked={settings.agents.geminiHooksEnabled}
-                  onChange={(v) =>
-                    onUpdate({ agents: { ...settings.agents, geminiHooksEnabled: v } })
-                  }
+                  checked={settings.agents.agyHooksEnabled}
+                  onChange={(v) => onUpdate({ agents: { ...settings.agents, agyHooksEnabled: v } })}
                 />
               </SettingRow>
             </div>
@@ -405,9 +406,7 @@ const SettingsPanel: FC<SettingsPanelProps> = ({ settings, onUpdate, onClose }) 
               <SettingRow label={t('settings.autoCheck', 'Auto-Update')}>
                 <ToggleSwitch
                   checked={settings.updates.autoCheck}
-                  onChange={(v) =>
-                    onUpdate({ updates: { ...settings.updates, autoCheck: v } })
-                  }
+                  onChange={(v) => onUpdate({ updates: { ...settings.updates, autoCheck: v } })}
                 />
               </SettingRow>
               <SettingRow label={t('settings.channel')}>
@@ -457,7 +456,7 @@ const SettingsPanel: FC<SettingsPanelProps> = ({ settings, onUpdate, onClose }) 
               <SettingRow label={t('settings.highContrast', 'High Contrast')}>
                 <ToggleSwitch
                   checked={
-                    (settings.accessibility as Record<string, unknown>).highContrast as boolean ??
+                    ((settings.accessibility as Record<string, unknown>).highContrast as boolean) ??
                     false
                   }
                   onChange={(v) =>

@@ -85,14 +85,14 @@ describe('agent.spawn', () => {
     );
   });
 
-  it('sets default pendingCommand without task (gemini: no team args)', () => {
+  it('sets default pendingCommand without task (agy: no team args)', () => {
     store.dispatch({
       type: 'agent.spawn',
-      payload: { agentType: 'gemini', workspaceId: 'ws-1' },
+      payload: { agentType: 'agy', workspaceId: 'ws-1' },
     });
-    const newSurface = store.getState().surfaces.find((s) => s.title?.includes('Gemini'));
-    // Gemini without task = interactive mode with -y (auto-approve)
-    expect(newSurface?.pendingCommand).toBe('gemini -y\r');
+    const newSurface = store.getState().surfaces.find((s) => s.title?.includes('AGY'));
+    // AGY without task = interactive mode with -y (auto-approve)
+    expect(newSurface?.pendingCommand).toBe('agy -y\r');
   });
 
   it('assigns stable paneIndex to new panel', () => {

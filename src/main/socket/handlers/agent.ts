@@ -40,7 +40,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
   router.register('agent.session_start', (params) => {
     const p = params as {
       sessionId: string;
-      agentType: 'claude' | 'codex' | 'gemini' | 'opencode';
+      agentType: 'claude' | 'codex' | 'agy' | 'opencode';
       workspaceId: string;
       surfaceId: string;
       pid?: number;
@@ -133,7 +133,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
       cooldowns?.set(p.surfaceId, Date.now());
 
       // Send text (without Enter), then Enter separately after delay.
-      // Ink-based TUIs (Gemini, Codex) treat \r in the same data chunk as
+      // Ink-based TUIs (AGY, Codex) treat \r in the same data chunk as
       // a newline within the input, not as "submit". 500ms delay ensures
       // the PTY flushes the text before Enter arrives.
       store.dispatch({
@@ -174,7 +174,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
     if (!surface) throw new Error('Surface not found');
 
     const agent = state.agents.find((a) => a.surfaceId === p.surfaceId);
-    const agentType = p.agentType || agent?.agentType || 'gemini';
+    const agentType = p.agentType || agent?.agentType || 'agy';
 
     // Risk ④: check if CLI is still running AND PTY is alive
     const g = globalThis as Record<string, unknown>;
@@ -202,8 +202,8 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
 
     // B2: Relaunch with interactive flags
     let cmd: string;
-    if (agentType === 'gemini') {
-      cmd = `gemini -i "${p.task.replace(/"/g, '\\"')}" -y`;
+    if (agentType === 'agy') {
+      cmd = `agy -i "${p.task.replace(/"/g, '\\"')}" -y`;
     } else if (agentType === 'codex') {
       cmd = `codex --full-auto --no-alt-screen "${p.task.replace(/"/g, '\\"')}"`;
     } else {

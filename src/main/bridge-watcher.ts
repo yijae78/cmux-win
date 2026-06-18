@@ -169,11 +169,11 @@ export class BridgeWatcher {
     if (task.mode === 'leader') {
       prompt =
         '다음 작업을 수행해. 필요하면 tmux split-window -h로 ' +
-        '다른 AI(gemini, codex)를 실행해서 협업해:\n' +
+        '다른 AI(agy, codex)를 실행해서 협업해:\n' +
         prompt;
     }
 
-    // FIX: Ink TUI (Gemini, Codex) needs text and Enter sent separately.
+    // FIX: Ink TUI (AGY, Codex) needs text and Enter sent separately.
     // Sending text+\r together causes \r to be treated as newline, not submit.
     // Same fix as tmux-shim.js:345 — 500ms delay between text and Enter.
     this.store.dispatch({

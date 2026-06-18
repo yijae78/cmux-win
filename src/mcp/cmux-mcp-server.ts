@@ -411,13 +411,7 @@ function stripAnsi(str: string): string {
 
 // #9: Codex idle 패턴에 셸 프롬프트 추가 (--full-auto 종료 후 감지)
 const DEFAULT_IDLE_PATTERNS: Record<string, string[]> = {
-  gemini: [
-    'Type your message',
-    'Type your',
-    'Enter your prompt',
-    'What can I help',
-    '@path/to/file',
-  ],
+  agy: ['Type your message', 'Type your', 'Enter your prompt', 'What can I help', '@path/to/file'],
   codex: [
     'What would you like',
     'Enter a prompt',
@@ -544,7 +538,7 @@ const server = new McpServer(
       '## 기본 사용 흐름',
       '- 상태 확인 → cmux(action:"status")',
       '- 작업 지시 → cmux(action:"send", task:"...")',
-      '- 에이전트 추가 → cmux(action:"spawn", agentType:"gemini")',
+      '- 에이전트 추가 → cmux(action:"spawn", agentType:"agy")',
       '- 화면 읽기 → cmux(action:"read")',
       '- send_and_wait가 status="running" → get_result 반복 호출',
       '- 핸드폰→데스크톱 메시지 → cmux(action:"phone_relay", task:"...")',
@@ -648,7 +642,7 @@ server.registerTool(
         ])
         .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
-      agentType: z.string().optional().describe('에이전트 (claude, gemini, codex)'),
+      agentType: z.string().optional().describe('에이전트 (claude, agy, codex)'),
       surfaceId: z.string().optional().describe('서피스 ID'),
       lines: z.number().optional().describe('읽을 줄 수 (read)'),
       timeout: z.number().optional().describe('대기 초 (send_and_wait, 기본120)'),
@@ -713,7 +707,7 @@ server.registerTool(
           const result = await client.call('surface.read', p);
           const raw: string =
             result.content ?? (typeof result === 'string' ? result : JSON.stringify(result));
-          // Ink TUI 렌더링 잔재 필터링 (Codex/Gemini 프롬프트 UI 줄 제거)
+          // Ink TUI 렌더링 잔재 필터링 (Codex/AGY 프롬프트 UI 줄 제거)
           const cleaned = raw
             .split('\n')
             .filter((line) => {
@@ -721,7 +715,7 @@ server.registerTool(
               if (!t) return false; // 빈 줄
               if (/^›\s*(Run|Use)\s/.test(t)) return false; // › Run /review, › Use /skills
               if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false; // gpt-5.4 default · ~
-              if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false; // gemini model line
+              if (/^(gemini|agy)-[\d.]+ /.test(t) && t.length < 40) return false; // agy/gemini model line
               if (/^•\s*$/.test(t)) return false; // 단독 bullet
               return true;
             })

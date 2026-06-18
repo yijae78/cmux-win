@@ -68,13 +68,11 @@ export const SurfaceStateSchema = z.object({
   surfaceType: PanelTypeEnum,
   title: z.string(),
   terminal: z.object({ pid: z.number(), cwd: z.string(), shell: z.string() }).optional(),
-  browser: z
-    .object({ url: z.string(), profileId: z.string(), isLoading: z.boolean() })
-    .optional(),
+  browser: z.object({ url: z.string(), profileId: z.string(), isLoading: z.boolean() }).optional(),
   markdown: z.object({ filePath: z.string() }).optional(),
 });
 
-export const AgentTypeEnum = z.enum(['claude', 'codex', 'gemini', 'opencode']);
+export const AgentTypeEnum = z.enum(['claude', 'codex', 'agy', 'opencode']);
 export const AgentStatusEnum = z.enum(['running', 'idle', 'needs_input']);
 
 export const AgentSessionStateSchema = z.object({
@@ -126,7 +124,7 @@ export const SettingsStateSchema = z.object({
   agents: z.object({
     claudeHooksEnabled: z.boolean(),
     codexHooksEnabled: z.boolean(),
-    geminiHooksEnabled: z.boolean(),
+    agyHooksEnabled: z.boolean(),
     orchestrationMode: z.enum(['auto', 'claude-teams', 'self-managed']),
   }),
   telemetry: z.object({ enabled: z.boolean() }),

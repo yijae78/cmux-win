@@ -30433,7 +30433,7 @@ function stripAnsi(str) {
   return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
 var DEFAULT_IDLE_PATTERNS = {
-  gemini: [
+  agy: [
     "Type your message",
     "Type your",
     "Enter your prompt",
@@ -30490,10 +30490,7 @@ setInterval(() => {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-var PHONE_RELAY_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE || "",
-  "cmux-bridge"
-);
+var PHONE_RELAY_DIR = path.join(process.env.HOME || process.env.USERPROFILE || "", "cmux-bridge");
 var PHONE_RELAY_FILE = path.join(PHONE_RELAY_DIR, "phone-relay.jsonl");
 function appendPhoneMessage(from, message) {
   try {
@@ -30534,7 +30531,7 @@ var server = new McpServer(
       "## \uAE30\uBCF8 \uC0AC\uC6A9 \uD750\uB984",
       '- \uC0C1\uD0DC \uD655\uC778 \u2192 cmux(action:"status")',
       '- \uC791\uC5C5 \uC9C0\uC2DC \u2192 cmux(action:"send", task:"...")',
-      '- \uC5D0\uC774\uC804\uD2B8 \uCD94\uAC00 \u2192 cmux(action:"spawn", agentType:"gemini")',
+      '- \uC5D0\uC774\uC804\uD2B8 \uCD94\uAC00 \u2192 cmux(action:"spawn", agentType:"agy")',
       '- \uD654\uBA74 \uC77D\uAE30 \u2192 cmux(action:"read")',
       '- send_and_wait\uAC00 status="running" \u2192 get_result \uBC18\uBCF5 \uD638\uCD9C',
       '- \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \u2192 cmux(action:"phone_relay", task:"...")',
@@ -30617,7 +30614,7 @@ server.registerTool(
         "phone_respond"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
-      agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, gemini, codex)"),
+      agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, agy, codex)"),
       surfaceId: external_exports3.string().optional().describe("\uC11C\uD53C\uC2A4 ID"),
       lines: external_exports3.number().optional().describe("\uC77D\uC744 \uC904 \uC218 (read)"),
       timeout: external_exports3.number().optional().describe("\uB300\uAE30 \uCD08 (send_and_wait, \uAE30\uBCF8120)"),
@@ -30682,7 +30679,7 @@ server.registerTool(
             if (!t) return false;
             if (/^›\s*(Run|Use)\s/.test(t)) return false;
             if (/^gpt-[\d.]+ default/.test(t) && t.length < 40) return false;
-            if (/^gemini-[\d.]+ /.test(t) && t.length < 40) return false;
+            if (/^(gemini|agy)-[\d.]+ /.test(t) && t.length < 40) return false;
             if (/^•\s*$/.test(t)) return false;
             return true;
           }).join("\n").replace(/\n{3,}/g, "\n\n");
@@ -30907,8 +30904,7 @@ server.registerTool(
         }
         // ── open_folder ──
         case "open_folder": {
-          if (!params.path)
-            return text({ error: true, message: "path \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.path) return text({ error: true, message: "path \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           const folderResult = await client.call("explorer.open_folder", {
             path: params.path,
             surfaceId: params.surfaceId
@@ -30952,8 +30948,7 @@ server.registerTool(
         }
         // ── phone_relay (핸드폰 → 데스크톱 CLI → 응답 대기 → 핸드폰) ──
         case "phone_relay": {
-          if (!params.task)
-            return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           appendPhoneMessage("phone", params.task);
           const masterSid = await findAgentSurface("claude");
           if (!masterSid) {
@@ -31018,8 +31013,7 @@ server.registerTool(
         }
         // ── phone_respond (데스크톱 → 핸드폰, 로그 기록용) ──
         case "phone_respond": {
-          if (!params.task)
-            return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+          if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           appendPhoneMessage("desktop", params.task);
           return text({ ok: true, logged: true });
         }

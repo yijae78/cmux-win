@@ -16,7 +16,7 @@ function stripAnsi(str: string): string {
 }
 
 const IDLE_PATTERNS: Record<string, string[]> = {
-  gemini: ['Type your message', 'Enter your prompt', 'What can I help'],
+  agy: ['Type your message', 'Enter your prompt', 'What can I help'],
   codex: ['What would you like', 'Enter a prompt'],
   claude: ['❯ ', '> '],
 };
@@ -83,8 +83,8 @@ describe('isAgentIdle', () => {
     expect(isAgentIdle(text, 'claude')).toBe(false);
   });
 
-  it('detects Gemini idle prompt', () => {
-    expect(isAgentIdle('output\nType your message', 'gemini')).toBe(true);
+  it('detects AGY idle prompt', () => {
+    expect(isAgentIdle('output\nType your message', 'agy')).toBe(true);
   });
 
   it('detects Codex idle prompt', () => {

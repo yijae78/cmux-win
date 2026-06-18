@@ -1,5 +1,7 @@
 import React from 'react';
 import { type FC, useState, useRef, useEffect, useCallback } from 'react';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type {
   WorkspaceState,
   AgentSessionState,
@@ -63,6 +65,23 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
   onClose,
   onRename,
 }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: workspace.id });
+
+  const sortableStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
   const [hovered, setHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(workspace.name);
@@ -123,6 +142,7 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
 
   return (
     <div
+      ref={setNodeRef}
       role="option"
       aria-selected={isActive}
       aria-label={workspace.name}
@@ -134,6 +154,7 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      {...attributes}
       style={{
         display: 'flex',
         alignItems: 'flex-start',
@@ -146,10 +167,13 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
         background: bgColor,
         transition: 'background-color 0.15s ease',
         position: 'relative',
+        ...sortableStyle,
       }}
     >
       {/* Drag handle (subtle grip dots) */}
       <div
+        ref={setActivatorNodeRef}
+        {...listeners}
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -157,8 +181,9 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
           flexShrink: 0,
           opacity: hovered || isActive ? 0.5 : 0.2,
           transition: 'opacity 0.15s ease',
-          cursor: 'grab',
+          cursor: isDragging ? 'grabbing' : 'grab',
           marginTop: '2px',
+          touchAction: 'none',
         }}
         title="Drag to reorder"
       >
@@ -230,7 +255,10 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
               onBlur={commitRename}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') commitRename();
-                if (e.key === 'Escape') { setEditValue(workspace.name); setIsEditing(false); }
+                if (e.key === 'Escape') {
+                  setEditValue(workspace.name);
+                  setIsEditing(false);
+                }
               }}
               onClick={(e) => e.stopPropagation()}
               style={{
@@ -279,7 +307,9 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
               style={{
                 fontSize: '9px',
                 color: isActive ? 'rgba(255,255,255,0.85)' : '#888',
-                border: isActive ? '0.8px solid rgba(255,255,255,0.4)' : '0.8px solid rgba(255,255,255,0.2)',
+                border: isActive
+                  ? '0.8px solid rgba(255,255,255,0.4)'
+                  : '0.8px solid rgba(255,255,255,0.2)',
                 background: isActive ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
                 borderRadius: '999px',
                 padding: '1px 5px',
@@ -324,7 +354,9 @@ const WorkspaceItem: FC<WorkspaceItemProps> = ({
               (e.currentTarget as HTMLButtonElement).style.color = '#fff';
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = isActive ? 'rgba(255,255,255,0.85)' : '#888';
+              (e.currentTarget as HTMLButtonElement).style.color = isActive
+                ? 'rgba(255,255,255,0.85)'
+                : '#888';
             }}
           >
             {'\u2715'}

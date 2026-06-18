@@ -77,7 +77,7 @@ export interface SurfaceState {
 
 export interface AgentSessionState {
   sessionId: string;
-  agentType: 'claude' | 'codex' | 'gemini' | 'opencode';
+  agentType: 'claude' | 'codex' | 'agy' | 'opencode';
   workspaceId: string;
   surfaceId: string;
   status: 'running' | 'idle' | 'needs_input' | 'done' | 'error';
@@ -145,7 +145,7 @@ export interface SettingsState {
   agents: {
     claudeHooksEnabled: boolean;
     codexHooksEnabled: boolean;
-    geminiHooksEnabled: boolean;
+    agyHooksEnabled: boolean;
     orchestrationMode: 'auto' | 'claude-teams' | 'self-managed';
   };
   telemetry: { enabled: boolean };

@@ -1,6 +1,6 @@
 # cmux-win
 
-**Windows AI Terminal Multiplexer** — 여러 AI CLI(Claude, Gemini, Codex 등)를 동시에 실행하고 협업시키는 Electron 기반 데스크톱 앱
+**Windows AI Terminal Multiplexer** — 여러 AI CLI(Claude, AGY, Codex 등)를 동시에 실행하고 협업시키는 Electron 기반 데스크톱 앱
 
 ![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
@@ -10,13 +10,13 @@
 
 ```
 ┌──────────┬──────────────────────────────────────────────────┐
-│ Sidebar  │  🧠 Claude (Opus) │ 💎 Gemini │ 🤖 Codex         │
+│ Sidebar  │  🧠 Claude (Opus) │ 💎 AGY    │ 🤖 Codex         │
 │──────────│───────────────────│───────────│──────────────────│
-│ Explorer │  > _              │  > gemini │  >_ codex        │
-│ (파일)   │  Claude CLI       │  Gemini   │  Codex CLI       │
+│ Explorer │  > _              │  > agy    │  >_ codex        │
+│ (파일)   │  Claude CLI       │  AGY      │  Codex CLI       │
 │──────────│  interactive      │  -i mode  │  --full-auto     │
 │ Claude.ai│                   │           │                  │
-│ Gemini   │                   │           │                  │
+│ AGY      │                   │           │                  │
 │ ChatGPT  │                   │           │                  │
 │+Workspace│                   │           │                  │
 └──────────┴──────────────────────────────────────────────────┘
@@ -36,30 +36,30 @@ xterm.js 터미널 버퍼에서 CLI 출력을 분석하여 탭 제목에 자동 
 | CLI | 탭 제목 | 모델명 자동 감지 |
 |-----|---------|------------------|
 | **Claude** | 🧠 Claude (Opus) / (Sonnet) / (Haiku) | 배너 `Opus 4.6` 등에서 추출 |
-| **Gemini** | 💎 Gemini | — |
+| **AGY** | 💎 AGY | — |
 | **Codex** | 🤖 Codex | — |
 | **ChatGPT** | 💬 ChatGPT | — |
 
-CLI 전환 시 5초 쿨다운 후 재감지 (Claude → Gemini 변경 시 탭 자동 변경).
+CLI 전환 시 5초 쿨다운 후 재감지 (Claude → AGY 변경 시 탭 자동 변경).
 
 ### AI CLI 실행 방식
 
 | CLI | 실행 명령 | 비고 |
 |-----|----------|------|
 | **Claude** | `claude` (interactive) → `send_text`로 작업 지시 | TUI가 PTY write를 입력으로 받음 |
-| **Gemini** | `gemini -i "프롬프트" -y` (interactive + 자동승인) | 작업 후 세션 유지 |
+| **AGY** | `agy -i "프롬프트" -y` (interactive + 자동승인) | 작업 후 세션 유지 |
 | **Codex** | `codex --full-auto --no-alt-screen "프롬프트"` | scrollback 유지 |
 
 ### 협업 규칙 (필수 준수)
 1. 새 터미널은 반드시 `tmux split-window -h` (-v 절대 금지)
 2. Claude 중복 실행 금지 — 리더 1개면 충분
 3. /슬래시 명령(예: `/model`)을 `send-keys`로 전송 금지 (셸이 경로로 해석함)
-4. 인라인 명령 사용: `tmux split-window -h "gemini -i \"작업\" -y"`
+4. 인라인 명령 사용: `tmux split-window -h "agy -i \"작업\" -y"`
 
 ### 자동 승인 (Auto-Approver)
 PTY 출력에서 승인 패턴을 감지하여 자동 Enter 전송:
 - `Do you want to create` / `requires approval` → Enter
-- `Apply this change` → Enter (Gemini)
+- `Apply this change` → Enter (AGY)
 - `Press enter to confirm` → Enter (Codex)
 - 1초 쿨다운으로 중복 방지
 
@@ -117,7 +117,7 @@ echo '{"id":"t1","target_panel":0,"prompt":"hello","mode":"direct","timeout_sec"
 ### tmux-shim (Claude Agent Teams 호환)
 ```bash
 tmux split-window -h              # 패널 분할 (기본값 horizontal, -v 사용 금지)
-tmux split-window -h "gemini -i \"task\" -y"  # 인라인 명령
+tmux split-window -h "agy -i \"task\" -y"  # 인라인 명령
 tmux send-keys -t %1 "text" Enter # 텍스트 전송 (슬래시 명령 금지)
 tmux capture-pane -t %1 -p        # 화면 읽기
 tmux list-panes                   # 패널 목록
@@ -126,14 +126,14 @@ tmux list-panes                   # 패널 목록
 
 ### 사이드바
 - **파일 탐색기** — `Ctrl+E` 또는 ⌂ 아이콘 토글, 포커스 터미널 CWD 자동 추적
-- **브라우저 패널** — Claude.ai / Gemini / ChatGPT 웹 접속
+- **브라우저 패널** — Claude.ai / AGY / ChatGPT 웹 접속
 - **워크스페이스** — 여러 작업 환경 전환
 
 ### 텔레그램 봇 연동
 - 알림 전달 (outbound) + 원격 제어 (inbound)
 - `/status`, `/agents`, `/approve`, `/reject`, `/help`
 - `/send <text>` — 활성 에이전트에 텍스트 전송
-- `/send claude|gemini|codex <text>` — 특정 에이전트에 전송
+- `/send claude|agy|codex <text>` — 특정 에이전트에 전송
 - `/task <text>` — Claude 리더에게 작업 지시
 - Bot token은 Electron safeStorage로 암호화 저장
 
@@ -158,7 +158,7 @@ cmux-win 위에서 동작하는 다중 AI 에이전트 오케스트레이션 시
 | **Master** | Claude | 총지휘·관리·감독·모니터링 |
 | **CSO** | Claude | 시스템 운영·컨텍스트 관리 |
 | **Worker1** | Claude | 실제 작업 수행 |
-| **Worker2** | AGY (Gemini) | 리뷰·비평·디자인 피드백 |
+| **Worker2** | AGY | 리뷰·비평·디자인 피드백 |
 | **Worker3** | Codex | 코드 검수·기술 비판 |
 | **Dashboard** | Streamlit | 실시간 Fleet 현황 모니터링 |
 
@@ -299,7 +299,7 @@ scripts/
 
 ### 완료 (구현계획 v6 + v7)
 - 터미널 멀티플렉서 (패널 분할, 드래그 재배치, 균등 분할)
-- AI CLI 통합 (Claude/Gemini/Codex 동시 실행, 탭 자동 감지)
+- AI CLI 통합 (Claude/AGY/Codex 동시 실행, 탭 자동 감지)
 - **모델명 자동 감지** — Claude (Opus/Sonnet/Haiku) 표시
 - **CLI 전환 재감지** — 5초 쿨다운 후 재확인
 - tmux-shim (Claude Agent Teams 호환, 14개 명령 구현)
@@ -338,7 +338,7 @@ scripts/
 ## 주의사항
 
 - `electron-vite build`는 main 단계 후 멈추는 이슈 → esbuild 직접 사용
-- Gemini CLI: `-i "prompt" -y` 형식, interactive 유지
+- AGY CLI: `agy -i "prompt" -y` 형식, interactive 유지
 - Codex CLI: `--full-auto --no-alt-screen` 으로 scrollback 유지
 - claude.ai 웹은 데스크톱 반응형 CSS 없음 → 모바일 UA 적용
 - 소켓 토큰은 앱 시작마다 재생성 (`%APPDATA%/Electron/socket-token` 또는 `%APPDATA%/cmux-win/socket-token`)

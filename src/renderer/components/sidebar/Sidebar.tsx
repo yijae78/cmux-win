@@ -1,6 +1,15 @@
 import React from 'react';
-import { type FC, useState, useRef, useCallback, useEffect } from 'react';
+import { type FC, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type {
   WorkspaceState,
   AgentSessionState,
@@ -13,7 +22,11 @@ import SidebarFooter from './SidebarFooter';
 import FileExplorer from '../explorer/FileExplorer';
 
 /* ── SidebarWebLink ──────────────────────────────────────────────────── */
-const SidebarWebLink: FC<{ label: string; icon: string; onClick: () => void }> = ({ label, icon, onClick }) => (
+const SidebarWebLink: FC<{ label: string; icon: string; onClick: () => void }> = ({
+  label,
+  icon,
+  onClick,
+}) => (
   <button
     onClick={onClick}
     title={label}
@@ -102,8 +115,8 @@ const Sidebar: FC<SidebarProps> = ({
   onEqualizeH,
   onEqualizeV,
   onTogglePanels,
-  panelsCollapsed,
-  onToggleExplorer,
+  panelsCollapsed: _panelsCollapsed,
+  onToggleExplorer: _onToggleExplorer,
 }) => {
   const { t } = useTranslation();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -150,31 +163,24 @@ const Sidebar: FC<SidebarProps> = ({
     void dispatch({ type: 'workspace.create', payload: { windowId } });
   }, [dispatch, windowId]);
 
-  const handleSpawnAgent = useCallback(async (agentType: string) => {
-    if (!activeWorkspaceId) return;
-    // Ask for project folder first
-    let folderPath: string | undefined;
-    if (window.cmuxFile?.openFolderDialog) {
-      const result = await window.cmuxFile.openFolderDialog();
-      if ('path' in result) {
-        folderPath = result.path;
-      } else {
-        return; // cancelled — don't spawn
-      }
-    }
-    void dispatch({
-      type: 'agent.spawn',
-      payload: {
-        agentType,
-        workspaceId: activeWorkspaceId,
-        cwd: folderPath,
-      },
-    });
-    // Show explorer with the selected folder
-    if (folderPath && onExplorerOpenFolder) {
-      // Trigger explorer to show this folder — parent will handle state
-    }
-  }, [dispatch, activeWorkspaceId, onExplorerOpenFolder]);
+  /* ── DnD sensors & handler for workspace reorder ────────────────────── */
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const workspaceIds = useMemo(() => workspaces.map((ws) => ws.id), [workspaces]);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = workspaces.findIndex((ws) => ws.id === active.id);
+      const newIndex = workspaces.findIndex((ws) => ws.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+      void dispatch({
+        type: 'workspace.reorder',
+        payload: { workspaceId: active.id as string, windowId, newIndex },
+      });
+    },
+    [workspaces, dispatch, windowId],
+  );
 
   return (
     <div
@@ -224,9 +230,24 @@ const Sidebar: FC<SidebarProps> = ({
           <button
             onClick={onEqualizeH}
             title="Equal Width (Ctrl+Shift+=)"
-            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              border: 'none',
+              color: '#ddd',
+              cursor: 'pointer',
+              fontSize: '15px',
+              padding: '2px 5px',
+              lineHeight: 1,
+              borderRadius: '3px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#0091FF';
+              e.currentTarget.style.background = 'rgba(0,145,255,0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#ddd';
+              e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            }}
           >
             ⊞
           </button>
@@ -235,9 +256,24 @@ const Sidebar: FC<SidebarProps> = ({
           <button
             onClick={onEqualizeV}
             title="Equal Height (Ctrl+Alt+=)"
-            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              border: 'none',
+              color: '#ddd',
+              cursor: 'pointer',
+              fontSize: '15px',
+              padding: '2px 5px',
+              lineHeight: 1,
+              borderRadius: '3px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#0091FF';
+              e.currentTarget.style.background = 'rgba(0,145,255,0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#ddd';
+              e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            }}
           >
             ⊟
           </button>
@@ -245,9 +281,24 @@ const Sidebar: FC<SidebarProps> = ({
         <button
           onClick={handleCreateWorkspace}
           title="New Workspace"
-          style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+          style={{
+            background: 'rgba(255,255,255,0.08)',
+            border: 'none',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: '15px',
+            padding: '2px 5px',
+            lineHeight: 1,
+            borderRadius: '3px',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = '#0091FF';
+            e.currentTarget.style.background = 'rgba(0,145,255,0.15)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = '#ddd';
+            e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+          }}
         >
           +
         </button>
@@ -255,9 +306,24 @@ const Sidebar: FC<SidebarProps> = ({
           <button
             onClick={onTogglePanels}
             title="Hide Sidebar"
-            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', lineHeight: 1, borderRadius: '3px' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#0091FF'; e.currentTarget.style.background = 'rgba(0,145,255,0.15)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              border: 'none',
+              color: '#ddd',
+              cursor: 'pointer',
+              fontSize: '15px',
+              padding: '2px 5px',
+              lineHeight: 1,
+              borderRadius: '3px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#0091FF';
+              e.currentTarget.style.background = 'rgba(0,145,255,0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#ddd';
+              e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            }}
           >
             ◀
           </button>
@@ -279,30 +345,34 @@ const Sidebar: FC<SidebarProps> = ({
           gap: `${ITEM_GAP}px`,
         }}
       >
-        {workspaces.map((ws, index) => (
-          <WorkspaceItem
-            key={ws.id}
-            workspace={ws}
-            index={index}
-            isActive={ws.id === activeWorkspaceId}
-            agents={agents}
-            notifications={notifications}
-            surfaces={surfaces}
-            panels={panels}
-            onSelect={(id) =>
-              void dispatch({ type: 'workspace.select', payload: { workspaceId: id } })
-            }
-            onClose={(id) =>
-              void dispatch({ type: 'workspace.close', payload: { workspaceId: id } })
-            }
-            onRename={(id, name) =>
-              void dispatch({
-                type: 'workspace.rename',
-                payload: { workspaceId: id, name },
-              })
-            }
-          />
-        ))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={workspaceIds} strategy={verticalListSortingStrategy}>
+            {workspaces.map((ws, index) => (
+              <WorkspaceItem
+                key={ws.id}
+                workspace={ws}
+                index={index}
+                isActive={ws.id === activeWorkspaceId}
+                agents={agents}
+                notifications={notifications}
+                surfaces={surfaces}
+                panels={panels}
+                onSelect={(id) =>
+                  void dispatch({ type: 'workspace.select', payload: { workspaceId: id } })
+                }
+                onClose={(id) =>
+                  void dispatch({ type: 'workspace.close', payload: { workspaceId: id } })
+                }
+                onRename={(id, name) =>
+                  void dispatch({
+                    type: 'workspace.rename',
+                    payload: { workspaceId: id, name },
+                  })
+                }
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       </div>
 
       {/* File Explorer — shown below workspace list */}
@@ -327,17 +397,29 @@ const Sidebar: FC<SidebarProps> = ({
       )}
 
       {/* Quick actions bar — AI services + new workspace */}
-      <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.08)', padding: '4px 0' }}>
+      <div
+        style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.08)', padding: '4px 0' }}
+      >
         {onOpenClaudeWeb && (
           <>
-            <SidebarWebLink label="Claude.ai" icon={'\uD83E\uDDE0'} onClick={() => onOpenClaudeWeb('https://claude.ai')} />
-            <SidebarWebLink label="Gemini" icon={'\uD83D\uDC8E'} onClick={() => onOpenClaudeWeb('https://gemini.google.com')} />
-            <SidebarWebLink label="ChatGPT" icon={'\uD83E\uDD16'} onClick={() => onOpenClaudeWeb('https://chatgpt.com')} />
+            <SidebarWebLink
+              label="Claude.ai"
+              icon={'\uD83E\uDDE0'}
+              onClick={() => onOpenClaudeWeb('https://claude.ai')}
+            />
+            <SidebarWebLink
+              label="AGY"
+              icon={'\uD83D\uDC8E'}
+              onClick={() => onOpenClaudeWeb('https://gemini.google.com')}
+            />
+            <SidebarWebLink
+              label="ChatGPT"
+              icon={'\uD83E\uDD16'}
+              onClick={() => onOpenClaudeWeb('https://chatgpt.com')}
+            />
           </>
         )}
-        <SidebarFooter
-          onNewWorkspace={handleCreateWorkspace}
-        />
+        <SidebarFooter onNewWorkspace={handleCreateWorkspace} />
       </div>
 
       {/* Resize handle (right edge) */}

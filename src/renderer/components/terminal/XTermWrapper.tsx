@@ -50,8 +50,13 @@ function detectCliFromOutput(data: string): { name: string; icon: string } | nul
       else if (maxIdx === haikuIdx) baseName = 'Claude (Haiku)';
       else baseName = 'Claude (Opus)';
     }
-  } else if (lower.includes('gemini') || lower.includes('google ai')) {
-    baseName = 'Gemini';
+  } else if (
+    lower.includes('agy') ||
+    lower.includes('antigravity') ||
+    lower.includes('gemini') ||
+    lower.includes('google ai')
+  ) {
+    baseName = 'AGY';
     icon = '\uD83D\uDC8E';
   } else if (lower.includes('codex') || lower.includes('openai')) {
     baseName = 'Codex';

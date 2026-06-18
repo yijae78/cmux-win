@@ -30,7 +30,7 @@
    - ② 워커 빌드 작업을 짧은 단위로 분할해 토큰 만료 노출 줄임
    - ③ 로컬 서버 최소화, 생명 주기 강제 종료
 
-3. **gemini/codex 복구**: 정지되어 복구 불가능하면 해당 pane을 kill하고 새 pane에서 재가동 + 이전 업무 재부여.
+3. **agy/codex 복구**: 정지되어 복구 불가능하면 해당 pane을 kill하고 새 pane에서 재가동 + 이전 업무 재부여.
 
 4. **SESSION_STATE.md + RECOVERY.md**: 컴퓨터 셧다운/세션 만료/context clear 대비. 주요 이벤트마다 SESSION_STATE 갱신. 복구 시 이 문서들을 가장 먼저 읽고 이전 작업기억 복원.
 

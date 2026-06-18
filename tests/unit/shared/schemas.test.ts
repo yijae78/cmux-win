@@ -103,7 +103,7 @@ describe('Zod Schemas', () => {
         agents: {
           claudeHooksEnabled: true,
           codexHooksEnabled: true,
-          geminiHooksEnabled: true,
+          agyHooksEnabled: true,
           orchestrationMode: 'auto',
         },
         telemetry: { enabled: true },

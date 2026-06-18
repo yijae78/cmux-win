@@ -192,7 +192,7 @@ spawn_worker() {
             CLI_OK=0
             for i in $(seq 1 15); do
                 SCREEN=$(tmux capture-pane -t "$NEW_PANE" -p 2>/dev/null | tail -5)
-                if echo "$SCREEN" | grep -qiE "(claude|agy|codex|gemini|what would|how can|type your|>|\\$|tips for)"; then
+                if echo "$SCREEN" | grep -qiE "(claude|agy|codex|what would|how can|type your|>|\\$|tips for)"; then
                     CLI_OK=1
                     break
                 fi

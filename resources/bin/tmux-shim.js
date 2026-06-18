@@ -94,16 +94,57 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
     return null;
   }
 
-  // GAP-4: resolve %N pane reference to panel object using stable paneIndex
+  // Resolve %N pane reference to a surface object.
+  // Lists ALL surfaces (across all panels) ordered by panel paneIndex, then
+  // surface position within the panel. Each surface gets a sequential index
+  // so that every terminal tab is individually addressable.
   async function resolvePane(paneRef) {
-    const result = await rpcCall('panel.list', {});
-    const panels = result?.panels || (Array.isArray(result) ? result : []);
+    const allSurfaces = await listAllSurfaces();
     if (paneRef.startsWith('%')) {
       const idx = parseInt(paneRef.slice(1));
-      return panels.find(p => p.paneIndex === idx) || null;
+      return allSurfaces.find(s => s.paneIndex === idx) || null;
     }
-    // Direct panel ID
-    return panels.find(p => p.id === paneRef) || null;
+    // Direct surface ID
+    return allSurfaces.find(s => s.surfaceId === paneRef) || null;
+  }
+
+  // Build a flat list of all surfaces with sequential pane indices.
+  async function listAllSurfaces() {
+    const panelResult = await rpcCall('panel.list', {});
+    const panels = panelResult?.panels || (Array.isArray(panelResult) ? panelResult : []);
+    const surfResult = await rpcCall('surface.list', {});
+    const surfaces = surfResult?.surfaces || (Array.isArray(surfResult) ? surfResult : []);
+
+    // Sort panels by paneIndex
+    const sorted = [...panels].sort((a, b) => (a.paneIndex ?? 0) - (b.paneIndex ?? 0));
+
+    const result = [];
+    let idx = 0;
+    for (const panel of sorted) {
+      // Find surfaces belonging to this panel, ordered by surfaceIds array
+      const panelSurfaces = (panel.surfaceIds || [])
+        .map(sid => surfaces.find(s => s.id === sid))
+        .filter(Boolean);
+      // If no surfaceIds list, fall back to matching by panelId
+      if (panelSurfaces.length === 0) {
+        const fallback = surfaces.filter(s => s.panelId === panel.id);
+        panelSurfaces.push(...fallback);
+      }
+      for (const surf of panelSurfaces) {
+        result.push({
+          paneIndex: idx,
+          panelId: panel.id,
+          panelPaneIndex: panel.paneIndex,
+          surfaceId: surf.id,
+          activeSurfaceId: surf.id, // for backward compat with callers
+          title: surf.title || '',
+          label: surf.label || '',
+          surfaceType: surf.surfaceType || 'terminal',
+        });
+        idx++;
+      }
+    }
+    return result;
   }
 
   // F6-FIX: RPC call with proper auth sequencing — wait for auth response
@@ -192,8 +233,8 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
           const swTarget = getTarget();
           let surfaceId = process.env.CMUX_SURFACE_ID || null;
           if (!surfaceId && swTarget) {
-            const swPanel = await resolvePane(swTarget);
-            if (swPanel) surfaceId = swPanel.activeSurfaceId;
+            const swSurf = await resolvePane(swTarget);
+            if (swSurf) surfaceId = swSurf.surfaceId;
           }
           if (!surfaceId) {
             const swAutoResult = await rpcCall('panel.list', {});
@@ -252,7 +293,7 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
           } catch { /* best effort — equalize is a convenience, not critical */ }
 
           // Extract shell command from remaining args (after flags like -h, -v, -t, -P, -F)
-          // Real tmux: `tmux split-window -h "gemini --flag"` → last non-flag arg is command
+          // Real tmux: `tmux split-window -h "agy --flag"` → last non-flag arg is command
           const swFlags = new Set(['-h', '-v', '-d', '-P', '-b', '-f', '-l']);
           const swFlagsWithValue = new Set(['-t', '-F', '-e', '-c', '-l']);
           let shellCmd = null;
@@ -310,8 +351,10 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
         case 'select-pane': {
           const target = getTarget();
           if (!target) { process.stderr.write('Usage: tmux select-pane -t <id>\n'); process.exit(1); }
-          const spPanel = await resolvePane(target);
-          if (spPanel) await rpcCall('panel.focus', { panelId: spPanel.id });
+          const spSurf = await resolvePane(target);
+          if (spSurf) {
+            await rpcCall('surface.focus', { surfaceId: spSurf.surfaceId });
+          }
           else { process.stderr.write(`Pane ${target} not found\n`); process.exit(1); }
           break;
         }
@@ -327,22 +370,21 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
           const text = convertTmuxKeys(keyArgs);
           let surfaceId = process.env.CMUX_SURFACE_ID || null;
           if (target) {
-            const skPanel = await resolvePane(target);
-            if (skPanel) surfaceId = skPanel.activeSurfaceId;
+            const skSurf = await resolvePane(target);
+            if (skSurf) surfaceId = skSurf.surfaceId;
           }
           // F1: surface 자동 선택 (env 없을 때)
           if (!surfaceId && !target) {
-            const autoResult = await rpcCall('panel.list', {});
-            const autoPanels = autoResult?.panels || [];
-            if (autoPanels.length === 1) {
-              surfaceId = autoPanels[0].activeSurfaceId;
-            } else if (autoPanels.length > 1) {
+            const autoSurfs = await listAllSurfaces();
+            if (autoSurfs.length === 1) {
+              surfaceId = autoSurfs[0].surfaceId;
+            } else if (autoSurfs.length > 1) {
               process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
               process.exit(1);
             }
           }
           if (surfaceId) {
-            // FIX: Ink-based TUIs (Gemini, Codex) treat \r in the same chunk as
+            // FIX: Ink-based TUIs (AGY, Codex) treat \r in the same chunk as
             // a newline within the input, not as "submit". Split text and trailing
             // \r into separate sends with a 500ms delay so the TUI processes them
             // as distinct events — text input first, then Enter to submit.
@@ -369,11 +411,10 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
         }
 
         case 'list-panes': {
-          const lpResult = await rpcCall('panel.list', {});
-          const lpPanels = lpResult?.panels || (Array.isArray(lpResult) ? lpResult : []);
-          for (const p of lpPanels) {
-            const idx = p.paneIndex ?? '?';
-            console.log(`%${idx}: ${p.panelType} (${p.id}) [surface: ${p.activeSurfaceId}]`);
+          const allSurfs = await listAllSurfaces();
+          for (const s of allSurfs) {
+            const titleShort = s.title.slice(0, 40);
+            console.log(`%${s.paneIndex}: ${s.surfaceType} (${s.surfaceId}) ${titleShort}${s.label ? ' [' + s.label + ']' : ''}`);
           }
           break;
         }
@@ -394,8 +435,8 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
         case 'kill-pane': {
           const target = getTarget();
           if (!target) { process.stderr.write('Usage: tmux kill-pane -t <id>\n'); process.exit(1); }
-          const kpPanel = await resolvePane(target);
-          if (kpPanel) await rpcCall('panel.close', { panelId: kpPanel.id });
+          const kpSurf = await resolvePane(target);
+          if (kpSurf) await rpcCall('surface.close', { surfaceId: kpSurf.surfaceId });
           else { process.stderr.write(`Pane ${target} not found\n`); process.exit(1); }
           break;
         }
@@ -422,16 +463,15 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
           const capTarget = getTarget();
           let capSurfaceId = process.env.CMUX_SURFACE_ID || null;
           if (capTarget) {
-            const cpPanel = await resolvePane(capTarget);
-            if (cpPanel) capSurfaceId = cpPanel.activeSurfaceId;
+            const cpSurf = await resolvePane(capTarget);
+            if (cpSurf) capSurfaceId = cpSurf.surfaceId;
           }
           // F1: surface 자동 선택 (env 없을 때)
           if (!capSurfaceId && !capTarget) {
-            const capAutoResult = await rpcCall('panel.list', {});
-            const capAutoPanels = capAutoResult?.panels || [];
-            if (capAutoPanels.length === 1) {
-              capSurfaceId = capAutoPanels[0].activeSurfaceId;
-            } else if (capAutoPanels.length > 1) {
+            const capAutoSurfs = await listAllSurfaces();
+            if (capAutoSurfs.length === 1) {
+              capSurfaceId = capAutoSurfs[0].surfaceId;
+            } else if (capAutoSurfs.length > 1) {
               process.stderr.write('Multiple panes found. Use -t %%N to specify target.\n');
               process.exit(1);
             }
@@ -460,11 +500,11 @@ if (require.main === module || _isTmuxShim || process.argv[1]?.includes('tmux-sh
             let dmWorkspaceId = process.env.CMUX_WORKSPACE_ID || '';
 
             if (dmTarget) {
-              const dmPanel = await resolvePane(dmTarget);
-              if (dmPanel) {
-                dmPaneId = dmPanel.activeSurfaceId || dmPanel.id;
-                dmPaneIndex = String(dmPanel.paneIndex ?? 0);
-                dmWorkspaceId = dmPanel.workspaceId || dmWorkspaceId;
+              const dmSurf = await resolvePane(dmTarget);
+              if (dmSurf) {
+                dmPaneId = dmSurf.surfaceId;
+                dmPaneIndex = String(dmSurf.paneIndex ?? 0);
+                dmWorkspaceId = dmSurf.workspaceId || dmWorkspaceId;
               }
             }
 

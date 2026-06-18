@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: SettingsState = {
   agents: {
     claudeHooksEnabled: true,
     codexHooksEnabled: true,
-    geminiHooksEnabled: true,
+    agyHooksEnabled: true,
     orchestrationMode: 'auto',
     autoStartClaude: true,
   },
