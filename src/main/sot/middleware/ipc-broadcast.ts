@@ -49,6 +49,7 @@ const multiSliceActions: Record<string, (keyof AppState)[]> = {
   'workspace.select': ['workspaces', 'focus'],
   'workspace.set_explorer': ['workspaces'],
   'panel.focus': ['panels', 'focus'],
+  'surface.focus': ['surfaces', 'panels', 'focus'],
 };
 
 export class IpcBroadcastMiddleware implements Middleware {

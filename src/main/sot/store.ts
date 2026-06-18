@@ -222,9 +222,7 @@ export class AppStateStore extends EventEmitter {
         // E1: Auto-start Claude CLI on first workspace
         // Ensures Dispatch always has a Claude CLI target
         const isFirstWorkspace = draft.workspaces.length === 1;
-        const claudeCmd = isFirstWorkspace
-          ? 'clear; claude --dangerously-skip-permissions\r'
-          : undefined;
+        const claudeCmd = isFirstWorkspace ? 'claude --dangerously-skip-permissions\r' : undefined;
 
         draft.surfaces.push({
           id: surfaceId,
