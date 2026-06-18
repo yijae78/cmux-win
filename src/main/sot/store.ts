@@ -281,6 +281,12 @@ export class AppStateStore extends EventEmitter {
       }
       case 'panel.focus': {
         draft.focus.activePanelId = action.payload.panelId;
+        // Also update activeSurfaceId to the panel's active/first surface
+        const focusPanel = draft.panels.find((pp) => pp.id === action.payload.panelId);
+        if (focusPanel) {
+          draft.focus.activeSurfaceId =
+            focusPanel.activeSurfaceId || focusPanel.surfaceIds[0] || null;
+        }
         break;
       }
       case 'panel.close': {
