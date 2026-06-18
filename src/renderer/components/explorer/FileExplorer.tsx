@@ -1,3 +1,4 @@
+import React from 'react';
 import { FC, useState, useEffect, useRef, useCallback } from 'react';
 
 interface DirEntry {
@@ -10,9 +11,7 @@ declare global {
   interface Window {
     cmuxFile?: {
       readFile(filePath: string): Promise<{ content: string } | { error: string }>;
-      listDirectory(
-        dirPath: string,
-      ): Promise<{ entries: DirEntry[] } | { error: string }>;
+      listDirectory(dirPath: string): Promise<{ entries: DirEntry[] } | { error: string }>;
       openFolderDialog(): Promise<{ path: string } | { cancelled: true }>;
     };
   }
@@ -27,10 +26,25 @@ interface FileExplorerProps {
   onOpenFolder?: () => void;
 }
 
-const HIDDEN_NAMES = new Set(['.git', 'node_modules', '.next', '__pycache__', '.venv', '.DS_Store', 'Thumbs.db']);
+const HIDDEN_NAMES = new Set([
+  '.git',
+  'node_modules',
+  '.next',
+  '__pycache__',
+  '.venv',
+  '.DS_Store',
+  'Thumbs.db',
+]);
 const DEBOUNCE_MS = 300;
 
-const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProjectSelect, onNavigate, onFileOpen, onOpenFolder }) => {
+const FileExplorer: FC<FileExplorerProps> = ({
+  rootPath,
+  openedProjects,
+  onProjectSelect,
+  onNavigate,
+  onFileOpen,
+  onOpenFolder,
+}) => {
   const [entries, setEntries] = useState<Map<string, DirEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
@@ -103,11 +117,6 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
     [onNavigate],
   );
 
-  // Shorten path for display
-  const displayRoot = rootPath
-    ? rootPath.replace(/\\/g, '/').split('/').filter(Boolean).slice(-2).join('/')
-    : 'No folder';
-
   return (
     <div
       style={{
@@ -132,14 +141,23 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: '10px', color: '#888', textTransform: 'uppercase', fontWeight: 600 }}>
+        <span
+          style={{ fontSize: '10px', color: '#888', textTransform: 'uppercase', fontWeight: 600 }}
+        >
           Explorer
         </span>
         <span style={{ flex: 1 }} />
         <button
           onClick={() => setShowHidden((v) => !v)}
           title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
-          style={{ background: 'none', border: 'none', color: showHidden ? '#0091FF' : '#555', cursor: 'pointer', fontSize: '11px', padding: '1px 3px' }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: showHidden ? '#0091FF' : '#555',
+            cursor: 'pointer',
+            fontSize: '11px',
+            padding: '1px 3px',
+          }}
         >
           .*
         </button>
@@ -147,7 +165,14 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
           <button
             onClick={onOpenFolder}
             title="Open folder"
-            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px', padding: '0 2px' }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#888',
+              cursor: 'pointer',
+              fontSize: '13px',
+              padding: '0 2px',
+            }}
           >
             +
           </button>
@@ -195,7 +220,8 @@ const FileExplorer: FC<FileExplorerProps> = ({ rootPath, openedProjects, onProje
                   whiteSpace: 'nowrap',
                 }}
               >
-                {isActive ? (treeCollapsed ? '\u25B6 ' : '\u25BC ') : ''}{label}
+                {isActive ? (treeCollapsed ? '\u25B6 ' : '\u25BC ') : ''}
+                {label}
               </button>
             );
           })}
@@ -280,7 +306,9 @@ const TreeNode: FC<TreeNodeProps> = ({
   }
   if (!items) return null;
 
-  const filtered = showHidden ? items : items.filter((e) => !HIDDEN_NAMES.has(e.name) && !e.name.startsWith('.'));
+  const filtered = showHidden
+    ? items
+    : items.filter((e) => !HIDDEN_NAMES.has(e.name) && !e.name.startsWith('.'));
 
   return (
     <>

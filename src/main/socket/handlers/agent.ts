@@ -4,9 +4,13 @@ import { ptyEvents } from '../../terminal/pty-manager';
 
 export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStore): void {
   router.register('agent.spawn', (params) => {
-    const p = params as { agentType: string; workspaceId: string; task?: string };
+    const p = params as { agentType: string; workspaceId: string; task?: string; cwd?: string };
     if (!p?.agentType) throw new Error('agentType is required');
     if (!p?.workspaceId) throw new Error('workspaceId is required');
+
+    // If no cwd specified, use per-workspace explorerRootPath, then global fallback
+    const ws = store.getState().workspaces.find((w) => w.id === p.workspaceId);
+    const cwd = p.cwd || ws?.explorerRootPath || store.explorerRootPath;
 
     // Snapshot panel count before spawn to identify newly created panel
     const panelsBefore = store.getState().panels.length;
@@ -17,6 +21,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
         agentType: p.agentType,
         workspaceId: p.workspaceId,
         task: p.task,
+        cwd,
       },
     });
     if (!result.ok) throw new Error(result.error ?? 'Failed to spawn agent');
@@ -136,7 +141,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
         payload: { surfaceId: p.surfaceId, text: p.task },
       });
 
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
 
       store.dispatch({
         type: 'surface.send_text',
@@ -144,7 +149,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
       });
 
       // Update agent status → running
-      const agent = store.getState().agents.find(a => a.surfaceId === p.surfaceId);
+      const agent = store.getState().agents.find((a) => a.surfaceId === p.surfaceId);
       if (agent) {
         store.dispatch({
           type: 'agent.status_update',
@@ -183,7 +188,7 @@ export function registerAgentHandlers(router: JsonRpcRouter, store: AppStateStor
         type: 'surface.send_text',
         payload: { surfaceId: p.surfaceId, text: p.task },
       });
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
       store.dispatch({
         type: 'surface.send_text',
         payload: { surfaceId: p.surfaceId, text: '\r' },

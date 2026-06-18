@@ -33,6 +33,8 @@ export interface WorkspaceState {
   unreadCount: number;
   isPinned: boolean;
   remoteSession?: RemoteSessionState;
+  explorerRootPath?: string;
+  openedProjects?: string[];
 }
 
 export type PanelLayoutTree =

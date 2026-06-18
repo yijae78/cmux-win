@@ -121,13 +121,41 @@ export default function App() {
   const [commandPaletteVisible, setCommandPaletteVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
 
-  // -- Explorer state --
+  // -- Explorer state (per-workspace, synced from AppState) --
   const [explorerRootPath, setExplorerRootPath] = useState<string | undefined>(undefined);
   const [openedProjects, setOpenedProjects] = useState<string[]>([]);
   // H7: track auto-launch timer for cleanup on unmount
   const autoLaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const appState = isStandalone ? createMockState() : electronState;
+
+  // Sync explorer state from active workspace (on switch OR when workspace data changes)
+  const _syncWsId = appState?.focus.activeWorkspaceId;
+  const _syncWs = appState?.workspaces.find((ws) => ws.id === _syncWsId);
+  const wsExplorerPath = _syncWs?.explorerRootPath;
+  const wsOpenedProjects = _syncWs?.openedProjects;
+  const wsProjectsKey = wsOpenedProjects?.join('|');
+  const prevWsIdRef = useRef<string | undefined | null>(undefined);
+  const prevWsExplorerRef = useRef<string | undefined>(undefined);
+  const prevWsProjectsKeyRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!_syncWsId) return;
+    const wsChanged = _syncWsId !== prevWsIdRef.current;
+    const explorerChanged = wsExplorerPath !== prevWsExplorerRef.current;
+    const projectsChanged = wsProjectsKey !== prevWsProjectsKeyRef.current;
+    if (wsChanged || explorerChanged || projectsChanged) {
+      prevWsIdRef.current = _syncWsId;
+      prevWsExplorerRef.current = wsExplorerPath;
+      prevWsProjectsKeyRef.current = wsProjectsKey;
+      if (wsExplorerPath) {
+        setExplorerRootPath(wsExplorerPath);
+        setExplorerVisible(true);
+      }
+      if (wsOpenedProjects && wsOpenedProjects.length > 0) {
+        setOpenedProjects(wsOpenedProjects);
+      }
+    }
+  }, [_syncWsId, wsExplorerPath, wsProjectsKey, wsOpenedProjects]);
 
   // H7: cleanup auto-launch timer on unmount
   useEffect(() => {
@@ -146,15 +174,17 @@ export default function App() {
   }, []);
 
   // Listen for external open-folder commands (Socket API → main → renderer)
+  // NOTE: workspace.set_explorer is already dispatched by the main process handler,
+  // so we only update local UI state here (no duplicate dispatch).
   useEffect(() => {
     if (isStandalone) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
     if (!w.cmuxExplorer?.onOpenFolder) return;
     const cleanup = w.cmuxExplorer.onOpenFolder((folderPath: string, surfaceId?: string) => {
-      setExplorerRootPath(folderPath);
+      // Only update local explorer if this folder belongs to the active workspace.
+      // The sync effect will handle it when workspace state arrives via IPC broadcast.
       setExplorerVisible(true);
-      setOpenedProjects((prev) => (prev.includes(folderPath) ? prev : [...prev, folderPath]));
       const targetSid = surfaceId || appState?.focus.activeSurfaceId;
       if (targetSid) {
         void dispatch({
@@ -384,7 +414,25 @@ export default function App() {
               explorerVisible={explorerVisible}
               explorerRootPath={explorerRootPath}
               openedProjects={openedProjects}
-              onProjectSelect={(path) => setExplorerRootPath(path)}
+              onProjectSelect={(projectPath) => {
+                setExplorerRootPath(projectPath);
+                // cd into the selected project folder
+                const surfaceId = appState?.focus.activeSurfaceId;
+                if (surfaceId) {
+                  void dispatch({
+                    type: 'surface.send_text',
+                    payload: { surfaceId, text: `cd "${projectPath.replace(/\\/g, '/')}"\r` },
+                  });
+                }
+                // Update per-workspace state
+                const wsId = appState?.focus.activeWorkspaceId;
+                if (wsId) {
+                  void dispatch({
+                    type: 'workspace.set_explorer' as const,
+                    payload: { workspaceId: wsId, rootPath: projectPath },
+                  });
+                }
+              }}
               onExplorerNavigate={(dirPath) => {
                 const surfaceId = appState?.focus.activeSurfaceId;
                 if (surfaceId) {
@@ -408,6 +456,13 @@ export default function App() {
                       },
                     });
                   }
+                } else {
+                  const w = window as unknown as {
+                    cmuxWin?: { openPath?: (p: string) => Promise<string> };
+                  };
+                  if (w.cmuxWin?.openPath) {
+                    void w.cmuxWin.openPath(filePath);
+                  }
                 }
               }}
               onExplorerOpenFolder={async () => {
@@ -425,6 +480,14 @@ export default function App() {
                   setOpenedProjects((prev) =>
                     prev.includes(folderPath) ? prev : [...prev, folderPath],
                   );
+                  // Persist to workspace state
+                  const wsId = appState?.focus.activeWorkspaceId;
+                  if (wsId) {
+                    void dispatch({
+                      type: 'workspace.set_explorer' as const,
+                      payload: { workspaceId: wsId, rootPath: folderPath },
+                    });
+                  }
                   const surfaceId = appState?.focus.activeSurfaceId;
                   if (surfaceId) {
                     void dispatch({

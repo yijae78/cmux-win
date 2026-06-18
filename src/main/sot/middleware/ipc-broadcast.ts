@@ -46,6 +46,8 @@ const multiSliceActions: Record<string, (keyof AppState)[]> = {
   'surface.close': ['surfaces', 'panels'],
   'agent.spawn': ['panels', 'surfaces', 'workspaces', 'agents'],
   'panel.move': ['panels', 'workspaces'],
+  'workspace.select': ['workspaces', 'focus'],
+  'workspace.set_explorer': ['workspaces'],
 };
 
 export class IpcBroadcastMiddleware implements Middleware {

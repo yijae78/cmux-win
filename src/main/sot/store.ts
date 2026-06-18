@@ -45,6 +45,8 @@ export class AppStateStore extends EventEmitter {
   private state: AppState;
   private history: HistoryEntry[] = [];
   private middlewares: Middleware[] = [];
+  /** Current explorer folder path — used by agent.spawn for CWD auto-injection */
+  explorerRootPath?: string;
 
   constructor(initialState?: AppState) {
     super();
@@ -205,6 +207,8 @@ export class AppStateStore extends EventEmitter {
           statusEntries: [],
           unreadCount: 0,
           isPinned: false,
+          explorerRootPath: undefined,
+          openedProjects: [],
         });
         draft.panels.push({
           id: panelId,
@@ -227,7 +231,7 @@ export class AppStateStore extends EventEmitter {
           panelId,
           surfaceType: 'terminal',
           title: claudeCmd ? '\uD83E\uDDE0 Claude' : 'Terminal',
-          label: isFirstWorkspace ? 'Master' : undefined,
+          label: 'Master',
           pendingCommand: claudeCmd,
         });
         const win = draft.windows.find((w) => w.id === action.payload.windowId);
@@ -318,6 +322,11 @@ export class AppStateStore extends EventEmitter {
           surfaceType: newPanelType,
           title: newPanelType === 'terminal' ? 'Terminal' : 'New Tab',
         };
+        // Auto-cd into explorer folder for new terminal panels (per-workspace)
+        const wsExplorerPath = ws.explorerRootPath || this.explorerRootPath;
+        if (newPanelType === 'terminal' && wsExplorerPath) {
+          surface.pendingCommand = `cd "${wsExplorerPath.replace(/\\/g, '/')}"\r`;
+        }
         if (newPanelType === 'browser' && url) {
           surface.browser = { url, profileId: 'default', isLoading: false };
           surface.title = new URL(url).hostname;
@@ -509,6 +518,19 @@ export class AppStateStore extends EventEmitter {
         const ws = draft.workspaces.find((w) => w.id === action.payload.workspaceId);
         if (ws && action.payload.panelLayout) {
           ws.panelLayout = action.payload.panelLayout;
+        }
+        break;
+      }
+      case 'workspace.set_explorer': {
+        const ws = draft.workspaces.find((w) => w.id === action.payload.workspaceId);
+        if (ws) {
+          ws.explorerRootPath = action.payload.rootPath;
+          if (!ws.openedProjects) ws.openedProjects = [];
+          if (!ws.openedProjects.includes(action.payload.rootPath)) {
+            ws.openedProjects.push(action.payload.rootPath);
+          }
+          // Keep store-level explorerRootPath in sync for agent.spawn fallback
+          this.explorerRootPath = action.payload.rootPath;
         }
         break;
       }

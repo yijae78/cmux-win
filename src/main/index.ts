@@ -474,7 +474,18 @@ app.whenReady().then(async () => {
     if (result.canceled || result.filePaths.length === 0) {
       return { cancelled: true };
     }
-    return { path: result.filePaths[0] };
+    // Store explorer root path per-workspace + global fallback
+    const folderPath = result.filePaths[0];
+    const activeWsId = store.getState().focus.activeWorkspaceId;
+    if (activeWsId) {
+      store.dispatch({
+        type: 'workspace.set_explorer',
+        payload: { workspaceId: activeWsId, rootPath: folderPath },
+      });
+    } else {
+      store.explorerRootPath = folderPath;
+    }
+    return { path: folderPath };
   });
 
   // KakaoTalk initialization
@@ -547,6 +558,8 @@ app.whenReady().then(async () => {
         'claude-wrapper-lib.js',
         'cmux.cmd',
         'cmux-cli.js',
+        'master.cmd',
+        'master.js',
       ]) {
         const src = path.join(srcBinDir, f);
         const dst = path.join(safeBinDir, f);
