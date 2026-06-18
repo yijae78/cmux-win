@@ -30433,13 +30433,7 @@ function stripAnsi(str) {
   return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "").replace(/\x1BP[^\x1B]*\x1B\\/g, "").replace(/\x1B[()][0-9A-B]/g, "").replace(/\x1B[>=<N~}{F|7-8]/g, "").replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, "");
 }
 var DEFAULT_IDLE_PATTERNS = {
-  agy: [
-    "Type your message",
-    "Type your",
-    "Enter your prompt",
-    "What can I help",
-    "@path/to/file"
-  ],
+  agy: ["Type your message", "Type your", "Enter your prompt", "What can I help", "@path/to/file"],
   codex: [
     "What would you like",
     "Enter a prompt",
@@ -30492,6 +30486,7 @@ function sleep(ms) {
 }
 var PHONE_RELAY_DIR = path.join(process.env.HOME || process.env.USERPROFILE || "", "cmux-bridge");
 var PHONE_RELAY_FILE = path.join(PHONE_RELAY_DIR, "phone-relay.jsonl");
+var PHONE_INBOX_FILE = path.join(PHONE_RELAY_DIR, "phone-inbox.json");
 function appendPhoneMessage(from, message) {
   try {
     fs.mkdirSync(PHONE_RELAY_DIR, { recursive: true });
@@ -30503,6 +30498,37 @@ function appendPhoneMessage(from, message) {
     fs.appendFileSync(PHONE_RELAY_FILE, entry + "\n", "utf-8");
   } catch (err) {
     console.error("[phone-relay] write failed:", err);
+  }
+}
+function phoneInboxPush(message) {
+  fs.mkdirSync(PHONE_RELAY_DIR, { recursive: true });
+  let inbox = [];
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      inbox = JSON.parse(fs.readFileSync(PHONE_INBOX_FILE, "utf-8"));
+    }
+  } catch {
+  }
+  const id = Date.now();
+  inbox.push({ id, timestamp: (/* @__PURE__ */ new Date()).toISOString(), message });
+  fs.writeFileSync(PHONE_INBOX_FILE, JSON.stringify(inbox, null, 2), "utf-8");
+  return id;
+}
+function phoneInboxRead() {
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      return JSON.parse(fs.readFileSync(PHONE_INBOX_FILE, "utf-8"));
+    }
+  } catch {
+  }
+  return [];
+}
+function phoneInboxClear() {
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      fs.writeFileSync(PHONE_INBOX_FILE, "[]", "utf-8");
+    }
+  } catch {
   }
 }
 var client = new CmuxSocketClient();
@@ -30535,7 +30561,8 @@ var server = new McpServer(
       '- \uD654\uBA74 \uC77D\uAE30 \u2192 cmux(action:"read")',
       '- send_and_wait\uAC00 status="running" \u2192 get_result \uBC18\uBCF5 \uD638\uCD9C',
       '- \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \u2192 cmux(action:"phone_relay", task:"...")',
-      '- \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uC751\uB2F5 \u2192 cmux(action:"phone_respond", task:"...")'
+      '- \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uBA54\uC2DC\uC9C0 \uC800\uC7A5 \u2192 cmux(action:"phone_respond", task:"...")',
+      '- \uD578\uB4DC\uD3F0\uC5D0\uC11C \uBA54\uC2DC\uC9C0 \uD655\uC778 \u2192 cmux(action:"phone_check") \u2192 \uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 \uC870\uD68C \uD6C4 \uC0AD\uC81C'
     ].join("\n")
   }
 );
@@ -30596,7 +30623,7 @@ server.registerTool(
   "cmux",
   {
     title: "\uC528\uC708 \uC6D0\uACA9 \uC81C\uC5B4",
-    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | open_folder | move_window | phone_relay | phone_respond\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.\nphone_relay: \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \uB9B4\uB808\uC774 (CLI\uC5D0 \uC9C1\uC811 \uC8FC\uC785).\nphone_respond: \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uC751\uB2F5 (\uCE74\uCE74\uC624\uD1A1 \uC54C\uB9BC).',
+    description: '\uC528\uC708(cmux-win) \uC6D0\uACA9 \uC81C\uC5B4.\n\uC751\uB2F5\uADDC\uCE59: "\uC2E0\uAD50\uC218\uB2D8" \uD638\uCE6D, \uC774\uBAA8\uC9C0 \uAE08\uC9C0, 3\uBB38\uC7A5 \uC774\uB0B4, \uD14C\uC774\uBE14 \uAE08\uC9C0, \uCD94\uAC00 \uC81C\uC548 \uAE08\uC9C0.\naction: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | open_folder | move_window | phone_relay | phone_respond\n\uC528\uC708\uC774 \uAEBC\uC838\uC788\uC5B4\uB3C4 \uC790\uB3D9 \uC2E4\uD589\uB41C\uB2E4.\nphone_relay: \uD578\uB4DC\uD3F0\u2192\uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \uB9B4\uB808\uC774 (CLI\uC5D0 \uC9C1\uC811 \uC8FC\uC785).\nphone_respond: \uB370\uC2A4\uD06C\uD1B1\u2192\uD578\uB4DC\uD3F0 \uC751\uB2F5 (phone inbox \uC800\uC7A5, phone_check\uB85C \uC218\uC2E0).\nphone_check: \uD578\uB4DC\uD3F0\uC5D0\uC11C \uB370\uC2A4\uD06C\uD1B1 \uBA54\uC2DC\uC9C0 \uD655\uC778 (inbox \uC77D\uACE0 \uBE44\uC6C0).',
     inputSchema: external_exports3.object({
       action: external_exports3.enum([
         "status",
@@ -30611,7 +30638,8 @@ server.registerTool(
         "open_folder",
         "move_window",
         "phone_relay",
-        "phone_respond"
+        "phone_respond",
+        "phone_check"
       ]).describe("\uC2E4\uD589\uD560 \uAE30\uB2A5"),
       task: external_exports3.string().optional().describe("\uC791\uC5C5 \uB0B4\uC6A9 (send, spawn, send_and_wait)"),
       agentType: external_exports3.string().optional().describe("\uC5D0\uC774\uC804\uD2B8 (claude, agy, codex)"),
@@ -31011,11 +31039,28 @@ server.registerTool(
             message: "\uB9C8\uC2A4\uD130\uAC00 \uC544\uC9C1 \uC751\uB2F5 \uC911\uC785\uB2C8\uB2E4. get_result\uB85C \uD655\uC778\uD558\uC138\uC694."
           });
         }
-        // ── phone_respond (데스크톱 → 핸드폰, 로그 기록용) ──
+        // ── phone_respond (데스크톱 → 핸드폰 우편함에 메시지 저장) ──
         case "phone_respond": {
           if (!params.task) return text({ error: true, message: "task \uD30C\uB77C\uBBF8\uD130\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
           appendPhoneMessage("desktop", params.task);
-          return text({ ok: true, logged: true });
+          const msgId = phoneInboxPush(params.task);
+          const pending = phoneInboxRead().length;
+          return text({ ok: true, messageId: msgId, pendingCount: pending });
+        }
+        // ── phone_check (핸드폰에서 읽지 않은 메시지 확인) ──
+        case "phone_check": {
+          const messages = phoneInboxRead();
+          if (messages.length === 0) {
+            return text("\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uBCF4\uB0B8 \uBA54\uC2DC\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          }
+          phoneInboxClear();
+          const formatted = messages.map(
+            (m, i) => `[${i + 1}] ${m.timestamp}
+${m.message}`
+          ).join("\n\n---\n\n");
+          return text(`\u{1F4EC} \uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 ${messages.length}\uAC74:
+
+${formatted}`);
         }
         default:
           return text({ error: true, message: `\uC54C \uC218 \uC5C6\uB294 action: ${params.action}` });

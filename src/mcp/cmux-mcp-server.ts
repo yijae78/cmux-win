@@ -490,6 +490,7 @@ function sleep(ms: number): Promise<void> {
 
 const PHONE_RELAY_DIR = path.join(process.env.HOME || process.env.USERPROFILE || '', 'cmux-bridge');
 const PHONE_RELAY_FILE = path.join(PHONE_RELAY_DIR, 'phone-relay.jsonl');
+const PHONE_INBOX_FILE = path.join(PHONE_RELAY_DIR, 'phone-inbox.json');
 
 function appendPhoneMessage(from: 'phone' | 'desktop', message: string): void {
   try {
@@ -502,6 +503,49 @@ function appendPhoneMessage(from: 'phone' | 'desktop', message: string): void {
     fs.appendFileSync(PHONE_RELAY_FILE, entry + '\n', 'utf-8');
   } catch (err) {
     console.error('[phone-relay] write failed:', err);
+  }
+}
+
+interface PhoneInboxMessage {
+  id: number;
+  timestamp: string;
+  message: string;
+}
+
+function phoneInboxPush(message: string): number {
+  fs.mkdirSync(PHONE_RELAY_DIR, { recursive: true });
+  let inbox: PhoneInboxMessage[] = [];
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      inbox = JSON.parse(fs.readFileSync(PHONE_INBOX_FILE, 'utf-8'));
+    }
+  } catch {
+    /* corrupt → reset */
+  }
+  const id = Date.now();
+  inbox.push({ id, timestamp: new Date().toISOString(), message });
+  fs.writeFileSync(PHONE_INBOX_FILE, JSON.stringify(inbox, null, 2), 'utf-8');
+  return id;
+}
+
+function phoneInboxRead(): PhoneInboxMessage[] {
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      return JSON.parse(fs.readFileSync(PHONE_INBOX_FILE, 'utf-8'));
+    }
+  } catch {
+    /* corrupt */
+  }
+  return [];
+}
+
+function phoneInboxClear(): void {
+  try {
+    if (fs.existsSync(PHONE_INBOX_FILE)) {
+      fs.writeFileSync(PHONE_INBOX_FILE, '[]', 'utf-8');
+    }
+  } catch {
+    /* ignore */
   }
 }
 
@@ -542,7 +586,8 @@ const server = new McpServer(
       '- 화면 읽기 → cmux(action:"read")',
       '- send_and_wait가 status="running" → get_result 반복 호출',
       '- 핸드폰→데스크톱 메시지 → cmux(action:"phone_relay", task:"...")',
-      '- 데스크톱→핸드폰 응답 → cmux(action:"phone_respond", task:"...")',
+      '- 데스크톱→핸드폰 메시지 저장 → cmux(action:"phone_respond", task:"...")',
+      '- 핸드폰에서 메시지 확인 → cmux(action:"phone_check") → 읽지 않은 메시지 조회 후 삭제',
     ].join('\n'),
   },
 );
@@ -622,7 +667,8 @@ server.registerTool(
       'action: status | send | read | spawn | send_and_wait | get_result | approve | notifications | open_browser | open_folder | move_window | phone_relay | phone_respond\n' +
       '씨윈이 꺼져있어도 자동 실행된다.\n' +
       'phone_relay: 핸드폰→데스크톱 메시지 릴레이 (CLI에 직접 주입).\n' +
-      'phone_respond: 데스크톱→핸드폰 응답 (카카오톡 알림).',
+      'phone_respond: 데스크톱→핸드폰 응답 (phone inbox 저장, phone_check로 수신).\n' +
+      'phone_check: 핸드폰에서 데스크톱 메시지 확인 (inbox 읽고 비움).',
     inputSchema: z.object({
       action: z
         .enum([
@@ -639,6 +685,7 @@ server.registerTool(
           'move_window',
           'phone_relay',
           'phone_respond',
+          'phone_check',
         ])
         .describe('실행할 기능'),
       task: z.string().optional().describe('작업 내용 (send, spawn, send_and_wait)'),
@@ -1123,11 +1170,27 @@ server.registerTool(
           });
         }
 
-        // ── phone_respond (데스크톱 → 핸드폰, 로그 기록용) ──
+        // ── phone_respond (데스크톱 → 핸드폰 우편함에 메시지 저장) ──
         case 'phone_respond': {
           if (!params.task) return text({ error: true, message: 'task 파라미터가 필요합니다.' });
           appendPhoneMessage('desktop', params.task);
-          return text({ ok: true, logged: true });
+          const msgId = phoneInboxPush(params.task);
+          const pending = phoneInboxRead().length;
+          return text({ ok: true, messageId: msgId, pendingCount: pending });
+        }
+
+        // ── phone_check (핸드폰에서 읽지 않은 메시지 확인) ──
+        case 'phone_check': {
+          const messages = phoneInboxRead();
+          if (messages.length === 0) {
+            return text('데스크톱에서 보낸 메시지가 없습니다.');
+          }
+          // 메시지 조회 후 우편함 비우기
+          phoneInboxClear();
+          const formatted = messages
+            .map((m, i) => `[${i + 1}] ${m.timestamp}\n${m.message}`)
+            .join('\n\n---\n\n');
+          return text(`📬 읽지 않은 메시지 ${messages.length}건:\n\n${formatted}`);
         }
 
         default:
