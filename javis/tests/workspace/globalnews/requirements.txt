@@ -1,0 +1,99 @@
+# GlobalNews Crawling & Analysis System -- Python Dependencies
+# Python 3.12 required (Step 2 R1, Step 4 Decision D1)
+#
+# Install: pip install -r requirements.txt
+# Total packages: 44+ (validated in Step 2 Tech Validation)
+# All ARM64 native (zero Rosetta 2 emulation)
+
+# =============================================================================
+# Crawling Layer
+# =============================================================================
+requests>=2.31.0
+aiohttp>=3.9.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+feedparser>=6.0.10
+trafilatura>=2.0.0                  # Article extraction, F1=0.958 (Step 2)
+newspaper4k>=0.9.4                  # Fallback article extraction
+playwright>=1.40.0                  # Browser automation for JS-rendered sites
+patchright>=1.58.0                  # CDP stealth (Playwright fork, anti-detection)
+chardet>=5.2.0                      # Charset detection fallback
+simhash>=2.1.2                      # Content deduplication
+datasketch>=1.9.0                   # MinHash deduplication
+
+# Anti-Block / Dynamic Bypass (DynamicBypassEngine — 크롤링 절대 원칙)
+curl_cffi>=0.7.0                    # TLS fingerprint mimicry (JA3/JA4, HTTP/2)
+cloudscraper>=1.2.71                # Cloudflare JS challenge solver (no browser)
+camoufox[geoip]>=0.4.0             # Firefox anti-fingerprint browser (300+ randomizations)
+waybackpy>=3.0.0                    # Internet Archive Wayback Machine API
+httpx[http2]>=0.27.0                # Async HTTP/2 client (clean API fallback)
+
+# =============================================================================
+# NLP -- Korean Stack
+# =============================================================================
+kiwipiepy>=0.17.0                   # Korean morphological analysis (singleton, 9x batch)
+# Note: KoBERT, KcELECTRA loaded via transformers (no separate pip package)
+
+# =============================================================================
+# NLP -- English Stack
+# =============================================================================
+spacy>=3.7.0                        # English tokenization, NER, lemmatization
+# Model: python -m spacy download en_core_web_sm
+
+# =============================================================================
+# NLP -- Multilingual / Shared
+# =============================================================================
+sentence-transformers>=3.0.0        # SBERT embeddings (paraphrase-multilingual-MiniLM-L12-v2)
+transformers>=4.36.0,<5.0           # HuggingFace transformers (pin <5.0 for SetFit compat)
+torch>=2.1.0                        # PyTorch backend (MPS acceleration on Apple Silicon)
+bertopic>=0.16.0                    # Topic modeling with BERTopic + Model2Vec
+keybert>=0.8.0                      # Keyword extraction (shares SBERT model)
+langdetect>=1.0.9                   # Language detection
+
+# =============================================================================
+# NLP -- Classification
+# =============================================================================
+scikit-learn>=1.3.0                 # TF-IDF, k-means, NMF, LOF, Isolation Forest
+hdbscan>=0.8.33                     # Density-based clustering
+setfit>=1.1.0                       # Few-shot classification (8-example fine-tuning)
+fasttext-wheel>=0.9.2               # FastText word vectors (NumPy 2.x patched)
+
+# =============================================================================
+# Time Series Analysis
+# =============================================================================
+statsmodels>=0.14.0                 # STL decomposition, Granger causality, ARIMA
+prophet>=1.1.0                      # Facebook Prophet forecasting
+ruptures>=1.1.9                     # PELT changepoint detection
+PyWavelets>=1.5.0                   # Wavelet analysis (pywt)
+lifelines>=0.27.0                   # Survival analysis (Kaplan-Meier)
+
+# =============================================================================
+# Network Analysis
+# =============================================================================
+networkx>=3.2.0                     # Graph construction, centrality, PageRank
+python-louvain>=0.16                # Louvain community detection
+tigramite>=5.2.0                    # PCMCI causal inference
+igraph>=0.11.0                      # Graph analysis (alternative to networkx)
+
+# =============================================================================
+# Data Storage & Processing
+# =============================================================================
+pyarrow>=14.0.0                     # Parquet read/write with ZSTD compression
+pandas>=2.1.0                       # DataFrame operations
+duckdb>=0.9.0                       # DuckDB query interface for ad-hoc analysis
+sqlite-vec>=0.1.0                   # SQLite vector similarity search
+
+# =============================================================================
+# Configuration & Utilities
+# =============================================================================
+pyyaml>=6.0.0                       # YAML config loading
+pydantic>=2.5.0                     # Data validation (used by spaCy/BERTopic)
+python-dateutil>=2.8.0              # Date parsing for multiple formats
+tqdm>=4.66.0                        # Progress bars
+structlog>=23.2.0                   # Structured JSON logging
+
+# =============================================================================
+# Development & Testing
+# =============================================================================
+pytest>=7.4.0
+pytest-cov>=4.1.0

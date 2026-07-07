@@ -1,0 +1,14 @@
+# My-Sermon-Editor — 설교 슬라이드/이미지선택기/문서변환 의존성
+# 새 PC(노트북·회사 등) 셋업:  pip install -r requirements.txt
+#
+# 모든 부서(장년부·새벽·금요·아동부)가 동일한 스크립트를 공유하므로,
+# 아래 패키지가 설치돼야 본문 슬라이드(밴드·히브리어 등)가 동일하게 렌더됩니다.
+
+Pillow>=10            # 본문 슬라이드 이미지 렌더
+streamlit>=1.30       # 이미지 선택기 대시보드
+python-docx>=1.0      # MD → DOCX 변환
+python-pptx>=0.6      # PPT 생성
+
+# 히브리어 정확 렌더 (니쿠드/모음 부호 위치) — raqm 미지원 환경 대체
+uharfbuzz>=0.54       # HarfBuzz 텍스트 셰이핑
+freetype-py>=2.5      # 셰이핑된 글리프 래스터

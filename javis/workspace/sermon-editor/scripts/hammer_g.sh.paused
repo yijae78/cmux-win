@@ -1,0 +1,35 @@
+#!/bin/bash
+# hammer_g.sh — Set G를 NLM에 받아들여질 때까지 무한 반복 투입
+
+NB=5bb2b0a4-61a8-43e0-a87f-b314ffdec303
+LOG="C:/Users/신이재/OneDrive - the presbyerian church of korea/바탕 화면/My-Sermon-Editor/20260415-시편95편-오늘/images/_hammer_g.log"
+SUCCESS_FILE="C:/Users/신이재/OneDrive - the presbyerian church of korea/바탕 화면/My-Sermon-Editor/20260415-시편95편-오늘/images/_set_g.json"
+
+BASE="ABSOLUTELY NO TEXT anywhere. NO Korean letters. NO English letters. NO Greek letters. NO Hebrew letters. ZERO words on any slide. NO captions, NO titles, NO labels, NO subtitles. CINEMATIC PHOTOREALISM ONLY. Dark dramatic lighting with golden warm highlights. ADULT figures only, no children. Movie concept art quality. ALL HUMAN FIGURES MUST BE KOREAN PEOPLE with Korean facial features. Even in biblical contexts, depict figures as modern Korean believers. NO Western people. Each slide must be a SINGLE powerful photorealistic scene."
+G_FOCUS="$BASE Powerful cinematic scenes of Korean Christians in true worship and surrender. A Korean adult kneeling with bowed head before a great divine light, tears of repentance. Korean worshippers with hands raised in surrender against a dramatic sunset sky. A Korean believer heart transforming from cracked stone to warm soft flesh under divine golden light. Close-up of a Korean face with eyes closed in deep worship. Dark dramatic background with golden firelight highlights, cinematic spiritual climax."
+
+echo "=== hammer_g.sh started at $(date) ===" > "$LOG"
+i=0
+while true; do
+  i=$((i+1))
+  OUT=$(PYTHONIOENCODING=utf-8 PYTHONLEGACYWINDOWSSTDIO=utf-8 nlm slides create $NB --language ko --focus "$G_FOCUS" --confirm 2>&1)
+  TS=$(date +"%H:%M:%S")
+  if echo "$OUT" | grep -q "Artifact ID"; then
+    ARTIFACT=$(echo "$OUT" | grep "Artifact ID" | awk -F': ' '{print $2}' | tr -d ' ')
+    echo "[$TS] SUCCESS attempt $i: $ARTIFACT" >> "$LOG"
+    cat > "$SUCCESS_FILE" <<EOF
+{
+  "prefix": "G",
+  "name": "무릎 꿇은 예배자",
+  "style": "cinematic_photorealism",
+  "artifact_id": "$ARTIFACT",
+  "submitted_at": "$(date -Iseconds)",
+  "attempts": $i
+}
+EOF
+    echo "=== SUCCESS on attempt $i, artifact: $ARTIFACT ===" >> "$LOG"
+    break
+  else
+    echo "[$TS] attempt $i: $(echo "$OUT" | tail -1)" >> "$LOG"
+  fi
+done

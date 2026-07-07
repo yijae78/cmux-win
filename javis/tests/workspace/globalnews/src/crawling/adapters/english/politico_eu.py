@@ -1,0 +1,44 @@
+"""Adapter for Politico Europe (https://www.politico.eu)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from src.crawling.adapters.base_adapter import BaseSiteAdapter
+
+
+class PoliticoEUAdapter(BaseSiteAdapter):
+    """Adapter for Politico Europe."""
+
+    SITE_ID = "politico_eu"
+    SITE_NAME = "Politico Europe"
+    SITE_URL = "https://www.politico.eu"
+    LANGUAGE = "en"
+    GROUP = "E"
+    REGION = "EU"
+
+    UA_TIER = 2
+    RATE_LIMIT_SECONDS = 3.0
+    MAX_REQUESTS_PER_HOUR = 120
+
+    RSS_URL = "https://www.politico.eu/feed"
+    SITEMAP_URL = "https://www.politico.eu/sitemap.xml"
+
+    TITLE_CSS = "h1"
+    BODY_CSS = "article, .article-body, .story-body, .entry-content, main"
+    BODY_EXCLUDE_CSS = "nav, footer, .ad, .advertisement, .social-share, .related"
+    DATE_CSS = "time, .date, .published, .article-date"
+    AUTHOR_CSS = ".author, .byline, [rel=author]"
+
+    SECTION_URLS = [
+        "https://www.politico.eu",
+    ]
+
+    def extract_article(self, html: str, url: str) -> dict[str, Any]:
+        """Extract article fields from HTML using CSS selectors."""
+        return self._default_extract(html, url)
+
+    def get_section_urls(self) -> list[str]:
+        """Return section URLs for DOM-based article discovery."""
+        return list(self.SECTION_URLS)
+

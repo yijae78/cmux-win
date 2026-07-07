@@ -330,6 +330,10 @@ def detect_status(content):
                                 "pontificating", "cogitating", "ruminating",
                                 "meditating", "deliberating", "musing",
                                 "waddling", "combobulating", "crunching", "brewing",
+                                "simmering", "sautéing", "marinating", "toasting",
+                                "grilling", "roasting", "steaming", "whisking",
+                                "manifesting", "conjuring", "channeling", "summoning",
+                                "refining", "distilling", "calibrating", "orchestrating",
                                 "brewed for", "loading", "computing", "reasoning",
                                 "considering", "investigating", "gathering",
                                 "esc to interrupt", "esc to cancel",
@@ -348,6 +352,8 @@ def detect_status(content):
     # 작업완료 감지 (idle보다 먼저)
     if any(k in last for k in ["분석 완료", "작업 완료", "완료했습니다", "보고합니다",
                                 "각성 완료", "awakened", "worked for",
+                                "sautéed for", "simmered for", "cooked for",
+                                "toasted for", "grilled for", "roasted for",
                                 "작업이 완료", "결과를 보고", "산출물",
                                 "saved to", "저장했습니다", "저장 완료",
                                 "report generated", "보고서 작성 완료"]):
@@ -820,6 +826,15 @@ body{{background:{BG_VOID};color:#e2e8f0;
 .sparkline-lbl{{font-size:10px;color:#94a3b8;flex-shrink:0;}}
 .foot{{font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px;padding-top:8px;
        border-top:1px solid rgba(255,255,255,0.08);text-align:center;}}
+.chk-list{{display:flex;flex-direction:column;gap:6px;}}
+.chk-card{{display:flex;flex-direction:column;gap:4px;padding:9px 11px;border-left:3px solid {GREEN};}}
+.chk-card.wait{{border-left-color:{AMBER};}}
+.chk-head{{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}}
+.chk-num{{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9999px;background:rgba(255,255,255,0.08);color:#cbd5e1;font-size:10px;font-weight:700;flex-shrink:0;}}
+.chk-title{{font-size:12.5px;font-weight:600;color:#f1f5f9;line-height:1.3;flex:1;word-break:keep-all;}}
+.chk-badge{{font-size:9px;font-weight:700;padding:1px 7px;border-radius:9999px;letter-spacing:0.3px;flex-shrink:0;}}
+.chk-result{{font-size:11px;color:#94a3b8;padding-left:25px;line-height:1.45;word-break:keep-all;}}
+.chk-empty{{padding:14px;text-align:center;color:#64748b;font-size:12px;}}
 @keyframes fadeUp{{from{{opacity:0;transform:translateY(12px);}}to{{opacity:1;transform:translateY(0);}}}}
 @keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:0.3;}}}}
 @keyframes pulse-glow{{0%,100%{{box-shadow:0 0 8px rgba(0,168,255,0.15);}}50%{{box-shadow:0 0 20px rgba(0,168,255,0.35);}}}}
@@ -891,6 +906,58 @@ def _build_fleet(pane_data: list[PaneData]) -> str:
             <span class="ag-stlbl ag-stlbl--{dot_cls}">{st_label}</span>
           </span>
         </div>''')
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def get_checkboard(max_items: int = 8) -> list[dict]:
+    """체크판(~/javis_request_log.md) 파싱 → 항목 리스트."""
+    try:
+        raw = (Path.home() / "javis_request_log.md").read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    items: list[dict] = []
+    cur: dict | None = None
+    for ln in raw.splitlines():
+        m = re.match(r'^\s*(\d+)\s{2,}(\S.*?)\s*$', ln)
+        if m:
+            if cur:
+                items.append(cur)
+            cur = {"num": m.group(1), "title": m.group(2).strip(), "result": ""}
+        elif cur is not None and '→' in ln:  # →
+            cur["result"] = ln.split('→', 1)[1].strip()
+    if cur:
+        items.append(cur)
+    for it in items:
+        r = it["result"]
+        it["done"] = "✅" in r          # ✅
+        it["wait"] = ("\U0001f504" in r) or ("대기" in r) or ("보류" in r)  # 🔄
+    return items[:max_items]
+
+
+def _build_checkboard() -> str:
+    items = get_checkboard()
+    head = '<div class="sec">체크판 &middot; 요청/처리</div>'
+    if not items:
+        return head + '<div class="glass chk-empty">확인 대기 항목 없음</div>'
+    parts = [head, '<div class="chk-list">']
+    for it in items:
+        cls = "chk-card glass"
+        badge_txt, badge_col = "완료", GREEN
+        if it["wait"] and not it["done"]:
+            cls += " wait"
+            badge_txt, badge_col = "대기", AMBER
+        parts.append(
+            f'<div class="{cls}">'
+            f'<div class="chk-head">'
+            f'<span class="chk-num">{_esc(it["num"])}</span>'
+            f'<span class="chk-title">{_esc(it["title"])}</span>'
+            f'<span class="chk-badge" style="color:{badge_col};background:{badge_col}22;">{badge_txt}</span>'
+            f'</div>'
+            f'<div class="chk-result">{_esc(it["result"])}</div>'
+            f'</div>'
+        )
     parts.append('</div>')
     return "".join(parts)
 
@@ -1037,6 +1104,7 @@ def build_full_html(pane_data, metrics, start_time, usage_data, rate_limits, bod
         _build_header(now, is_live),
         _build_kpi(n_live, n_total, h, m, sec),
         _build_fleet(pane_data),
+        _build_checkboard(),
         _build_token_usage(now, usage_data, rate_limits),
         _build_system(metrics),
         f'<div class="foot">자비스 플릿 v2 &middot; {REFRESH_SEC}초 새로고침 &middot; {now.strftime("%Y-%m-%d %H:%M:%S")}</div>',

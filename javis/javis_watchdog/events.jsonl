@@ -1,0 +1,96 @@
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:49:14.176331"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:49:14.176331"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:49:14.176331"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:49:14.180375"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:49:14.180375"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:49:14.180375"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:51:03.794431"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:51:03.794431"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:51:03.794431"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:51:03.800941"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:51:03.800941"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:51:03.800941"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:51:50.042507"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:51:50.042507"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:51:50.042507"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:51:50.047790"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:51:50.047790"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:51:50.047790"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:53:27.746651"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:53:27.746651"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:53:27.746651"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:53:27.752872"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:53:27.752872"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:53:27.752872"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:54:52.449110"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:54:52.449110"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:54:52.449110"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:54:52.454204"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:54:52.454204"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:54:52.454204"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:54:52.534787"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:54:52.543722"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:55:44.415735"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:55:44.415735"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:55:44.415735"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:55:44.422444"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:55:44.422444"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:55:44.422444"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:55:44.523367"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:55:44.526793"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:55:51.648108"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:55:51.648108"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:55:51.648108"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:55:51.652045"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:55:51.652045"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:55:51.652045"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:55:51.674314"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:55:51.676815"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:57:50.533689"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:57:50.533689"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:57:50.533689"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:57:50.538210"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:57:50.538210"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:57:50.538210"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:57:50.570437"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:57:50.573246"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:58:00.810950"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:58:00.810950"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:58:00.810950"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:58:00.815531"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:58:00.815531"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:58:00.815531"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:58:00.834281"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:58:00.835727"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:58:07.619241"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:58:07.619241"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:58:07.619241"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:58:07.623396"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:58:07.623396"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:58:07.623396"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:58:07.643759"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:58:07.646788"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:59:06.769898"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:59:06.769898"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:59:06.769898"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:59:06.772591"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:59:06.772591"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:59:06.772591"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:59:06.791986"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:59:06.793655"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:59:44.259716"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T17:59:44.259716"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T17:59:44.259716"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T17:59:44.263827"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T17:59:44.263827"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T17:59:44.263827"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T17:59:44.296569"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T17:59:44.298790"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T18:01:05.685380"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=live", "timestamp": "2026-06-17T18:01:05.685380"}
+{"event_type": "detection", "worker_label": "Worker3(Codex)", "detail": "status=live", "timestamp": "2026-06-17T18:01:05.685380"}
+{"event_type": "detection", "worker_label": "Worker1(Claude)", "detail": "status=live", "timestamp": "2026-06-17T18:01:05.691198"}
+{"event_type": "detection", "worker_label": "Worker2(AGY)", "detail": "status=stuck", "timestamp": "2026-06-17T18:01:05.691198"}
+{"event_type": "recovery", "worker_label": "Worker2(AGY)", "detail": "tier=retry, reason=Worker2(AGY) is STUCK (attempt 1/2); sending soft retry., outcome=succeeded", "timestamp": "2026-06-17T18:01:05.691198"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=retry, reason=stuck for 5m, outcome=succeeded", "timestamp": "2026-06-17T18:01:05.718603"}
+{"event_type": "recovery", "worker_label": "Worker1(Claude)", "detail": "tier=restart, reason=dead, outcome=failed", "timestamp": "2026-06-17T18:01:05.724024"}

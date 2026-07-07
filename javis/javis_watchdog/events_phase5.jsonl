@@ -1,0 +1,15 @@
+{"event_type": "detection", "worker_label": "%0", "detail": "status=live", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%1", "detail": "status=idle", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%2", "detail": "status=live", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%3", "detail": "status=live", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%4", "detail": "status=idle", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%7", "detail": "status=dead", "timestamp": "2026-06-17T18:00:32.924073"}
+{"event_type": "detection", "worker_label": "%0", "detail": "status=live", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%1", "detail": "status=idle", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%2", "detail": "status=live", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%3", "detail": "status=live", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%4", "detail": "status=idle", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%7", "detail": "status=dead", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "recovery", "worker_label": "%7", "detail": "tier=restart, reason=%7 is DEAD after 0 retries; restarting process., outcome=failed", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%8", "detail": "status=idle", "timestamp": "2026-06-17T18:00:55.069158"}
+{"event_type": "detection", "worker_label": "%9", "detail": "status=live", "timestamp": "2026-06-17T18:00:55.069158"}

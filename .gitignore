@@ -16,3 +16,11 @@ javis/fleet_mapping.env
 javis/fleet_status.json
 javis/cso_health_report.md
 javis/review_gemini.md
+dist.zip
+.coverage
+.serena/
+__pycache__/
+*.pyc
+javis/logs/
+javis/tmp/
+javis/__pycache__/
